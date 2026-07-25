@@ -1,0 +1,9 @@
+{
+  "name": "สมุดบัญชีการลงทุน",
+  "short_name": "พอร์ตของฉัน",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F0",
+  "theme_color": "#14213D",
+  "icons": []
+}
