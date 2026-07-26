@@ -1327,4 +1327,8 @@ function ReportsTab({ contributions, accounts, costBasisByAccount, history }) {
         {allSells.slice(0, 10).map((s) => (
           <div key={s.id} className="flex justify-between text-xs mb-2"><span>{s.date} · {s.symbol}</span><span style={{ color: s.gain >= 0 ? GOOD : BAD }}>{s.gain >= 0 ? '+' : ''}฿{fmt(s.gain)}</span></div>
         ))}
-        {allSells.length === 0 && <p cla
+        {allSells.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีประวัติการขาย</p>}
+      </Card>
+    </div>
+  );
+}
