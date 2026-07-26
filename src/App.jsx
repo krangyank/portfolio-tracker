@@ -29,7 +29,7 @@ const CATEGORY_META = {
   dime: { label: 'Dime! (หุ้น/กองทุนสหรัฐฯ)', color: '#2E5266' },
   other: { label: 'อื่นๆ', color: '#6B7280' },
 };
-const HOLDING_CATEGORIES = ['set_stock', 'dime'];
+const HOLDING_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const RISK_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 
 const SOURCES = [
@@ -229,7 +229,7 @@ function Tracker({ user }) {
   function addHolding(accountId) {
     const acc = accounts.find((a) => a.id === accountId);
     const currency = acc.category === 'dime' ? 'USD' : 'THB';
-    const h = { id: uid(), symbol: '', name: '', shares: 0, avgCost: 0, currency, purchaseFx: currency === 'USD' ? (avgFxFromContributions || 36) : 1, currentPrice: 0, currentFx: currency === 'USD' ? (avgFxFromContributions || 36) : 1, lastUpdated: '', purchaseDate: '', dividends: [], sells: [] };
+    const h = { id: uid(), symbol: '', name: '', shares: 0, avgCost: 0, currency, purchaseFx: currency === 'USD' ? (avgFxFromContributions || 36) : 1, currentPrice: 0, currentFx: currency === 'USD' ? (avgFxFromContributions || 36) : 1, lastUpdated: '', purchaseDate: '', dividends: [], sells: [], buys: [] };
     updateAccount(accountId, { holdings: [...(acc.holdings || []), h] });
   }
   function updateHolding(accountId, holdingId, patch) {
@@ -477,36 +477,50 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
   );
 }
 
+function safeParseJson(text) {
+  let clean = text.replace(/```json|```/g, '').trim();
+  const firstObj = clean.indexOf('{');
+  const firstArr = clean.indexOf('[');
+  let start = -1;
+  if (firstObj === -1) start = firstArr;
+  else if (firstArr === -1) start = firstObj;
+  else start = Math.min(firstObj, firstArr);
+  if (start === -1) throw new Error('ไม่พบข้อมูล JSON ในคำตอบ');
+  const openChar = clean[start];
+  const closeChar = openChar === '{' ? '}' : ']';
+  const end = clean.lastIndexOf(closeChar);
+  if (end === -1 || end < start) throw new Error('รูปแบบข้อมูลไม่สมบูรณ์');
+  clean = clean.slice(start, end + 1);
+  return JSON.parse(clean);
+}
+
 async function scanSingleValue(file) {
   const base64 = await readFileAsBase64(file);
-  const prompt = `นี่คือภาพหน้าจอแอปการลงทุนของสินทรัพย์ชิ้นเดียว อ่านมูลค่ารวม (ยอดใหญ่ที่สุดที่สื่อถึงมูลค่าพอร์ต/สินทรัพย์นี้) แล้วตอบกลับเป็นตัวเลขเดียวเท่านั้น ห้ามมีคอมมา ห้ามมีสกุลเงินหรือข้อความอื่นใดๆ ทั้งสิ้น`;
+  const prompt = `นี่คือภาพหน้าจอแอปการลงทุนของสินทรัพย์ชิ้นเดียว อ่านมูลค่ารวม (ยอดใหญ่ที่สุดที่สื่อถึงมูลค่าพอร์ต/สินทรัพย์นี้) และสกุลเงินที่แสดง แล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"value": ตัวเลขไม่มีคอมมา, "currency": "THB หรือ USD"}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
-  const num = parseFloat(text.replace(/[^0-9.]/g, ''));
-  return isNaN(num) ? null : num;
+  const parsed = safeParseJson(text);
+  return { value: Number(parsed.value) || 0, currency: parsed.currency === 'USD' ? 'USD' : 'THB' };
 }
 
 async function scanBuyTransaction(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพยืนยันรายการซื้อหุ้นหรือกองทุนจากแอปการลงทุน (เช่น สลิปคำสั่งซื้อ, DCA, ประวัติรายการ) อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amount": จำนวนเงินที่จ่ายจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ได้รับเป็นตัวเลข, "price": ราคาต่อหน่วยที่ซื้อได้จริงเป็นตัวเลข, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
-  const clean = text.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  return safeParseJson(text);
 }
 
 async function scanSellTransaction(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพยืนยันรายการขายหุ้นหรือกองทุนจากแอปการลงทุน อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amount": จำนวนเงินที่ได้รับจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ขายเป็นตัวเลข, "price": ราคาต่อหน่วยที่ขายได้จริงเป็นตัวเลข, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
-  const clean = text.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  return safeParseJson(text);
 }
 
 async function scanReceiptItems(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพใบเสร็จรับเงิน อ่านรายการสินค้า/บริการทั้งหมดพร้อมราคา แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"item":"ชื่อรายการ","amount":ราคาเป็นตัวเลขไม่มีคอมมา}] ถ้าอ่านราคารวมทั้งบิลได้แต่แยกรายการไม่ได้ ให้ส่งเป็นรายการเดียวชื่อ "รวมบิล"`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
-  const clean = text.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  return safeParseJson(text);
 }
 
 async function parseExpenseText(transcript, categories) {
@@ -514,17 +528,15 @@ async function parseExpenseText(transcript, categories) {
 หมวดหมู่ที่มีอยู่แล้ว: ${categories.join(', ')}
 อ่านแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amount": จำนวนเงินเป็นตัวเลข, "category": "เลือกหมวดที่ใกล้เคียงที่สุดจากรายการที่มี หรือถ้าไม่เข้าเลยให้ตอบ อื่นๆ", "note": "รายละเอียดสั้นๆ เช่น ชื่อของที่ซื้อ"}`;
   const text = await askServer(prompt);
-  const clean = text.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  return safeParseJson(text);
 }
 
 
 async function scanPortfolioTable(file) {
   const base64 = await readFileAsBase64(file);
-  const prompt = `นี่คือภาพตารางพอร์ตหุ้นหรือกองทุนจากแอปโบรกเกอร์ (มีคอลัมน์คล้าย Symbol, จำนวนหุ้น/Avail Vol, ต้นทุนเฉลี่ย/Avg, ราคาตลาด/Market) อ่านทุกแถวแล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"symbol":"สัญลักษณ์ย่อ","shares":จำนวนหุ้นเป็นตัวเลข,"avgCost":ต้นทุนเฉลี่ยต่อหุ้นเป็นตัวเลข,"currentPrice":ราคาตลาดปัจจุบันต่อหุ้นเป็นตัวเลข}]`;
+  const prompt = `นี่คือภาพหน้าจอแอปการลงทุนที่แสดงรายการสินทรัพย์หลายตัว (อาจเป็นตารางหุ้นไทยแบบมีคอลัมน์ Avail Vol/Avg/Market หรือเป็นรายการแบบ Dime! ที่โชว์มูลค่ารวมกับราคาต่อหน่วยและ % เปลี่ยนแปลง) อ่านทุกแถวที่เห็น แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น สำหรับแต่ละแถวใส่ข้อมูลเท่าที่เห็นจริงในภาพ ถ้าไม่เห็นให้ใส่ null รูปแบบ: [{"symbol":"สัญลักษณ์ย่อ","currency":"THB หรือ USD","shares":จำนวนหน่วยถ้าเห็นตรงๆมิฉะนั้น null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยถ้าเห็นมิฉะนั้น null,"currentPrice":ราคาต่อหน่วยปัจจุบันถ้าเห็นมิฉะนั้น null,"value":มูลค่ารวมของแถวนี้ถ้าเห็นมิฉะนั้น null}]`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
-  const clean = text.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+  return safeParseJson(text);
 }
 
 function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell }) {
@@ -544,8 +556,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
       const base64 = await readFileAsBase64(file);
       const prompt = `นี่คือภาพหน้าจอแอปการลงทุน อ่านค่ามูลค่าสินทรัพย์/พอร์ตที่แสดงในภาพ แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"name":"ชื่อสินทรัพย์","value":ตัวเลขไม่มีคอมมา,"currency":"THB หรือ USD"}]`;
       const text = await askServer(prompt, base64, file.type || 'image/jpeg');
-      const clean = text.replace(/```json|```/g, '').trim();
-      setExtracted(JSON.parse(clean));
+      setExtracted(safeParseJson(text));
     } catch (e) { setScanError('อ่านภาพไม่สำเร็จ: ' + e.message); } finally { setScanning(false); if (fileRef.current) fileRef.current.value = ''; }
   }
   function confirmItem(item, idx) {
@@ -613,10 +624,11 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
   );
 }
 
-function ScanValueButton({ onScanValue, onApply }) {
+function ScanValueButton({ onScanValue, onApply, defaultFx }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
-  const [pendingValue, setPendingValue] = useState(null);
+  const [pendingValue, setPendingValue] = useState(null); // { value, currency }
+  const [fxRate, setFxRate] = useState(defaultFx || 36);
   const [error, setError] = useState('');
 
   async function handleFile(e) {
@@ -624,19 +636,32 @@ function ScanValueButton({ onScanValue, onApply }) {
     if (!file) return;
     setScanning(true); setError(''); setPendingValue(null);
     try {
-      const value = await onScanValue(file);
-      if (value === null) setError('อ่านค่าจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้');
-      else setPendingValue(value);
+      const result = await onScanValue(file);
+      if (!result) setError('อ่านค่าจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้');
+      else { setPendingValue(result); setFxRate(defaultFx || 36); }
     } catch (e) { setError('เกิดข้อผิดพลาด: ' + e.message); }
     finally { setScanning(false); if (fileRef.current) fileRef.current.value = ''; }
   }
 
   if (pendingValue !== null) {
+    const isUSD = pendingValue.currency === 'USD';
+    const thbValue = isUSD ? pendingValue.value * fxRate : pendingValue.value;
     return (
       <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
-        <p className="text-xs mb-2" style={{ color: SLATE }}>พบมูลค่า <span className="font-semibold" style={{ color: INK }}>฿{fmt(pendingValue)}</span> — ยืนยันเพื่ออัพเดทบัญชีนี้?</p>
+        {isUSD ? (
+          <>
+            <p className="text-xs mb-2" style={{ color: SLATE }}>อ่านได้ {pendingValue.value.toLocaleString()} USD — ใส่อัตราแลกเปลี่ยนเพื่อแปลงเป็นบาท</p>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs" style={{ color: SLATE }}>1 USD =</span>
+              <NumInput value={fxRate} onChange={setFxRate} className="text-xs rounded px-2 py-1 w-20" style={{ border: '1px solid #E7E0CE' }} />
+              <span className="text-xs" style={{ color: SLATE }}>บาท → ฿{fmt(thbValue)}</span>
+            </div>
+          </>
+        ) : (
+          <p className="text-xs mb-2" style={{ color: SLATE }}>พบมูลค่า <span className="font-semibold" style={{ color: INK }}>฿{fmt(thbValue)}</span> — ยืนยันเพื่ออัพเดทบัญชีนี้?</p>
+        )}
         <div className="flex gap-2">
-          <button onClick={() => { onApply(pendingValue); setPendingValue(null); }} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยัน</button>
+          <button onClick={() => { onApply(thbValue); setPendingValue(null); }} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยัน</button>
           <button onClick={() => setPendingValue(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
         </div>
       </div>
@@ -658,9 +683,6 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
   return (
     <Card>
       <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} /><button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
-      {a.category === 'mutual_fund' && (
-        <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7E0CE', color: SLATE }} />
-      )}
       <div className="flex items-center mt-2 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={a.value} onChange={(v) => onUpdate(a.id, { value: v })} className="text-lg font-semibold flex-1 outline-none" style={{ border: 'none' }} /></div>
       {basis > 0 && <p className="text-xs mb-2" style={{ color: gain >= 0 ? GOOD : BAD }}>ต้นทุนสะสม ฿{fmt(basis)} · {gain >= 0 ? '+' : ''}฿{fmt(gain)}</p>}
       {onScanValue && <ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { value: v })} />}
@@ -688,7 +710,15 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     setPortScanning(true); setPortError(''); setPortDraft(null);
     try {
       const rows = await scanPortfolioTable(file);
-      setPortDraft(rows.map((r) => ({ symbol: (r.symbol || '').toUpperCase(), shares: Number(r.shares) || 0, avgCost: Number(r.avgCost) || 0, currentPrice: Number(r.currentPrice) || 0 })));
+      setPortDraft(rows.map((r) => {
+        const rowCurrency = r.currency === 'USD' ? 'USD' : currency;
+        const currentPrice = r.currentPrice !== null && r.currentPrice !== undefined ? Number(r.currentPrice) : 0;
+        let shares = r.shares !== null && r.shares !== undefined ? Number(r.shares) : null;
+        if ((shares === null || shares === 0) && r.value && currentPrice) shares = Number(r.value) / currentPrice;
+        const existing = holdings.find((h) => (h.symbol || '').toUpperCase() === (r.symbol || '').toUpperCase());
+        const avgCost = r.avgCost !== null && r.avgCost !== undefined ? Number(r.avgCost) : (existing ? existing.avgCost : 0);
+        return { symbol: (r.symbol || '').toUpperCase(), shares: shares || 0, avgCost, currentPrice, fx: rowCurrency === 'USD' ? 36 : 1, avgCostMissing: r.avgCost === null || r.avgCost === undefined, sharesMissing: r.shares === null || r.shares === undefined };
+      }));
     } catch (err) { setPortError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setPortScanning(false); if (portFileRef.current) portFileRef.current.value = ''; }
   }
@@ -701,9 +731,9 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       if (!row.symbol) return;
       const idx = next.findIndex((h) => (h.symbol || '').toUpperCase() === row.symbol);
       if (idx >= 0) {
-        next[idx] = { ...next[idx], shares: row.shares, avgCost: row.avgCost, currentPrice: row.currentPrice, lastUpdated: today };
+        next[idx] = { ...next[idx], shares: row.shares, avgCost: row.avgCost, currentPrice: row.currentPrice, currentFx: currency === 'USD' ? row.fx : next[idx].currentFx, lastUpdated: today };
       } else {
-        next.push({ id: uid(), symbol: row.symbol, name: '', shares: row.shares, avgCost: row.avgCost, currency, purchaseFx: currency === 'USD' ? 36 : 1, currentPrice: row.currentPrice, currentFx: currency === 'USD' ? 36 : 1, lastUpdated: today, purchaseDate: '', dividends: [], sells: [] });
+        next.push({ id: uid(), symbol: row.symbol, name: '', shares: row.shares, avgCost: row.avgCost, currency, purchaseFx: currency === 'USD' ? row.fx : 1, currentPrice: row.currentPrice, currentFx: currency === 'USD' ? row.fx : 1, lastUpdated: today, purchaseDate: '', dividends: [], sells: [], buys: [] });
       }
     });
     onUpdate(a.id, { holdings: next });
@@ -713,6 +743,9 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   return (
     <Card>
       <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} /><button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
+      {a.category === 'mutual_fund' && (
+        <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7E0CE', color: SLATE }} />
+      )}
       <p className="text-lg font-semibold mt-1">฿{fmt(displayValue)}</p>
       {holdings.length > 0 && totalCost > 0 && <p className="text-xs mb-2" style={{ color: totalGain >= 0 ? GOOD : BAD }}>ต้นทุนรวม ฿{fmt(totalCost)} · {totalGain >= 0 ? '+' : ''}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</p>}
       {holdings.length === 0 && (
@@ -734,11 +767,20 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
                   <span className="text-[10px] mx-2" style={{ color: isExisting ? BRASS : GOOD }}>{isExisting ? 'อัพเดทเดิม' : 'เพิ่มใหม่'}</span>
                   <button onClick={() => removeDraftRow(idx)}><Trash2 size={13} color={BAD} /></button>
                 </div>
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-3 gap-1 mb-1">
                   <div><label className="text-[9px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={row.shares} onChange={(v) => updateDraftRow(idx, { shares: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
                   <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย</label><NumInput value={row.avgCost} onChange={(v) => updateDraftRow(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
                   <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด</label><NumInput value={row.currentPrice} onChange={(v) => updateDraftRow(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
                 </div>
+                {currency === 'USD' && (
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[9px]" style={{ color: SLATE }}>FX (1 USD =)</span>
+                    <NumInput value={row.fx} onChange={(v) => updateDraftRow(idx, { fx: v })} className="text-xs rounded px-1 py-1 w-16" style={{ border: '1px solid #E7E0CE', background: 'white' }} />
+                    <span className="text-[9px]" style={{ color: SLATE }}>บาท</span>
+                  </div>
+                )}
+                {row.avgCostMissing && <p className="text-[9px]" style={{ color: BAD }}>ภาพนี้ไม่แสดงต้นทุนเฉลี่ย — {holdings.some((h) => (h.symbol || '').toUpperCase() === row.symbol) ? 'ใช้ค่าเดิมที่มีอยู่แล้ว' : 'กรุณากรอกเอง'}</p>}
+                {row.sharesMissing && row.shares > 0 && <p className="text-[9px]" style={{ color: SLATE }}>คำนวณจำนวนหุ้นจากมูลค่า ÷ ราคา (ไม่ได้อ่านจากภาพตรงๆ)</p>}
               </div>
             );
           })}
@@ -775,6 +817,7 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
   const [divDate, setDivDate] = useState(new Date().toISOString().slice(0, 10));
   const [divReinvest, setDivReinvest] = useState('');
   const [showSells, setShowSells] = useState(false);
+  const [showBuys, setShowBuys] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const buyFileRef = useRef(null);
   const [buyScanning, setBuyScanning] = useState(false);
@@ -847,7 +890,8 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
   }, [buyDraft, h]);
 
   function confirmBuy() {
-    const patch = { shares: buyPreview.newShares, avgCost: buyPreview.newAvgCost, purchaseDate: h.purchaseDate || buyDraft.date, lastUpdated: new Date().toISOString().slice(0, 10) };
+    const buyRecord = { id: uid(), date: buyDraft.date, shares: buyDraft.shares, price: buyDraft.price, amount: buyDraft.amount };
+    const patch = { shares: buyPreview.newShares, avgCost: buyPreview.newAvgCost, purchaseDate: h.purchaseDate || buyDraft.date, lastUpdated: new Date().toISOString().slice(0, 10), buys: [buyRecord, ...(h.buys || [])] };
     if (h.currency === 'USD') patch.purchaseFx = buyPreview.newPurchaseFx;
     onUpdate(accountId, h.id, patch);
     setBuyDraft(null);
@@ -902,6 +946,15 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
           {buyError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{buyError}</p>}
         </div>
       )}
+      {(h.buys || []).length > 0 && (
+        <button onClick={() => setShowBuys(!showBuys)} className="text-[11px] mt-1" style={{ color: BRASS }}>{showBuys ? 'ซ่อนประวัติการซื้อ' : `ดูประวัติการซื้อ (${h.buys.length})`}</button>
+      )}
+      {showBuys && (h.buys || []).map((b) => (
+        <div key={b.id} className="flex justify-between text-xs mt-1">
+          <span>{b.date} · ซื้อ {b.shares} หุ้น @ {b.price}</span>
+          <span className="text-[10px]" style={{ color: SLATE }}>฿{fmt(b.amount)}</span>
+        </div>
+      ))}
 
       {sellDraft ? (
         <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mt-2">
@@ -1274,8 +1327,4 @@ function ReportsTab({ contributions, accounts, costBasisByAccount, history }) {
         {allSells.slice(0, 10).map((s) => (
           <div key={s.id} className="flex justify-between text-xs mb-2"><span>{s.date} · {s.symbol}</span><span style={{ color: s.gain >= 0 ? GOOD : BAD }}>{s.gain >= 0 ? '+' : ''}฿{fmt(s.gain)}</span></div>
         ))}
-        {allSells.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีประวัติการขาย</p>}
-      </Card>
-    </div>
-  );
-}
+        {allSells.length === 0 && <p cla
