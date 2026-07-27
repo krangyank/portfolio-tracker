@@ -448,7 +448,6 @@ function Tracker({ user }) {
 
   function updateDog(dogId, patch) { persist({ ...state, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
   function addHospital(name) { if (name && !hospitalList.includes(name)) persist({ ...state, hospitalList: [...hospitalList, name] }); }
-
   function addWeight(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { weights: [{ id: uid(), ...entry }, ...(d.weights || [])] });
@@ -1389,4 +1388,4 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   return (
     <div className="px-5 pt-5">
       <Card><p className="text-xs mb-1" style={{ color: SLATE }}>รวมรายรับต่อเดือน</p><p className="text-2xl">฿{fmt(monthlyIncome)}</p></Card>
-      <div className="flex justify-between items-ce
+      <div className="flex justify-between items-cen
