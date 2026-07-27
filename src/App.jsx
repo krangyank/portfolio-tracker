@@ -4,7 +4,8 @@ import {
   PlusCircle, Trash2, TrendingUp, Wallet, PiggyBank, Flame, Landmark,
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
-  Dog, Scale, Syringe, Shield, Bug, Stethoscope,
+  Dog, Scale, Syringe, Shield, Bug, Stethoscope, Eye, EyeOff, Search, Upload,
+  ClipboardList, Bell,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
@@ -252,14 +253,18 @@ function computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredD
 
 export default function App() {
   return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
-      }function Tracker({ user }) {
+        }function Tracker({ user }) {
   const [state, setState] = useState(null);
-  const [tab, setTab] = useState('dashboard');
+  const [tab, setTab] = useState(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('quick') === 'expense') return 'expenses';
+    return 'dashboard';
+  });
   const [shareMode, setShareMode] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [googleToken, setGoogleToken] = useState(null);
   const [calendarError, setCalendarError] = useState('');
   const [reconnecting, setReconnecting] = useState(false);
+  const [showAmounts, setShowAmounts] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,10 +303,12 @@ export default function App() {
       const end = new Date(start.getTime() + 60 * 60 * 1000);
       const pad = (n) => String(n).padStart(2, '0');
       const endDateTime = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}:00`;
+      const days = (appt.reminderDays && appt.reminderDays.length > 0) ? appt.reminderDays : [7, 3, 1];
+      const reminders = days.map((d) => ({ method: 'popup', minutes: d * 24 * 60 })).concat([{ method: 'popup', minutes: 120 }]);
       await createCalendarEvent(googleToken, {
         summary: `นัดสัตวแพทย์: ${dogName}${appt.purpose ? ' - ' + appt.purpose : ''}`,
         description: `โรงพยาบาล: ${appt.hospital || '-'}\nหมอ: ${appt.doctor || '-'}`,
-        startDateTime, endDateTime,
+        startDateTime, endDateTime, reminders,
       });
       return { ok: true };
     } catch (e) { return { ok: false, message: e.message }; }
@@ -312,8 +319,18 @@ export default function App() {
   useEffect(() => {
     (async () => {
       const snap = await getDoc(docRef);
-      if (snap.exists()) setState({ ...EMPTY_STATE, ...snap.data() });
-      else { await setDoc(docRef, EMPTY_STATE); setState(EMPTY_STATE); }
+      if (snap.exists()) {
+        const data = { ...EMPTY_STATE, ...snap.data() };
+        const cutoff = Date.now() - 90 * 24 * 3600 * 1000;
+        const prunedExpenses = (data.expenses || []).filter((e) => new Date(e.date).getTime() >= cutoff);
+        if (prunedExpenses.length !== (data.expenses || []).length) {
+          const next = { ...data, expenses: prunedExpenses };
+          setState(next);
+          setDoc(docRef, next).catch((e) => console.error('prune save failed', e));
+        } else {
+          setState(data);
+        }
+      } else { await setDoc(docRef, EMPTY_STATE); setState(EMPTY_STATE); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.uid]);
@@ -390,6 +407,7 @@ export default function App() {
   const removeIncome = (id) => persist({ ...state, income: income.filter((i) => i.id !== id) });
   const addContribution = (entry) => persist({ ...state, contributions: [{ id: uid(), ...entry }, ...contributions] });
   const removeContribution = (id) => persist({ ...state, contributions: contributions.filter((c) => c.id !== id) });
+  const updateContribution = (id, patch) => persist({ ...state, contributions: contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const changeTargetDate = (d) => persist({ ...state, targetDate: d });
   const changeGoal = (v) => persist({ ...state, goalNetWorth: v });
   const changeFinnhubKey = (v) => persist({ ...state, finnhubKey: v });
@@ -425,6 +443,11 @@ export default function App() {
     const h = acc.holdings.find((x) => x.id === holdingId);
     updateHolding(accountId, holdingId, { dividends: (h.dividends || []).filter((d) => d.id !== divId) });
   }
+  function updateDividend(accountId, holdingId, divId, patch) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const h = acc.holdings.find((x) => x.id === holdingId);
+    updateHolding(accountId, holdingId, { dividends: (h.dividends || []).map((d) => (d.id === divId ? { ...d, ...patch } : d)) });
+  }
   function sellHolding(accountId, holdingId, entry) {
     const acc = accounts.find((a) => a.id === accountId);
     const h = acc.holdings.find((x) => x.id === holdingId);
@@ -440,8 +463,19 @@ export default function App() {
     const h = acc.holdings.find((x) => x.id === holdingId);
     updateHolding(accountId, holdingId, { sells: (h.sells || []).filter((s) => s.id !== sellId) });
   }
+  function updateSell(accountId, holdingId, sellId, patch) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const h = acc.holdings.find((x) => x.id === holdingId);
+    updateHolding(accountId, holdingId, { sells: (h.sells || []).map((s) => (s.id === sellId ? { ...s, ...patch } : s)) });
+  }
+  function updateBuy(accountId, holdingId, buyId, patch) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const h = acc.holdings.find((x) => x.id === holdingId);
+    updateHolding(accountId, holdingId, { buys: (h.buys || []).map((b) => (b.id === buyId ? { ...b, ...patch } : b)) });
+  }
   const addExpense = (entry) => persist({ ...state, expenses: [{ id: uid(), ...entry }, ...expenses] });
   const removeExpense = (id) => persist({ ...state, expenses: expenses.filter((e) => e.id !== id) });
+  const updateExpense = (id, patch) => persist({ ...state, expenses: expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
   const addExpenseCategory = (name) => { if (name && !expenseCategories.includes(name)) persist({ ...state, expenseCategories: [...expenseCategories, name] }); };
 
   function updateDog(dogId, patch) { persist({ ...state, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
@@ -453,6 +487,10 @@ export default function App() {
   function removeWeight(dogId, wid) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { weights: (d.weights || []).filter((w) => w.id !== wid) });
+  }
+  function updateWeight(dogId, wid, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { weights: (d.weights || []).map((w) => (w.id === wid ? { ...w, ...patch } : w)) });
   }
   function addMedication(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
@@ -486,17 +524,33 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { appointments: (d.appointments || []).filter((a) => a.id !== apptId) });
   }
+  function updateAppointment(dogId, apptId, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { appointments: (d.appointments || []).map((a) => (a.id === apptId ? { ...a, ...patch } : a)) });
+  }
   function addBloodTest(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { bloodTests: [{ id: uid(), ...entry }, ...(d.bloodTests || [])] });
+  }
+  function updateBloodTest(dogId, id, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { bloodTests: (d.bloodTests || []).map((b) => (b.id === id ? { ...b, ...patch } : b)) });
   }
   function addOrganExam(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { organExams: [{ id: uid(), ...entry }, ...(d.organExams || [])] });
   }
+  function updateOrganExam(dogId, id, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { organExams: (d.organExams || []).map((o) => (o.id === id ? { ...o, ...patch } : o)) });
+  }
   function addImaging(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { imaging: [{ id: uid(), ...entry }, ...(d.imaging || [])] });
+  }
+  function updateImaging(dogId, id, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { imaging: (d.imaging || []).map((im) => (im.id === id ? { ...im, ...patch } : im)) });
   }
   function addDogExpense(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
@@ -505,6 +559,14 @@ export default function App() {
   function removeDogExpense(dogId, expId) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { expenses: (d.expenses || []).filter((e) => e.id !== expId) });
+  }
+  function updateDogExpense(dogId, expId, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { expenses: (d.expenses || []).map((e) => (e.id === expId ? { ...e, ...patch } : e)) });
+  }
+  function updateInsuranceClaim(dogId, claimId, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { insurance: { ...d.insurance, claims: (d.insurance.claims || []).map((c) => (c.id === claimId ? { ...c, ...patch } : c)) } });
   }
 
   async function refreshFxRate() {
@@ -538,17 +600,18 @@ export default function App() {
   return (
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK }} className="pb-24">
       <div style={{ background: INK }} className="px-5 pt-8 pb-6 text-white relative overflow-hidden">
-        <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid ${BRASS}55` }} />
+        <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid ${BRASS}55`, pointerEvents: 'none' }} />
         <div className="flex justify-between items-start">
           <div><p className="text-xs tracking-widest" style={{ color: BRASS }}>สมุดบัญชีการลงทุน</p><h1 className="text-3xl mt-1 font-semibold">สินทรัพย์สุทธิ</h1></div>
           <div className="flex gap-2">
+            <button onClick={() => setShowAmounts(!showAmounts)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: BRASS }}>{showAmounts ? <Eye size={13} /> : <EyeOff size={13} />}</button>
             <button onClick={() => setShowSettings(true)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: BRASS }}><Settings size={13} /></button>
             <button onClick={() => setShareMode(true)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: BRASS }}><Share2 size={13} /></button>
             <button onClick={() => signOut(auth)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: BRASS }}><LogOut size={13} /></button>
           </div>
         </div>
-        <p className="text-4xl mt-3 font-semibold">฿{fmt(totalNetWorth)}</p>
-        {prevSnapshot && <p className="text-xs mt-1" style={{ color: totalNetWorth >= prevSnapshot.netWorth ? '#9CD3B0' : '#E3A79A' }}>{totalNetWorth >= prevSnapshot.netWorth ? '+' : ''}฿{fmt(totalNetWorth - prevSnapshot.netWorth)} จากเดือนก่อน</p>}
+        <p className="text-4xl mt-3 font-semibold">{showAmounts ? `฿${fmt(totalNetWorth)}` : '฿xxx,xxx'}</p>
+        {prevSnapshot && showAmounts && <p className="text-xs mt-1" style={{ color: totalNetWorth >= prevSnapshot.netWorth ? '#9CD3B0' : '#E3A79A' }}>{totalNetWorth >= prevSnapshot.netWorth ? '+' : ''}฿{fmt(totalNetWorth - prevSnapshot.netWorth)} จากเดือนก่อน</p>}
         <div className="flex items-center gap-2 mt-3"><Flame size={14} color={BRASS} /><p className="text-xs" style={{ color: '#D8CBB0' }}>เป้าหมายเกษียณอีก {daysLeft.toLocaleString()} วัน</p></div>
       </div>
 
@@ -568,18 +631,18 @@ export default function App() {
       {tab === 'accounts' && (
         <AccountsTab accounts={accounts} onUpdate={updateAccount} onAdd={addAccount} onRemove={removeAccount} costBasisByAccount={costBasisByAccount}
           onAddHolding={addHolding} onUpdateHolding={updateHolding} onRemoveHolding={removeHolding} onAddDividend={addDividend}
-          onRemoveDividend={removeDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
-          onSellHolding={sellHolding} onRemoveSell={removeSell} />
+          onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
+          onSellHolding={sellHolding} onRemoveSell={removeSell} onUpdateSell={updateSell} onUpdateBuy={updateBuy} />
       )}
-      {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} />}
+      {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} />}
       {tab === 'income' && <IncomeTab income={income} onUpdate={updateIncome} onAdd={addIncome} onRemove={removeIncome} monthlyIncome={monthlyIncome} />}
       {tab === 'reports' && <ReportsTab contributions={contributions} accounts={accounts} costBasisByAccount={costBasisByAccount} history={history} />}
-      {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onAddCategory={addExpenseCategory} />}
+      {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onAddCategory={addExpenseCategory} />}
       {tab === 'pets' && (
-        <PetsTab dogs={dogs} onUpdateDog={updateDog} onAddWeight={addWeight} onRemoveWeight={removeWeight}
+        <PetsTab dogs={dogs} onUpdateDog={updateDog} onAddWeight={addWeight} onRemoveWeight={removeWeight} onUpdateWeight={updateWeight}
           onAddMedication={addMedication} onUpdateMedication={updateMedication} onLogFleaTick={logFleaTick} onUpdateFleaTickInfo={updateFleaTickInfo}
-          onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment}
-          onAddBloodTest={addBloodTest} onAddOrganExam={addOrganExam} onAddImaging={addImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense}
+          onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
+          onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
           googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} />
       )}
 
@@ -595,6 +658,41 @@ export default function App() {
 }
 
 function Card({ children }) { return <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-xl p-4 mb-4">{children}</div>; }
+
+// Popup แก้ไขรายการทั่วไป (ฟีเจอร์ O) — ใช้ร่วมกันทุก Tab ที่มีปุ่มลบ ยกเว้นตัวหุ้น/บัญชีทั้งก้อน
+// fields: [{ key, label, type: 'text'|'number'|'date'|'time'|'select'|'textarea', options }]
+function EditModal({ title, fields, initialValues, onSave, onClose }) {
+  const [values, setValues] = useState(initialValues);
+  function setField(key, v) { setValues({ ...values, [key]: v }); }
+  return (
+    <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
+      <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">{title || 'แก้ไขรายการ'}</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
+        {fields.map((f) => (
+          <div key={f.key} className="mb-3">
+            <label className="text-xs" style={{ color: SLATE }}>{f.label}</label>
+            {f.type === 'number' ? (
+              <NumInput value={values[f.key]} onChange={(v) => setField(f.key, v)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
+            ) : f.type === 'select' ? (
+              <select value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1">
+                {(f.options || []).map((o) => <option key={o.value !== undefined ? o.value : o} value={o.value !== undefined ? o.value : o}>{o.label || o}</option>)}
+              </select>
+            ) : f.type === 'textarea' ? (
+              <textarea value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} rows={3} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
+            ) : (
+              <input type={f.type || 'text'} value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
+            )}
+          </div>
+        ))}
+        <button onClick={() => onSave(values)} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm">บันทึกการแก้ไข</button>
+      </div>
+    </div>
+  );
+}
+
+function EditButton({ onClick }) {
+  return <button onClick={onClick} className="text-[11px] underline mr-2" style={{ color: BRASS }}>แก้ไข</button>;
+}
 
 function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting }) {
   return (
@@ -786,6 +884,23 @@ async function scanReceiptItems(file) {
   return safeParseJson(text);
 }
 
+async function scanPetExpenseReceipt(file, categories) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพหลักฐานค่าใช้จ่ายของสัตว์เลี้ยง ซึ่งอาจเป็น "ใบเสร็จร้านค้า/โรงพยาบาล" หรือ "สลิปโอนเงินจากแอปธนาคาร" ก็ได้ ให้ดูก่อนว่าเป็นแบบไหน แล้วอ่านข้อมูลตามนี้:
+- ถ้าเป็นใบเสร็จ: อ่านยอดรวมที่จ่ายจริง, วันที่บนใบเสร็จ, และเลือกหมวดหมู่ที่ใกล้เคียงที่สุดจากรายการ: ${categories.join(', ')}
+- ถ้าเป็นสลิปโอนเงิน: อ่านยอดโอน, วันที่โอน, ชื่อผู้รับโอน (ถ้ามี) — สลิปโอนมักไม่มีหมวดหมู่ชัดเจน ถ้าเดาหมวดหมู่ไม่ได้ให้ตอบ "อื่นๆ"
+ถ้าไม่มีวันที่ให้ใช้วันนี้ ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amount": ยอดเงินเป็นตัวเลขไม่มีคอมมา, "category": "หมวดที่เลือกจากรายการ หรือ อื่นๆ ถ้าเดาไม่ได้", "date": "YYYY-MM-DD", "note": "รายละเอียดสั้นๆ เช่นชื่อร้าน/ผู้รับโอน/รายการ", "sourceType": "receipt หรือ transfer_slip"}`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  return safeParseJson(text);
+}
+
+async function scanWeightScale(file) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพหน้าจอตาชั่งน้ำหนักสัตว์เลี้ยง อ่านตัวเลขน้ำหนักที่แสดง (หน่วยกิโลกรัม) แล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"weight": ตัวเลขน้ำหนักเป็นกิโลกรัม}`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  return safeParseJson(text);
+}
+
 async function parseExpenseText(transcript, categories) {
   const prompt = `ผู้ใช้พูดบันทึกรายจ่ายเป็นภาษาไทยว่า: "${transcript}"
 หมวดหมู่ที่มีอยู่แล้ว: ${categories.join(', ')}
@@ -800,22 +915,80 @@ async function scanPortfolioTable(file) {
   const prompt = `นี่คือภาพหน้าจอแอปการลงทุนที่แสดงรายการสินทรัพย์หลายตัว (อาจเป็นตารางหุ้นไทยแบบมีคอลัมน์ Avail Vol/Avg/Market หรือเป็นรายการแบบ Dime! ที่โชว์มูลค่ารวมกับราคาต่อหน่วยและ % เปลี่ยนแปลง) อ่านทุกแถวที่เห็น แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น สำหรับแต่ละแถวใส่ข้อมูลเท่าที่เห็นจริงในภาพ ถ้าไม่เห็นให้ใส่ null รูปแบบ: [{"symbol":"สัญลักษณ์ย่อ","currency":"THB หรือ USD","shares":จำนวนหน่วยถ้าเห็นตรงๆมิฉะนั้น null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยถ้าเห็นมิฉะนั้น null,"currentPrice":ราคาต่อหน่วยปัจจุบันถ้าเห็นมิฉะนั้น null,"value":มูลค่ารวมของแถวนี้ถ้าเห็นมิฉะนั้น null}]`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
-}
-
-async function scanHoldingDetail(file) {
+                                                  }async function scanHoldingDetail(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพหน้ารายละเอียดของหุ้นหรือกองทุนเพียงตัวเดียว (อาจแสดงจำนวนหน่วย/หุ้นที่ถือ, ต้นทุนเฉลี่ยหรือ NAV ต้นทุนต่อหน่วย, ราคาปัจจุบันหรือ NAV ปัจจุบันต่อหน่วย) อ่านค่าที่เห็นจริงแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น ถ้าไม่เห็นค่าใดให้ใส่ null รูปแบบ: {"shares": จำนวนหน่วยหรือหุ้นเป็นตัวเลขหรือ null, "avgCost": ต้นทุนเฉลี่ยหรือNAVต้นทุนต่อหน่วยเป็นตัวเลขหรือ null, "currentPrice": ราคาปัจจุบันหรือNAVปัจจุบันต่อหน่วยเป็นตัวเลขหรือ null, "currency": "THB หรือ USD"}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
 
-function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell }) {
+// ฟีเจอร์ L+M: อ่านภาพพอร์ต/ออเดอร์แบบยืดหยุ่น — จำแนกประเภทภาพเองแล้วดึงข้อมูลตามแบบที่เจอ
+// type "order": ตารางออเดอร์ซื้อขาย (เช่นแอป ttb) — ต้องกรองเอาเฉพาะสถานะ Match/สำเร็จเท่านั้น
+// type "summary": หน้ารวมหลายสินทรัพย์ (เช่นตาราง SET หรือลิสต์การ์ดของ Dime) — อาจไม่มีจำนวนหน่วยตรงๆ
+// type "detail": หน้ารายละเอียดของสินทรัพย์ตัวเดียว — มักมีจำนวนหน่วย/ต้นทุนเฉลี่ยตรงๆ แม่นยำที่สุด
+async function scanPortfolioImageUniversal(file) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพหน้าจอแอปการลงทุน (หุ้น/กองทุน/ETF) ให้จำแนกก่อนว่าภาพนี้เป็นแบบไหนใน 3 แบบนี้:
+1) "order" = ตารางประวัติคำสั่งซื้อขาย มีคอลัมน์ฝั่ง (Buy/Sell หรือ B/S) และสถานะ (เช่น Match, Cancel, Change)
+2) "summary" = หน้ารวมแสดงหลายสินทรัพย์พร้อมกัน (ตารางหรือการ์ดหลายรายการ) แต่ไม่ใช่หน้าออเดอร์
+3) "detail" = หน้ารายละเอียดของสินทรัพย์เพียงตัวเดียว
+
+ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ:
+{"type": "order หรือ summary หรือ detail",
+"rows": [
+  ถ้า type=order: {"symbol":"สัญลักษณ์","side":"B หรือ S","price":ราคาต่อหน่วยเป็นตัวเลข,"volume":จำนวนหน่วยเป็นตัวเลข,"status":"สถานะที่เห็น เช่น Match, Cancel, Change"}
+  ถ้า type=summary: {"symbol":"สัญลักษณ์","shares":จำนวนหน่วยถ้าเห็นตรงๆมิฉะนั้น null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยถ้าเห็นมิฉะนั้น null,"currentPrice":ราคาต่อหน่วยปัจจุบันถ้าเห็นมิฉะนั้น null,"marketValue":มูลค่ารวมของแถวนี้ถ้าเห็นมิฉะนั้น null}
+  ถ้า type=detail: {"symbol":"สัญลักษณ์ถ้าเห็นมิฉะนั้น null","shares":จำนวนหน่วยหรือหุ้นเป็นตัวเลขหรือ null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยเป็นตัวเลขหรือ null,"currentPrice":ราคาปัจจุบันต่อหน่วยเป็นตัวเลขหรือ null}
+]}`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  return safeParseJson(text);
+}
+
+// รวมผลลัพธ์จากหลายภาพ: rows แบบ detail ชนะ summary เสมอสำหรับสัญลักษณ์เดียวกัน, เก็บ order rows แยกไว้ต่างหาก
+function mergePortfolioScans(results) {
+  const bySymbol = {}; // symbol -> { shares, avgCost, currentPrice, sourcePriority }
+  const orderRows = [];
+  const priority = { detail: 2, summary: 1 };
+  results.forEach((r) => {
+    if (!r || !r.rows) return;
+    if (r.type === 'order') {
+      r.rows.forEach((row) => { if (row.symbol) orderRows.push(row); });
+      return;
+    }
+    const pri = priority[r.type] || 1;
+    r.rows.forEach((row) => {
+      const sym = (row.symbol || '').toUpperCase();
+      if (!sym) return;
+      const shares = row.shares !== null && row.shares !== undefined ? Number(row.shares) : (row.marketValue && row.currentPrice ? Number(row.marketValue) / Number(row.currentPrice) : null);
+      const existing = bySymbol[sym];
+      if (!existing || pri >= existing.sourcePriority) {
+        bySymbol[sym] = {
+          symbol: sym,
+          shares: shares !== null && shares !== undefined ? shares : (existing ? existing.shares : null),
+          avgCost: (row.avgCost !== null && row.avgCost !== undefined) ? Number(row.avgCost) : (existing ? existing.avgCost : null),
+          currentPrice: (row.currentPrice !== null && row.currentPrice !== undefined) ? Number(row.currentPrice) : (existing ? existing.currentPrice : null),
+          sourcePriority: pri,
+        };
+      }
+    });
+  });
+  return { bySymbol, orderRows };
+}
+
+function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [extracted, setExtracted] = useState(null);
   const [targets, setTargets] = useState({});
   const [newCats, setNewCats] = useState({});
+  const [search, setSearch] = useState('');
+  const searchLower = search.trim().toLowerCase();
+  const matchesSearch = (a) => {
+    if (!searchLower) return true;
+    if ((a.name || '').toLowerCase().includes(searchLower)) return true;
+    return (a.holdings || []).some((h) => (h.symbol || '').toLowerCase().includes(searchLower) || (h.name || '').toLowerCase().includes(searchLower));
+  };
   const grouped = useMemo(() => { const map = {}; accounts.forEach((a) => { (map[a.category] = map[a.category] || []).push(a); }); return map; }, [accounts]);
 
   async function handleFile(e) {
@@ -843,6 +1016,10 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
 
   return (
     <div className="px-5 pt-5">
+      <div className="relative mb-4">
+        <Search size={15} color={SLATE} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาบัญชีหรือสัญลักษณ์หุ้น..." style={{ border: '1px solid #E7E0CE' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
+      </div>
       <Card>
         <div className="flex items-center gap-2 mb-2"><Camera size={16} color={BRASS} /><p className="text-sm font-semibold">อัพเดทพอร์ตจากภาพหน้าจอ (หลายรายการ)</p></div>
         <p className="text-xs mb-3" style={{ color: SLATE }}>เหมาะกับภาพที่มีหลายสินทรัพย์ในหน้าเดียว ต้องเลือกบัญชีปลายทางเองทีละรายการก่อนยืนยัน (กันจับคู่ผิด/ซ้ำ) — ถ้าอัพเดทแค่บัญชีเดียว แนะนำใช้ปุ่มกล้องในการ์ดของบัญชีนั้นแทน จะง่ายกว่า</p>
@@ -864,6 +1041,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
                   <option value="">— เลือกบัญชีปลายทาง —</option>
                   {Object.entries(CATEGORY_META).map(([catKey, catMeta]) => (
                     <optgroup key={catKey} label={catMeta.label}>
+
                       {accounts.filter((a) => a.category === catKey).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </optgroup>
                   ))}
@@ -879,17 +1057,21 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
           </div>
         )}
       </Card>
-      {Object.entries(CATEGORY_META).map(([key, meta]) => (
+      {Object.entries(CATEGORY_META).map(([key, meta]) => {
+        const catAccounts = (grouped[key] || []).filter(matchesSearch);
+        if (searchLower && catAccounts.length === 0) return null;
+        return (
         <div key={key} className="mb-5">
           <div className="flex justify-between items-center mb-2"><p className="text-sm font-semibold" style={{ color: meta.color }}>{meta.label}</p><button onClick={() => onAdd(key)} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><PlusCircle size={14} /> เพิ่มบัญชี</button></div>
-          {(grouped[key] || []).map((a) => (
+          {catAccounts.map((a) => (
             HOLDING_CATEGORIES.includes(key)
-              ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} />
+              ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} />
               : <SimpleAccountCard key={a.id} account={a} basis={costBasisByAccount[a.id] || 0} onUpdate={onUpdate} onRemove={onRemove} onScanValue={scanSingleValue} />
           ))}
           {(!grouped[key] || grouped[key].length === 0) && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีบัญชีในหมวดนี้</p>}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -958,9 +1140,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       {onScanValue && <ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { value: v })} />}
     </Card>
   );
-}
-
-function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell }) {
+  }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [expanded, setExpanded] = useState(true);
   const holdings = a.holdings || [];
   const totalValue = holdings.reduce((s, h) => s + holdingMarketValueTHB(h), 0);
@@ -973,6 +1153,11 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const [portScanning, setPortScanning] = useState(false);
   const [portError, setPortError] = useState('');
   const [portDraft, setPortDraft] = useState(null); // array of rows
+
+  const syncFilesRef = useRef(null);
+  const [syncScanningMulti, setSyncScanningMulti] = useState(false);
+  const [syncErrorMulti, setSyncErrorMulti] = useState('');
+  const [syncDraftMulti, setSyncDraftMulti] = useState(null); // { rows: [...], removedSymbols: [...] }
 
   async function handlePortfolioFile(e) {
     const file = e.target.files && e.target.files[0];
@@ -1009,6 +1194,99 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     });
     onUpdate(a.id, { holdings: next });
     setPortDraft(null);
+  }
+
+  async function handleSyncFilesMulti(e) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setSyncScanningMulti(true); setSyncErrorMulti(''); setSyncDraftMulti(null);
+    try {
+      const results = await Promise.all(files.map((f) => scanPortfolioImageUniversal(f)));
+      const { bySymbol, orderRows } = mergePortfolioScans(results);
+      let fxRate = null;
+      if (currency === 'USD') {
+        try { const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=THB'); const d = await res.json(); fxRate = d && d.rates && d.rates.THB; } catch (e) { fxRate = null; }
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      // เริ่มจากโฮลดิ้งปัจจุบันเป็นฐาน
+      const working = {};
+      holdings.forEach((h) => { working[(h.symbol || '').toUpperCase()] = { ...h }; });
+
+      // ใช้ order rows (เฉพาะ Match) ปรับจำนวนหุ้น/ต้นทุนก่อน
+      orderRows.forEach((row) => {
+        const sym = (row.symbol || '').toUpperCase();
+        const statusStr = (row.status || '').toLowerCase();
+        const isMatch = statusStr.includes('match') || statusStr === 'm';
+        if (!isMatch || !sym) return;
+        const isBuy = (row.side || '').toUpperCase().startsWith('B');
+        const vol = Number(row.volume) || 0;
+        const price = Number(row.price) || 0;
+        const existing = working[sym];
+        if (isBuy) {
+          if (existing) {
+            const oldShares = Number(existing.shares || 0); const oldAvg = Number(existing.avgCost || 0);
+            const newShares = oldShares + vol;
+            const newAvg = newShares > 0 ? (oldShares * oldAvg + vol * price) / newShares : 0;
+            working[sym] = { ...existing, shares: newShares, avgCost: newAvg, lastUpdated: today };
+          } else {
+            working[sym] = { id: uid(), symbol: sym, name: '', shares: vol, avgCost: price, currency, purchaseFx: currency === 'USD' ? (fxRate || 36) : 1, currentPrice: price, currentFx: currency === 'USD' ? (fxRate || 36) : 1, lastUpdated: today, purchaseDate: today, dividends: [], sells: [], buys: [] };
+          }
+        } else {
+          if (existing) {
+            const newShares = Math.max(0, Number(existing.shares || 0) - vol);
+            working[sym] = { ...existing, shares: newShares, lastUpdated: today };
+          }
+        }
+      });
+
+      const hasSnapshotData = Object.keys(bySymbol).length > 0;
+      const rows = [];
+      if (hasSnapshotData) {
+        // Full sync: ใช้ bySymbol เป็นความจริงล่าสุด — อัพเดท/เพิ่มทุกตัวที่เจอ
+        Object.values(bySymbol).forEach((row) => {
+          const existing = working[row.symbol];
+          const shares = row.shares !== null && row.shares !== undefined ? row.shares : (existing ? existing.shares : 0);
+          const avgCost = row.avgCost !== null && row.avgCost !== undefined ? row.avgCost : (existing ? existing.avgCost : 0);
+          const currentPrice = row.currentPrice !== null && row.currentPrice !== undefined ? row.currentPrice : (existing ? existing.currentPrice : 0);
+          rows.push({ symbol: row.symbol, shares: shares || 0, avgCost: avgCost || 0, currentPrice: currentPrice || 0, isNew: !existing, willRemove: false });
+        });
+        // สัญลักษณ์ที่มีอยู่เดิมแต่ไม่เจอในภาพเลย (ไม่ใช่แค่ order) → เสนอให้ลบ (full sync)
+        Object.keys(working).forEach((sym) => {
+          if (!bySymbol[sym]) {
+            const existing = working[sym];
+            const stillFromOrder = orderRows.some((r) => (r.symbol || '').toUpperCase() === sym);
+            if (stillFromOrder) {
+              rows.push({ symbol: sym, shares: existing.shares || 0, avgCost: existing.avgCost || 0, currentPrice: existing.currentPrice || 0, isNew: false, willRemove: false });
+            } else {
+              rows.push({ symbol: sym, shares: existing.shares || 0, avgCost: existing.avgCost || 0, currentPrice: existing.currentPrice || 0, isNew: false, willRemove: true });
+            }
+          }
+        });
+      } else {
+        // ไม่มีภาพสรุปเลย มีแต่ order → แค่ผสานเพิ่ม/ลด ไม่ลบอะไรออก
+        Object.keys(working).forEach((sym) => {
+          const existing = working[sym];
+          rows.push({ symbol: sym, shares: existing.shares || 0, avgCost: existing.avgCost || 0, currentPrice: existing.currentPrice || 0, isNew: !holdings.some((h) => (h.symbol || '').toUpperCase() === sym), willRemove: false });
+        });
+      }
+      setSyncDraftMulti({ rows, fxRate: fxRate || null });
+    } catch (err) { setSyncErrorMulti('อ่านภาพไม่สำเร็จ: ' + err.message); }
+    finally { setSyncScanningMulti(false); if (syncFilesRef.current) syncFilesRef.current.value = ''; }
+  }
+  function updateSyncRowMulti(idx, patch) { setSyncDraftMulti({ ...syncDraftMulti, rows: syncDraftMulti.rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)) }); }
+  function confirmSyncMulti() {
+    const today = new Date().toISOString().slice(0, 10);
+    const fx = syncDraftMulti.fxRate;
+    const kept = syncDraftMulti.rows.filter((r) => !r.willRemove);
+    const next = kept.map((row) => {
+      const existing = holdings.find((h) => (h.symbol || '').toUpperCase() === row.symbol);
+      if (existing) {
+        return { ...existing, shares: row.shares, avgCost: row.avgCost, currentPrice: row.currentPrice, currentFx: currency === 'USD' && fx ? fx : existing.currentFx, lastUpdated: today };
+      }
+      return { id: uid(), symbol: row.symbol, name: '', shares: row.shares, avgCost: row.avgCost, currency, purchaseFx: currency === 'USD' ? (fx || 36) : 1, currentPrice: row.currentPrice, currentFx: currency === 'USD' ? (fx || 36) : 1, lastUpdated: today, purchaseDate: '', dividends: [], sells: [], buys: [] };
+    });
+    onUpdate(a.id, { holdings: next });
+    setSyncDraftMulti(null);
   }
 
   return (
@@ -1071,22 +1349,63 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         </div>
       )}
 
+      {syncDraftMulti ? (
+        <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 my-2">
+          <p className="text-xs mb-2" style={{ color: SLATE }}>ซิงค์พอร์ตจากภาพ — ตรวจสอบก่อนยืนยัน (สีแดง = จะถูกลบเพราะไม่เจอในภาพ, สีเขียว = หุ้นใหม่)</p>
+          {syncDraftMulti.rows.map((row, idx) => (
+            <div key={idx} style={{ background: row.willRemove ? '#FBEAE6' : PAPER_DIM }} className="rounded-lg p-2 mb-2">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-semibold">{row.symbol}</span>
+                <span className="text-[10px]" style={{ color: row.willRemove ? BAD : (row.isNew ? GOOD : SLATE) }}>{row.willRemove ? 'จะลบ (ไม่เจอในภาพ)' : row.isNew ? 'หุ้นใหม่' : 'อัพเดท'}</span>
+              </div>
+              {!row.willRemove && (
+                <div className="grid grid-cols-3 gap-1">
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={row.shares} onChange={(v) => updateSyncRowMulti(idx, { shares: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย</label><NumInput value={row.avgCost} onChange={(v) => updateSyncRowMulti(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด</label><NumInput value={row.currentPrice} onChange={(v) => updateSyncRowMulti(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+                </div>
+              )}
+              <button onClick={() => updateSyncRowMulti(idx, { willRemove: !row.willRemove })} className="text-[10px] mt-1" style={{ color: BRASS }}>{row.willRemove ? 'ยกเลิกการลบ (เก็บไว้)' : 'บังคับลบตัวนี้'}</button>
+            </div>
+          ))}
+          {currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>อัตราแลกเปลี่ยนที่ใช้: {syncDraftMulti.fxRate ? `1 USD = ${syncDraftMulti.fxRate.toFixed(2)} บาท (เรียลไทม์)` : 'ดึงเรียลไทม์ไม่สำเร็จ ใช้ค่าเดิม'}</p>}
+          <div className="flex gap-2">
+            <button onClick={confirmSyncMulti} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันซิงค์ทั้งหมด</button>
+            <button onClick={() => setSyncDraftMulti(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+          </div>
+        </div>
+      ) : (
+        <div className="my-2">
+          <input ref={syncFilesRef} type="file" accept="image/*" multiple onChange={handleSyncFilesMulti} className="hidden" />
+          <button onClick={() => syncFilesRef.current && syncFilesRef.current.click()} className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: categoryColor }}>
+            {syncScanningMulti ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} {syncScanningMulti ? 'กำลังอ่านภาพทั้งหมด...' : '📷 ซิงค์พอร์ตจากภาพ (เลือกได้หลายรูป)'}
+          </button>
+          <p className="text-[9px] mt-0.5" style={{ color: SLATE }}>รองรับทั้งภาพสรุปพอร์ต, ภาพรายละเอียดรายตัว, และภาพตาราง Order — ระบบจะรวมข้อมูลให้อัตโนมัติ</p>
+          {syncErrorMulti && <p className="text-[10px] mt-1" style={{ color: BAD }}>{syncErrorMulti}</p>}
+        </div>
+      )}
+
       <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1 text-xs mt-1" style={{ color: categoryColor }}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {holdings.length} หุ้นในบัญชีนี้</button>
       {expanded && (
         <div className="mt-3">
-          {holdings.map((h) => <HoldingRow key={h.id} accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onRefreshPrice={onRefreshPrice} canRefresh={h.currency === 'USD'} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} />)}
+          {holdings.map((h) => <HoldingRow key={h.id} accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={h.currency === 'USD'} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} />)}
           <button onClick={() => onAddHolding(a.id)} className="flex items-center gap-1 text-xs mt-1" style={{ color: BRASS }}><PlusCircle size={13} /> เพิ่มหุ้นในบัญชีนี้</button>
         </div>
       )}
     </Card>
   );
-            }function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell }) {
+}
+
+function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [showDiv, setShowDiv] = useState(false);
   const [divAmount, setDivAmount] = useState(0);
   const [divDate, setDivDate] = useState(new Date().toISOString().slice(0, 10));
   const [divReinvest, setDivReinvest] = useState('');
   const [showSells, setShowSells] = useState(false);
   const [showBuys, setShowBuys] = useState(false);
+  const [editingBuy, setEditingBuy] = useState(null);
+  const [editingSell, setEditingSell] = useState(null);
+  const [editingDiv, setEditingDiv] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const buyFileRef = useRef(null);
   const [buyScanning, setBuyScanning] = useState(false);
@@ -1284,9 +1603,21 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       {showBuys && (h.buys || []).map((b) => (
         <div key={b.id} className="flex justify-between text-xs mt-1">
           <span>{b.date} · ซื้อ {b.shares} หุ้น @ {b.price}</span>
-          <span className="text-[10px]" style={{ color: SLATE }}>฿{fmt(b.amount)}</span>
+          <span className="text-[10px] flex items-center gap-2" style={{ color: SLATE }}>฿{fmt(b.amount)} <EditButton onClick={() => setEditingBuy(b)} /></span>
         </div>
       ))}
+      {editingBuy && (
+        <EditModal title="แก้ไขรายการซื้อ" onClose={() => setEditingBuy(null)}
+          initialValues={{ date: editingBuy.date, shares: editingBuy.shares, price: editingBuy.price, amount: editingBuy.amount }}
+          fields={[
+            { key: 'date', label: 'วันที่ซื้อ', type: 'date' },
+            { key: 'shares', label: 'จำนวนหุ้น', type: 'number' },
+            { key: 'price', label: 'ราคา/หุ้น', type: 'number' },
+            { key: 'amount', label: 'จ่ายจริง (บาท)', type: 'number' },
+          ]}
+          onSave={(v) => { onUpdateBuy(accountId, h.id, editingBuy.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0 }); setEditingBuy(null); }}
+        />
+      )}
 
       {sellDraft ? (
         <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mt-2">
@@ -1325,9 +1656,27 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       {showSells && (h.sells || []).map((s) => (
         <div key={s.id} className="flex justify-between text-xs mt-1">
           <span>{s.date} · ขาย {s.shares} หุ้น @ {s.price}</span>
-          <span className="flex items-center gap-2" style={{ color: s.gain >= 0 ? GOOD : BAD }}>{s.gain >= 0 ? '+' : ''}฿{fmt(s.gain)} <button onClick={() => onRemoveSell(accountId, h.id, s.id)}><Trash2 size={11} color={BAD} /></button></span>
+          <span className="flex items-center gap-2" style={{ color: s.gain >= 0 ? GOOD : BAD }}>{s.gain >= 0 ? '+' : ''}฿{fmt(s.gain)} <EditButton onClick={() => setEditingSell(s)} /><button onClick={() => onRemoveSell(accountId, h.id, s.id)}><Trash2 size={11} color={BAD} /></button></span>
         </div>
       ))}
+      {editingSell && (
+        <EditModal title="แก้ไขรายการขาย" onClose={() => setEditingSell(null)}
+          initialValues={{ date: editingSell.date, shares: editingSell.shares, price: editingSell.price, amount: editingSell.amount }}
+          fields={[
+            { key: 'date', label: 'วันที่ขาย', type: 'date' },
+            { key: 'shares', label: 'จำนวนหุ้นที่ขาย', type: 'number' },
+            { key: 'price', label: 'ราคา/หุ้น', type: 'number' },
+            { key: 'amount', label: 'ได้รับจริง (บาท)', type: 'number' },
+          ]}
+          onSave={(v) => {
+            const fx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1;
+            const costBasisSold = Number(v.shares || 0) * Number(h.avgCost || 0) * fx;
+            const gain = Number(v.amount || 0) - costBasisSold;
+            onUpdateSell(accountId, h.id, editingSell.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0, gain });
+            setEditingSell(null);
+          }}
+        />
+      )}
 
       <button onClick={() => setShowDiv(!showDiv)} className="text-[11px] mt-2" style={{ color: BRASS }}>{showDiv ? 'ซ่อน' : 'ดู/บันทึกปันผล'}</button>
       {showDiv && (
@@ -1342,26 +1691,40 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             {(allAccounts || []).map((acc) => <option key={acc.id} value={acc.id}>นำไปลงทุนต่อที่: {acc.name}</option>)}
           </select>
           <button onClick={() => { onAddDividend(accountId, h.id, { date: divDate, amount: divAmount, reinvestAccountId: divReinvest || undefined }); setDivAmount(0); setDivReinvest(''); }} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 w-full mb-2">บันทึกปันผล</button>
-          {(h.dividends || []).map((d) => <div key={d.id} className="flex justify-between text-xs mb-1"><span>{d.date}{d.reinvestAccountId && ` · ลงทุนต่อ`}</span><span className="flex items-center gap-2">฿{fmt(d.amount)} <button onClick={() => onRemoveDividend(accountId, h.id, d.id)}><Trash2 size={11} color={BAD} /></button></span></div>)}
+          {(h.dividends || []).map((d) => <div key={d.id} className="flex justify-between text-xs mb-1"><span>{d.date}{d.reinvestAccountId && ` · ลงทุนต่อ`}</span><span className="flex items-center gap-2">฿{fmt(d.amount)} <EditButton onClick={() => setEditingDiv(d)} /><button onClick={() => onRemoveDividend(accountId, h.id, d.id)}><Trash2 size={11} color={BAD} /></button></span></div>)}
         </div>
+      )}
+      {editingDiv && (
+        <EditModal title="แก้ไขปันผล" onClose={() => setEditingDiv(null)}
+          initialValues={{ date: editingDiv.date, amount: editingDiv.amount }}
+          fields={[
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
+          ]}
+          onSave={(v) => { onUpdateDividend(accountId, h.id, editingDiv.id, { date: v.date, amount: Number(v.amount) || 0 }); setEditingDiv(null); }}
+        />
       )}
     </div>
   );
 }
 
-function SavingsTab({ accounts, contributions, onAdd, onRemove }) {
+function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
   const [amount, setAmount] = useState(10000);
   const [source, setSource] = useState('pharmacy');
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
   const [usdAmount, setUsdAmount] = useState(0);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [editing, setEditing] = useState(null); // contribution being edited
   const destAccount = accounts.find((a) => a.id === accountId);
   const isDime = destAccount && destAccount.category === 'dime';
-  function submit() { if (!accountId) return; onAdd({ date: new Date().toISOString().slice(0, 10), amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined }); setUsdAmount(0); }
+  function submit() { if (!accountId) return; onAdd({ date, amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined }); setUsdAmount(0); }
   const thisMonthTotal = useMemo(() => { const ym = new Date().toISOString().slice(0, 7); return contributions.filter((c) => c.date.startsWith(ym)).reduce((s, c) => s + Number(c.amount || 0), 0); }, [contributions]);
   return (
     <div className="px-5 pt-5">
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>เงินเข้าเดือนนี้รวม</p><p className="text-2xl mb-3">฿{fmt(thisMonthTotal)}</p>
+        <label className="text-xs" style={{ color: SLATE }}>วันที่</label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <label className="text-xs" style={{ color: SLATE }}>จำนวนเงิน (บาท)</label>
         <NumInput value={amount} onChange={setAmount} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <label className="text-xs" style={{ color: SLATE }}>มาจากแหล่งไหน</label>
@@ -1374,8 +1737,20 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove }) {
       <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด</p>
       {contributions.slice(0, 30).map((c) => {
         const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((s) => s.id === c.source);
-        return <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{src?.label || c.source} → {acc?.name || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}</p></div><div className="flex items-center gap-3"><span className="text-sm">฿{fmt(c.amount)}</span><button onClick={() => onRemove(c.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>;
+        return <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{src?.label || c.source} → {acc?.name || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}</p></div><div className="flex items-center gap-3"><span className="text-sm">฿{fmt(c.amount)}</span><EditButton onClick={() => setEditing(c)} /><button onClick={() => onRemove(c.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>;
       })}
+      {editing && (
+        <EditModal title="แก้ไขเงินเข้า" onClose={() => setEditing(null)}
+          initialValues={{ date: editing.date, amount: editing.amount, source: editing.source, accountId: editing.accountId }}
+          fields={[
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
+            { key: 'source', label: 'แหล่งที่มา', type: 'select', options: SOURCES.map((s) => ({ value: s.id, label: s.label })) },
+            { key: 'accountId', label: 'บัญชีปลายทาง', type: 'select', options: accounts.map((a) => ({ value: a.id, label: a.name })) },
+          ]}
+          onSave={(v) => { onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId }); setEditing(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -1394,14 +1769,14 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-}
-
-function ExpensesTab({ expenses, categories, onAdd, onRemove, onAddCategory }) {
+  }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
   const [note, setNote] = useState('');
   const [newCatInput, setNewCatInput] = useState('');
   const [showNewCat, setShowNewCat] = useState(false);
+  const [listSearch, setListSearch] = useState('');
+  const [editingExpense, setEditingExpense] = useState(null);
 
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState('');
@@ -1480,6 +1855,10 @@ function ExpensesTab({ expenses, categories, onAdd, onRemove, onAddCategory }) {
 
   return (
     <div className="px-5 pt-5">
+      <div className="relative mb-4">
+        <Search size={15} color={SLATE} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+        <input value={listSearch} onChange={(e) => setListSearch(e.target.value)} placeholder="ค้นหารายจ่าย (โน้ต/หมวดหมู่)..." style={{ border: '1px solid #E7E0CE' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
+      </div>
       <Card>
         <p className="text-xs mb-1" style={{ color: SLATE }}>รายจ่ายวันนี้</p>
         <p className="text-2xl mb-3">฿{fmt(todayTotal)}</p>
@@ -1567,17 +1946,31 @@ function ExpensesTab({ expenses, categories, onAdd, onRemove, onAddCategory }) {
       </Card>
 
       <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด</p>
-      {expenses.slice(0, 30).map((e) => (
+      {expenses.filter((e) => !listSearch.trim() || (e.category || '').toLowerCase().includes(listSearch.trim().toLowerCase()) || (e.note || '').toLowerCase().includes(listSearch.trim().toLowerCase())).slice(0, 30).map((e) => (
         <Card key={e.id}>
           <div className="flex justify-between items-center">
             <div><p className="text-sm">{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
-            <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><button onClick={() => onRemove(e.id)}><Trash2 size={14} color={BAD} /></button></div>
+            <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => onRemove(e.id)}><Trash2 size={14} color={BAD} /></button></div>
           </div>
         </Card>
       ))}
+      {editingExpense && (
+        <EditModal title="แก้ไขรายจ่าย" onClose={() => setEditingExpense(null)}
+          initialValues={{ date: editingExpense.date, amount: editingExpense.amount, category: editingExpense.category, note: editingExpense.note || '' }}
+          fields={[
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
+            { key: 'category', label: 'หมวดหมู่', type: 'select', options: categories },
+            { key: 'note', label: 'โน้ต', type: 'text' },
+          ]}
+          onSave={(v) => { onUpdate(editingExpense.id, { date: v.date, amount: Number(v.amount) || 0, category: v.category, note: v.note }); setEditingExpense(null); }}
+        />
+      )}
     </div>
   );
-      }function ReportsTab({ contributions, accounts, costBasisByAccount, history }) {
+}
+
+function ReportsTab({ contributions, accounts, costBasisByAccount, history }) {
   const symbolRollup = useMemo(() => {
     const map = {};
     accounts.forEach((a) => (a.holdings || []).forEach((h) => {
@@ -1711,7 +2104,7 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onAddAppointment, onRemoveAppointment, onAddBloodTest, onAddOrganExam, onAddImaging, onAddDogExpense, onRemoveDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital }) {
+function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
   const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
@@ -1748,13 +2141,13 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onAddMedicati
         <>
           {section === 'overview' && <DogOverviewSection dog={dog} />}
           {section === 'profile' && <DogProfileSection dog={dog} onUpdateDog={onUpdateDog} />}
-          {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} />}
+          {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} onUpdateWeight={onUpdateWeight} />}
           {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} />}
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onUpdateFleaTickInfo={onUpdateFleaTickInfo} />}
-          {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} />}
-          {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} />}
-          {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onAddOrganExam={onAddOrganExam} onAddImaging={onAddImaging} />}
-          {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} />}
+          {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} />}
+          {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} />}
+          {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} />}
+          {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} />}
         </>
       )}
     </div>
@@ -1791,6 +2184,28 @@ function DogOverviewSection({ dog }) {
         <p className="text-sm mb-1">นัดถัดไป: {nextAppt ? `${nextAppt.date} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</p>
         <p className="text-sm mb-1">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue || 'ยังไม่ได้ตั้งค่า'}</p>
         <p className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate || 'ไม่มี'}</p>
+      </Card>
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>ประวัติการตรวจสุขภาพ</p>
+        {(() => {
+          const bloodTests = dog.bloodTests || [];
+          const organExams = dog.organExams || [];
+          const imaging = dog.imaging || [];
+          const latestOf = (list) => [...list].sort((a, b) => b.date.localeCompare(a.date))[0];
+          const rows = [
+            { label: 'เจาะเลือด', item: latestOf(bloodTests) },
+            { label: 'ตรวจตา', item: latestOf(organExams.filter((o) => o.organ === 'ตา')) },
+            { label: 'CT', item: latestOf(imaging.filter((im) => im.type === 'CT')) },
+            { label: 'MRI', item: latestOf(imaging.filter((im) => im.type === 'MRI')) },
+            { label: 'Ultrasound', item: latestOf(imaging.filter((im) => im.type === 'Ultrasound')) },
+          ];
+          return rows.map((r) => (
+            <div key={r.label} className="mb-2 pb-2" style={{ borderBottom: '1px solid #F0EBDD' }}>
+              <div className="flex justify-between text-sm"><span className="font-semibold">{r.label}</span><span style={{ color: r.item ? INK : SLATE }}>{r.item ? r.item.date : 'ยังไม่เคยตรวจ'}</span></div>
+              {r.item && r.item.note && <p className="text-xs mt-0.5" style={{ color: SLATE }}>{r.item.note}</p>}
+            </div>
+          ));
+        })()}
       </Card>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>ค่าใช้จ่าย</p>
@@ -1831,14 +2246,16 @@ function DogProfileSection({ dog, onUpdateDog }) {
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
     </Card>
   );
-}
-
-function DogWeightSection({ dog, onAddWeight, onRemoveWeight }) {
+        }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight }) {
   const [weight, setWeight] = useState(0);
   const [location, setLocation] = useState('');
   const [weigher, setWeigher] = useState('');
   const [note, setNote] = useState('');
   const [range, setRange] = useState(90);
+  const [editingWeight, setEditingWeight] = useState(null);
+  const scaleFileRef = useRef(null);
+  const [scaleScanning, setScaleScanning] = useState(false);
+  const [scaleError, setScaleError] = useState('');
   const weights = [...(dog.weights || [])].sort((a, b) => a.date.localeCompare(b.date));
   const chartData = weights.filter((w) => range === 9999 || (Date.now() - new Date(w.date).getTime()) / (1000 * 60 * 60 * 24) <= range).map((w) => ({ date: w.date.slice(5), weight: Number(w.weight) }));
 
@@ -1848,10 +2265,28 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight }) {
     setWeight(0); setNote('');
   }
 
+  async function handleScalePhoto(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setScaleScanning(true); setScaleError('');
+    try {
+      const result = await scanWeightScale(file);
+      const w = Number(result.weight);
+      if (!w) { setScaleError('อ่านตัวเลขน้ำหนักจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้'); return; }
+      onAddWeight(dog.id, { date: new Date().toISOString().slice(0, 10), time: new Date().toTimeString().slice(0, 5), weight: w, location, weigher, note: 'ถ่ายจากตาชั่ง' });
+    } catch (err) { setScaleError('อ่านภาพไม่สำเร็จ: ' + err.message); }
+    finally { setScaleScanning(false); if (scaleFileRef.current) scaleFileRef.current.value = ''; }
+  }
+
   return (
     <div>
       <Card>
-        <label className="text-xs" style={{ color: SLATE }}>น้ำหนัก (กก.)</label>
+        <input ref={scaleFileRef} type="file" accept="image/*" capture="environment" onChange={handleScalePhoto} className="hidden" />
+        <button onClick={() => scaleFileRef.current && scaleFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-3">
+          {scaleScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color={BRASS} />}{scaleScanning ? 'กำลังอ่านตาชั่ง...' : 'ถ่ายรูปตาชั่ง (บันทึกทันที)'}
+        </button>
+        {scaleError && <p className="text-xs mb-3" style={{ color: BAD }}>{scaleError}</p>}
+        <label className="text-xs" style={{ color: SLATE }}>หรือกรอกน้ำหนักเอง (กก.)</label>
         <NumInput value={weight} onChange={setWeight} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
         <label className="text-xs" style={{ color: SLATE }}>สถานที่ชั่ง</label>
         <input value={location} onChange={(e) => setLocation(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
@@ -1871,8 +2306,20 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight }) {
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติ</p>
       {[...weights].reverse().map((w) => (
-        <Card key={w.id}><div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}</p><p className="text-xs" style={{ color: SLATE }}>{w.date} {w.time}</p></div><button onClick={() => onRemoveWeight(dog.id, w.id)}><Trash2 size={14} color={BAD} /></button></div></Card>
+        <Card key={w.id}><div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}</p><p className="text-xs" style={{ color: SLATE }}>{w.date} {w.time}</p></div><div className="flex items-center gap-2"><EditButton onClick={() => setEditingWeight(w)} /><button onClick={() => onRemoveWeight(dog.id, w.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>
       ))}
+      {editingWeight && (
+        <EditModal title="แก้ไขน้ำหนัก" onClose={() => setEditingWeight(null)}
+          initialValues={{ date: editingWeight.date, weight: editingWeight.weight, location: editingWeight.location || '', weigher: editingWeight.weigher || '' }}
+          fields={[
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'weight', label: 'น้ำหนัก (กก.)', type: 'number' },
+            { key: 'location', label: 'สถานที่ชั่ง', type: 'text' },
+            { key: 'weigher', label: 'ผู้ชั่ง', type: 'text' },
+          ]}
+          onSave={(v) => { onUpdateWeight(dog.id, editingWeight.id, { date: v.date, weight: Number(v.weight) || 0, location: v.location, weigher: v.weigher }); setEditingWeight(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -1961,10 +2408,11 @@ function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
   );
 }
 
-function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim }) {
+function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim }) {
   const ins = dog.insurance || {};
   const [claimAmount, setClaimAmount] = useState(0);
   const [claimReason, setClaimReason] = useState('');
+  const [editingClaim, setEditingClaim] = useState(null);
   const totalClaimed = (ins.claims || []).reduce((s, c) => s + Number(c.amount || 0), 0);
   function submitClaim() {
     if (!claimAmount) return;
@@ -1994,20 +2442,36 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim }) {
         <button onClick={submitClaim} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเคลม</button>
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติการเคลม</p>
-      {(ins.claims || []).map((c) => <Card key={c.id}><div className="flex justify-between text-sm"><span>{c.date} · {c.reason}</span><span>฿{fmt(c.amount)}</span></div></Card>)}
+      {(ins.claims || []).map((c) => <Card key={c.id}><div className="flex justify-between items-center text-sm"><span>{c.date} · {c.reason}</span><div className="flex items-center gap-2"><span>฿{fmt(c.amount)}</span><EditButton onClick={() => setEditingClaim(c)} /></div></div></Card>)}
+      {editingClaim && (
+        <EditModal title="แก้ไขการเคลม" onClose={() => setEditingClaim(null)}
+          initialValues={{ date: editingClaim.date, amount: editingClaim.amount, reason: editingClaim.reason || '' }}
+          fields={[
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
+            { key: 'reason', label: 'เหตุผล/อาการ', type: 'text' },
+          ]}
+          onSave={(v) => { onUpdateInsuranceClaim(dog.id, editingClaim.id, { date: v.date, amount: Number(v.amount) || 0, reason: v.reason }); setEditingClaim(null); }}
+        />
+      )}
     </div>
   );
 }
 
-function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, googleConnected, onAddToCalendar, hospitalList, onAddHospital }) {
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '' });
+function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, onUpdateAppointment, googleConnected, onAddToCalendar, hospitalList, onAddHospital }) {
+  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '', reminderDays: [7, 3, 1] });
   const [syncingId, setSyncingId] = useState(null);
   const [syncResult, setSyncResult] = useState({});
+  const [editingAppt, setEditingAppt] = useState(null);
   const list = hospitalList || [];
   function submit() {
     if (!form.date) return;
     onAddAppointment(dog.id, form);
-    setForm({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '' });
+    setForm({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '', reminderDays: [7, 3, 1] });
+  }
+  function toggleReminderDay(d) {
+    const cur = form.reminderDays || [];
+    setForm({ ...form, reminderDays: cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => b - a) });
   }
   async function syncToCalendar(a) {
     setSyncingId(a.id);
@@ -2039,6 +2503,12 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, go
         {list.includes(form.hospital) && <div className="mb-2" />}
         <label className="text-[10px]" style={{ color: SLATE }}>วัตถุประสงค์</label>
         <input value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>เตือนล่วงหน้ากี่วัน (เลือกได้หลายอัน)</label>
+        <div className="flex gap-2 mt-1 mb-3">
+          {[1, 2, 3, 7].map((d) => (
+            <button key={d} type="button" onClick={() => toggleReminderDay(d)} style={{ background: (form.reminderDays || []).includes(d) ? BRASS : PAPER_DIM, color: (form.reminderDays || []).includes(d) ? 'white' : SLATE }} className="rounded-full px-3 py-1.5 text-xs">{d} วัน</button>
+          ))}
+        </div>
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">เพิ่มนัดหมาย</button>
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>นัดหมายทั้งหมด</p>
@@ -2049,7 +2519,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, go
           <Card key={a.id}>
             <div className="flex justify-between items-center">
               <div><p className="text-sm">{a.hospital} · {a.purpose}</p><p className="text-xs" style={{ color: d < 0 ? SLATE : GOOD }}>{a.date} {a.time} {d >= 0 && `(อีก ${d} วัน)`}</p></div>
-              <button onClick={() => onRemoveAppointment(dog.id, a.id)}><Trash2 size={14} color={BAD} /></button>
+              <div className="flex items-center gap-2"><EditButton onClick={() => setEditingAppt(a)} /><button onClick={() => onRemoveAppointment(dog.id, a.id)}><Trash2 size={14} color={BAD} /></button></div>
             </div>
             {googleConnected && (
               <button onClick={() => syncToCalendar(a)} disabled={syncingId === a.id} className="flex items-center gap-1 text-[11px] mt-2" style={{ color: BRASS }}>
@@ -2060,15 +2530,31 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, go
           </Card>
         );
       })}
+      {editingAppt && (
+        <EditModal title="แก้ไขนัดหมาย" onClose={() => setEditingAppt(null)}
+          initialValues={{ date: editingAppt.date, time: editingAppt.time || '', hospital: editingAppt.hospital || '', doctor: editingAppt.doctor || '', purpose: editingAppt.purpose || '' }}
+          fields={[
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'time', label: 'เวลา', type: 'time' },
+            { key: 'hospital', label: 'โรงพยาบาล', type: 'select', options: list },
+            { key: 'doctor', label: 'หมอ', type: 'text' },
+            { key: 'purpose', label: 'วัตถุประสงค์', type: 'text' },
+          ]}
+          onSave={(v) => { onUpdateAppointment(dog.id, editingAppt.id, v); setEditingAppt(null); }}
+        />
+      )}
     </div>
   );
 }
 
-function DogMedicalRecordsSection({ dog, onAddBloodTest, onAddOrganExam, onAddImaging }) {
+function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging }) {
   const [subTab, setSubTab] = useState('blood');
   const [bt, setBt] = useState({ type: BLOOD_TEST_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
   const [oe, setOe] = useState({ organ: ORGAN_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
   const [im, setIm] = useState({ type: IMAGING_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
+  const [editingBt, setEditingBt] = useState(null);
+  const [editingOe, setEditingOe] = useState(null);
+  const [editingIm, setEditingIm] = useState(null);
   return (
     <div>
       <div className="flex gap-2 mb-3">
@@ -2084,7 +2570,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onAddOrganExam, onAddIm
             <textarea value={bt.note} onChange={(e) => setBt({ ...bt, note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
             <button onClick={() => { onAddBloodTest(dog.id, bt); setBt({ ...bt, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
           </Card>
-          {[...(dog.bloodTests || [])].reverse().map((r) => <Card key={r.id}><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></Card>)}
+          {[...(dog.bloodTests || [])].reverse().map((r) => <Card key={r.id}><div className="flex justify-between items-start"><div><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div><EditButton onClick={() => setEditingBt(r)} /></div></Card>)}
         </>
       )}
       {subTab === 'organ' && (
@@ -2095,7 +2581,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onAddOrganExam, onAddIm
             <textarea value={oe.note} onChange={(e) => setOe({ ...oe, note: e.target.value })} placeholder="ผลตรวจ/ลักษณะที่พบ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
             <button onClick={() => { onAddOrganExam(dog.id, oe); setOe({ ...oe, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจอวัยวะ</button>
           </Card>
-          {[...(dog.organExams || [])].reverse().map((r) => <Card key={r.id}><p className="text-sm font-semibold">{r.organ} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></Card>)}
+          {[...(dog.organExams || [])].reverse().map((r) => <Card key={r.id}><div className="flex justify-between items-start"><div><p className="text-sm font-semibold">{r.organ} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div><EditButton onClick={() => setEditingOe(r)} /></div></Card>)}
         </>
       )}
       {subTab === 'imaging' && (
@@ -2106,18 +2592,57 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onAddOrganExam, onAddIm
             <textarea value={im.note} onChange={(e) => setIm({ ...im, note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
             <button onClick={() => { onAddImaging(dog.id, im); setIm({ ...im, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผล Imaging</button>
           </Card>
-          {[...(dog.imaging || [])].reverse().map((r) => <Card key={r.id}><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></Card>)}
+          {[...(dog.imaging || [])].reverse().map((r) => <Card key={r.id}><div className="flex justify-between items-start"><div><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div><EditButton onClick={() => setEditingIm(r)} /></div></Card>)}
         </>
+      )}
+      {editingBt && (
+        <EditModal title="แก้ไขผลตรวจเลือด" onClose={() => setEditingBt(null)}
+          initialValues={{ type: editingBt.type, date: editingBt.date, note: editingBt.note || '' }}
+          fields={[
+            { key: 'type', label: 'ประเภท', type: 'select', options: BLOOD_TEST_TYPES },
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'note', label: 'ผลตรวจ/ค่าที่ได้', type: 'textarea' },
+          ]}
+          onSave={(v) => { onUpdateBloodTest(dog.id, editingBt.id, v); setEditingBt(null); }}
+        />
+      )}
+      {editingOe && (
+        <EditModal title="แก้ไขผลตรวจอวัยวะ" onClose={() => setEditingOe(null)}
+          initialValues={{ organ: editingOe.organ, date: editingOe.date, note: editingOe.note || '' }}
+          fields={[
+            { key: 'organ', label: 'อวัยวะ', type: 'select', options: ORGAN_TYPES },
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'note', label: 'ผลตรวจ/ลักษณะที่พบ', type: 'textarea' },
+          ]}
+          onSave={(v) => { onUpdateOrganExam(dog.id, editingOe.id, v); setEditingOe(null); }}
+        />
+      )}
+      {editingIm && (
+        <EditModal title="แก้ไขผล Imaging" onClose={() => setEditingIm(null)}
+          initialValues={{ type: editingIm.type, date: editingIm.date, note: editingIm.note || '' }}
+          fields={[
+            { key: 'type', label: 'ประเภท', type: 'select', options: IMAGING_TYPES },
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'note', label: 'ผลอ่านภาพ/รายงาน', type: 'textarea' },
+          ]}
+          onSave={(v) => { onUpdateImaging(dog.id, editingIm.id, v); setEditingIm(null); }}
+        />
       )}
     </div>
   );
 }
 
-function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense }) {
+function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, hospitalList, onAddHospital }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(PET_EXPENSE_CATEGORIES[0]);
+  const [hospital, setHospital] = useState('');
   const [note, setNote] = useState('');
   const [periodType, setPeriodType] = useState('month');
+  const [editingExp, setEditingExp] = useState(null);
+  const receiptFileRef = useRef(null);
+  const [receiptScanning, setReceiptScanning] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
+  const list = hospitalList || [];
   const keyFn = periodType === 'month' ? monthKey : yearKey;
   const expenses = dog.expenses || [];
   const periods = Array.from(new Set(expenses.map((e) => keyFn(e.date)))).sort().reverse();
@@ -2126,13 +2651,45 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense }) {
   const periodExpenses = expenses.filter((e) => keyFn(e.date) === selPeriod);
   const periodTotal = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 
-  function submit() { if (!amount) return; onAddDogExpense(dog.id, { date: new Date().toISOString().slice(0, 10), amount, category, note }); setAmount(0); setNote(''); }
+  function submit() { if (!amount) return; onAddDogExpense(dog.id, { date: new Date().toISOString().slice(0, 10), amount, category, hospital, note }); setAmount(0); setNote(''); }
+
+  async function handleReceiptPhoto(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setReceiptScanning(true); setReceiptError('');
+    try {
+      const result = await scanPetExpenseReceipt(file, PET_EXPENSE_CATEGORIES);
+      const amt = Number(result.amount);
+      if (!amt) { setReceiptError('อ่านยอดเงินจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้'); return; }
+      const cat = PET_EXPENSE_CATEGORIES.includes(result.category) ? result.category : 'อื่นๆ';
+      onAddDogExpense(dog.id, { date: result.date || new Date().toISOString().slice(0, 10), amount: amt, category: cat, hospital, note: result.note || (result.sourceType === 'transfer_slip' ? 'ถ่ายจากสลิปโอนเงิน' : 'ถ่ายจากใบเสร็จ') });
+    } catch (err) { setReceiptError('อ่านภาพไม่สำเร็จ: ' + err.message); }
+    finally { setReceiptScanning(false); if (receiptFileRef.current) receiptFileRef.current.value = ''; }
+  }
 
   return (
     <div>
       <Card>
+        <input ref={receiptFileRef} type="file" accept="image/*" capture="environment" onChange={handleReceiptPhoto} className="hidden" />
+        <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-3">
+          {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color={BRASS} />}{receiptScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปใบเสร็จหรือสลิปโอน (บันทึกทันที)'}
+        </button>
+        {receiptError && <p className="text-xs mb-3" style={{ color: BAD }}>{receiptError}</p>}
+        <label className="text-xs" style={{ color: SLATE }}>หรือกรอกเอง</label>
         <NumInput value={amount} onChange={setAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
         <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{PET_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล (ไม่บังคับ)</label>
+        <select value={list.includes(hospital) ? hospital : (hospital ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setHospital(''); else setHospital(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7E0CE' }}>
+          <option value="">— ไม่ระบุ —</option>
+          {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
+          <option value="__new__">+ เพิ่มโรงพยาบาลใหม่</option>
+        </select>
+        {(hospital && !list.includes(hospital)) && (
+          <div className="flex gap-2 mb-2">
+            <input value={hospital} onChange={(e) => setHospital(e.target.value)} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7E0CE' }} />
+            <button type="button" onClick={() => { if (hospital) onAddHospital(hospital); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7E0CE', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+          </div>
+        )}
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="โน้ต" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} />
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกค่าใช้จ่าย</button>
       </Card>
@@ -2144,7 +2701,20 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense }) {
         {periods.length > 0 ? <select value={selPeriod} onChange={(e) => setSelPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }}>{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
         {selPeriod && <p className="text-xl">รวม ฿{fmt(periodTotal)}</p>}
       </Card>
-      {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><button onClick={() => onRemoveDogExpense(dog.id, e.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
+      {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => onRemoveDogExpense(dog.id, e.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
+      {editingExp && (
+        <EditModal title="แก้ไขค่าใช้จ่าย" onClose={() => setEditingExp(null)}
+          initialValues={{ date: editingExp.date, amount: editingExp.amount, category: editingExp.category, hospital: editingExp.hospital || '', note: editingExp.note || '' }}
+          fields={[
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
+            { key: 'category', label: 'หมวดหมู่', type: 'select', options: PET_EXPENSE_CATEGORIES },
+            { key: 'hospital', label: 'โรงพยาบาล', type: 'select', options: ['', ...list] },
+            { key: 'note', label: 'โน้ต', type: 'text' },
+          ]}
+          onSave={(v) => { onUpdateDogExpense(dog.id, editingExp.id, { date: v.date, amount: Number(v.amount) || 0, category: v.category, hospital: v.hospital, note: v.note }); setEditingExp(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -2176,4 +2746,4 @@ function AllDogsReportSection({ dogs }) {
       </Card>
     </div>
   );
-                                                                                                                                                                                    }
+      }
