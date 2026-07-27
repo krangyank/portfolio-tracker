@@ -4,6 +4,7 @@ import {
   PlusCircle, Trash2, TrendingUp, Wallet, PiggyBank, Flame, Landmark,
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
+  Dog, Scale, Syringe, Shield, Bug, Stethoscope,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
@@ -52,10 +53,24 @@ const yearKey = (d) => d.slice(0, 4);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const prevMonthKey = () => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 
+const DOG_NAMES = ['เป๋าตุง', 'ถุงทอง', 'ตุ้มแต้ม', 'ขวานฟ้า', 'คัตโตะ', 'โยกเยก', 'หนึ่งหนึ่ง', 'หญิงเล็ก'];
+const PET_EXPENSE_CATEGORIES = ['ค่าตรวจ', 'ค่ายา', 'อาหาร', 'อาหารเสริม', 'ของเล่น', 'อาบน้ำ', 'ตัดขน', 'ประกัน', 'เดินทาง', 'ฉุกเฉิน', 'อื่นๆ'];
+const BLOOD_TEST_TYPES = ['CBC', 'ค่าไต', 'ค่าตับ', 'ไขมันในเลือด', 'น้ำตาล', 'SDMA', 'Electrolyte', 'Cortisol', 'ACTH'];
+const ORGAN_TYPES = ['ไต', 'ตับ', 'ถุงน้ำดี', 'ม้าม', 'ต่อมหมวกไต', 'หัวใจ', 'ตา'];
+const IMAGING_TYPES = ['Ultrasound', 'X-ray', 'CT', 'MRI'];
+const makeDog = (name) => ({
+  id: uid(), name, nickname: '', birthdate: '', sex: '', color: '', breed: '', microchip: '', breeder: '', personality: '', notes: '',
+  bcs: 0, chronicDiseases: '', drugAllergies: '',
+  weights: [], medications: [], fleaTick: { productName: '', tabletMg: 0, tabletsPurchased: 0, lastGivenDate: '' }, fleaTickHistory: [],
+  insurance: { company: '', policyNumber: '', startDate: '', endDate: '', premium: 0, opdLimit: 0, ipdLimit: 0, remainingBalance: 0, claims: [] },
+  appointments: [], bloodTests: [], organExams: [], imaging: [], expenses: [],
+});
+const DEFAULT_DOGS = DOG_NAMES.map((n) => makeDog(n));
+
 const EMPTY_STATE = {
   accounts: [], income: [], contributions: [], history: [], expenses: [],
   expenseCategories: ['อาหาร', 'เดินทาง', 'ของใช้', 'บันเทิง', 'สุขภาพ', 'อื่นๆ'],
-  targetDate: '2029-01-01', goalNetWorth: 0, finnhubKey: '',
+  targetDate: '2029-01-01', goalNetWorth: 0, finnhubKey: '', dogs: [], googleClientId: '',
 };
 
 function readFileAsBase64(file) {
@@ -78,6 +93,51 @@ async function askServer(promptText, imageBase64, mediaType) {
   return data.text || '';
 }
 
+function ensureGsiLoaded() {
+  return new Promise((resolve, reject) => {
+    if (window.google && window.google.accounts && window.google.accounts.oauth2) { resolve(); return; }
+    const existing = document.getElementById('gsi-client-script');
+    if (existing) { existing.addEventListener('load', () => resolve()); existing.addEventListener('error', () => reject(new Error('โหลดสคริปต์ Google ไม่สำเร็จ'))); return; }
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true; script.defer = true; script.id = 'gsi-client-script';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('โหลดสคริปต์ Google ไม่สำเร็จ'));
+    document.head.appendChild(script);
+  });
+}
+
+async function connectGoogleCalendar(clientId) {
+  if (!clientId) throw new Error('ยังไม่ได้ใส่ Google Client ID ในหน้าตั้งค่า');
+  await ensureGsiLoaded();
+  return new Promise((resolve, reject) => {
+    try {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'https://www.googleapis.com/auth/calendar.events',
+        callback: (resp) => { if (resp && resp.access_token) resolve(resp.access_token); else reject(new Error('ไม่ได้รับสิทธิ์เข้าถึง Google Calendar')); },
+      });
+      client.requestAccessToken();
+    } catch (e) { reject(e); }
+  });
+}
+
+async function createCalendarEvent(accessToken, evt) {
+  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      summary: evt.summary,
+      description: evt.description || '',
+      start: { dateTime: evt.startDateTime, timeZone: 'Asia/Bangkok' },
+      end: { dateTime: evt.endDateTime, timeZone: 'Asia/Bangkok' },
+      reminders: { useDefault: false, overrides: evt.reminders || [{ method: 'popup', minutes: 7 * 24 * 60 }, { method: 'popup', minutes: 3 * 24 * 60 }, { method: 'popup', minutes: 24 * 60 }, { method: 'popup', minutes: 120 }] },
+    }),
+  });
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err.error && err.error.message) || `HTTP ${res.status}`); }
+  return res.json();
+}
+
 function holdingMarketValueTHB(h) { const fx = h.currency === 'USD' ? Number(h.currentFx || 0) : 1; return Number(h.shares || 0) * Number(h.currentPrice || 0) * fx; }
 function holdingCostBasisTHB(h) { const fx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1; return Number(h.shares || 0) * Number(h.avgCost || 0) * fx; }
 function holdingCAGR(h) {
@@ -93,11 +153,45 @@ function accountValueTHB(a) {
 }
 
 function NumInput({ value, onChange, className, style, placeholder }) {
+  const [localText, setLocalText] = useState(null); // null = not actively editing, derive from value
+  const inputRef = useRef(null);
+  const parsedLocal = localText === null ? null : (localText === '' || localText === '.' ? 0 : Number(localText));
+  const displayValue = localText !== null && parsedLocal === (value || 0)
+    ? localText
+    : (value === 0 || value === undefined || value === null ? '' : String(value));
+
+  function applyRaw(raw) {
+    const firstDot = raw.indexOf('.');
+    if (firstDot !== -1) raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+    setLocalText(raw);
+    const numeric = raw === '' || raw === '.' ? 0 : Number(raw);
+    onChange(isNaN(numeric) ? 0 : numeric);
+  }
+
   return (
-    <input type="text" inputMode="decimal" value={value === 0 || value === undefined || value === null ? '' : value}
-      placeholder={placeholder || '0'} onFocus={(e) => e.target.select()}
-      onChange={(e) => { const raw = e.target.value.replace(/[^0-9.]/g, ''); onChange(raw === '' ? 0 : Number(raw)); }}
-      className={className} style={style} />
+    <span className={className} style={{ position: 'relative', display: 'inline-block' }}>
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="decimal"
+        value={displayValue}
+        placeholder={placeholder || '0'}
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => applyRaw(e.target.value.replace(/,/g, '.').replace(/[^0-9.]/g, ''))}
+        onBlur={() => setLocalText(null)}
+        className={className}
+        style={{ ...style, width: '100%', boxSizing: 'border-box', paddingRight: displayValue.includes('.') ? style?.paddingRight : 24 }}
+      />
+      {!displayValue.includes('.') && (
+        <button
+          type="button"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => { applyRaw((displayValue || '0') + '.'); inputRef.current && inputRef.current.focus(); }}
+          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 15, fontWeight: 700, color: '#B8874B', background: 'transparent', border: 'none', padding: '0 2px', lineHeight: 1 }}
+        >.</button>
+      )}
+    </span>
   );
 }
 
@@ -141,6 +235,28 @@ function Tracker({ user }) {
   const [tab, setTab] = useState('dashboard');
   const [shareMode, setShareMode] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [googleToken, setGoogleToken] = useState(null);
+  const [calendarError, setCalendarError] = useState('');
+
+  async function connectCalendar() {
+    setCalendarError('');
+    try { const token = await connectGoogleCalendar(state && state.googleClientId); setGoogleToken(token); }
+    catch (e) { setCalendarError(e.message); }
+  }
+  async function addAppointmentToCalendar(dogName, appt) {
+    if (!googleToken) { setCalendarError('ยังไม่ได้เชื่อมต่อ Google Calendar'); return { ok: false }; }
+    try {
+      const startDateTime = `${appt.date}T${appt.time || '09:00'}:00`;
+      const end = new Date(startDateTime); end.setHours(end.getHours() + 1);
+      await createCalendarEvent(googleToken, {
+        summary: `นัดสัตวแพทย์: ${dogName}${appt.purpose ? ' - ' + appt.purpose : ''}`,
+        description: `โรงพยาบาล: ${appt.hospital || '-'}\nหมอ: ${appt.doctor || '-'}`,
+        startDateTime, endDateTime: end.toISOString().slice(0, 19),
+      });
+      return { ok: true };
+    } catch (e) { return { ok: false, message: e.message }; }
+  }
+
   const docRef = doc(db, 'users', user.uid, 'data', 'portfolio');
 
   useEffect(() => {
@@ -160,6 +276,7 @@ function Tracker({ user }) {
   const history = state?.history || [];
   const expenses = state?.expenses || [];
   const expenseCategories = state?.expenseCategories || ['อาหาร', 'เดินทาง', 'ของใช้', 'บันเทิง', 'สุขภาพ', 'อื่นๆ'];
+  const dogs = (state?.dogs && state.dogs.length > 0) ? state.dogs : DEFAULT_DOGS;
 
   const totalNetWorth = useMemo(() => accounts.reduce((s, a) => s + accountValueTHB(a), 0), [accounts]);
   const monthlyIncome = useMemo(() => income.reduce((s, i) => s + Number(i.amount || 0), 0), [income]);
@@ -225,6 +342,7 @@ function Tracker({ user }) {
   const changeTargetDate = (d) => persist({ ...state, targetDate: d });
   const changeGoal = (v) => persist({ ...state, goalNetWorth: v });
   const changeFinnhubKey = (v) => persist({ ...state, finnhubKey: v });
+  const changeGoogleClientId = (v) => persist({ ...state, googleClientId: v });
 
   function addHolding(accountId) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -274,6 +392,69 @@ function Tracker({ user }) {
   const addExpense = (entry) => persist({ ...state, expenses: [{ id: uid(), ...entry }, ...expenses] });
   const removeExpense = (id) => persist({ ...state, expenses: expenses.filter((e) => e.id !== id) });
   const addExpenseCategory = (name) => { if (name && !expenseCategories.includes(name)) persist({ ...state, expenseCategories: [...expenseCategories, name] }); };
+
+  function updateDog(dogId, patch) { persist({ ...state, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
+  function addWeight(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { weights: [{ id: uid(), ...entry }, ...(d.weights || [])] });
+  }
+  function removeWeight(dogId, wid) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { weights: (d.weights || []).filter((w) => w.id !== wid) });
+  }
+  function addMedication(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { medications: [{ id: uid(), ...entry }, ...(d.medications || [])] });
+  }
+  function updateMedication(dogId, medId, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { medications: (d.medications || []).map((m) => (m.id === medId ? { ...m, ...patch } : m)) });
+  }
+  function logFleaTick(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { fleaTickHistory: [{ id: uid(), ...entry }, ...(d.fleaTickHistory || [])], fleaTick: { ...d.fleaTick, lastGivenDate: entry.date } });
+  }
+  function updateFleaTickInfo(dogId, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { fleaTick: { ...d.fleaTick, ...patch } });
+  }
+  function updateInsurance(dogId, patch) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { insurance: { ...d.insurance, ...patch } });
+  }
+  function addInsuranceClaim(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { insurance: { ...d.insurance, claims: [{ id: uid(), ...entry }, ...(d.insurance.claims || [])] } });
+  }
+  function addAppointment(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { appointments: [{ id: uid(), ...entry }, ...(d.appointments || [])] });
+  }
+  function removeAppointment(dogId, apptId) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { appointments: (d.appointments || []).filter((a) => a.id !== apptId) });
+  }
+  function addBloodTest(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { bloodTests: [{ id: uid(), ...entry }, ...(d.bloodTests || [])] });
+  }
+  function addOrganExam(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { organExams: [{ id: uid(), ...entry }, ...(d.organExams || [])] });
+  }
+  function addImaging(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { imaging: [{ id: uid(), ...entry }, ...(d.imaging || [])] });
+  }
+  function addDogExpense(dogId, entry) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { expenses: [{ id: uid(), ...entry }, ...(d.expenses || [])] });
+  }
+  function removeDogExpense(dogId, expId) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { expenses: (d.expenses || []).filter((e) => e.id !== expId) });
+  }
+
   async function refreshFxRate() {
     try {
       const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=THB');
@@ -286,12 +467,18 @@ function Tracker({ user }) {
     } catch (e) { return null; }
   }
   async function refreshHoldingPrice(accountId, holdingId, symbol) {
-    if (!state.finnhubKey) { setShowSettings(true); return; }
+    if (!state.finnhubKey) { setShowSettings(true); return { ok: false, message: 'ยังไม่ได้ตั้งค่า API key' }; }
+    if (!symbol) return { ok: false, message: 'ยังไม่ได้ใส่สัญลักษณ์หุ้น' };
     try {
       const res = await fetch(`https://finnhub.io/api/v2/quote?symbol=${encodeURIComponent(symbol)}&token=${state.finnhubKey}`);
+      if (!res.ok) return { ok: false, message: `เซิร์ฟเวอร์ตอบกลับผิดพลาด (HTTP ${res.status})` };
       const data = await res.json();
-      if (data && data.c) updateHolding(accountId, holdingId, { currentPrice: data.c, lastUpdated: new Date().toISOString().slice(0, 10) });
-    } catch (e) { console.error('price fetch failed', e); }
+      if (data && data.error) return { ok: false, message: 'Finnhub: ' + data.error };
+      if (!data || (data.c === undefined || data.c === null)) return { ok: false, message: 'ไม่พบข้อมูลราคา ลองตรวจสอบสัญลักษณ์อีกครั้ง' };
+      if (data.c === 0) return { ok: false, message: `Finnhub ไม่รู้จักสัญลักษณ์ "${symbol}" (ราคาที่ได้เป็น 0)` };
+      updateHolding(accountId, holdingId, { currentPrice: data.c, lastUpdated: new Date().toISOString().slice(0, 10) });
+      return { ok: true, price: data.c };
+    } catch (e) { return { ok: false, message: 'เชื่อมต่อไม่สำเร็จ: ' + e.message }; }
   }
 
   if (shareMode) return <ShareView totalNetWorth={totalNetWorth} categoryBreakdown={categoryBreakdown} monthlyIncome={monthlyIncome} daysLeft={daysLeft} onClose={() => setShareMode(false)} />;
@@ -313,7 +500,11 @@ function Tracker({ user }) {
         <div className="flex items-center gap-2 mt-3"><Flame size={14} color={BRASS} /><p className="text-xs" style={{ color: '#D8CBB0' }}>เป้าหมายเกษียณอีก {daysLeft.toLocaleString()} วัน</p></div>
       </div>
 
-      {showSettings && <SettingsModal finnhubKey={state.finnhubKey} onChange={changeFinnhubKey} onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal finnhubKey={state.finnhubKey} onChange={changeFinnhubKey} onClose={() => setShowSettings(false)}
+          googleClientId={state.googleClientId} onChangeGoogleClientId={changeGoogleClientId}
+          googleToken={googleToken} onConnectCalendar={connectCalendar} calendarError={calendarError} />
+      )}
 
       {tab === 'dashboard' && (
         <Dashboard categoryBreakdown={categoryBreakdown} monthlyIncome={monthlyIncome} passiveIncome={passiveIncome} activeIncome={activeIncome}
@@ -331,9 +522,16 @@ function Tracker({ user }) {
       {tab === 'income' && <IncomeTab income={income} onUpdate={updateIncome} onAdd={addIncome} onRemove={removeIncome} monthlyIncome={monthlyIncome} />}
       {tab === 'reports' && <ReportsTab contributions={contributions} accounts={accounts} costBasisByAccount={costBasisByAccount} history={history} />}
       {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onAddCategory={addExpenseCategory} />}
+      {tab === 'pets' && (
+        <PetsTab dogs={dogs} onUpdateDog={updateDog} onAddWeight={addWeight} onRemoveWeight={removeWeight}
+          onAddMedication={addMedication} onUpdateMedication={updateMedication} onLogFleaTick={logFleaTick} onUpdateFleaTickInfo={updateFleaTickInfo}
+          onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment}
+          onAddBloodTest={addBloodTest} onAddOrganExam={addOrganExam} onAddImaging={addImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense}
+          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} />
+      )}
 
       <div style={{ background: INK, borderTop: `1px solid ${BRASS}33` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'รายรับ', icon: TrendingUp }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'รายรับ', icon: TrendingUp }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
             <t.icon size={17} color={tab === t.id ? BRASS : '#8A93A6'} /><span className="text-[8px]" style={{ color: tab === t.id ? BRASS : '#8A93A6' }}>{t.label}</span>
           </button>
@@ -345,14 +543,24 @@ function Tracker({ user }) {
 
 function Card({ children }) { return <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-xl p-4 mb-4">{children}</div>; }
 
-function SettingsModal({ finnhubKey, onChange, onClose }) {
+function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, calendarError }) {
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">ตั้งค่า</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
         <p className="text-xs mb-2" style={{ color: SLATE }}>Finnhub API key (ฟรี) — ใช้สำหรับปุ่มรีเฟรชราคาหุ้นสหรัฐฯ สมัครที่ finnhub.io/register</p>
         <input type="text" value={finnhubKey || ''} onChange={(e) => onChange(e.target.value)} placeholder="วาง API key ที่นี่" style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mb-2" />
-        <p className="text-[11px]" style={{ color: SLATE }}>หุ้นไทย (SET) ยังไม่มี API ฟรีที่ดึงราคาได้ตรงจากเบราว์เซอร์ ต้องอัพเดทราคาด้วยตนเองไปก่อนครับ</p>
+        <p className="text-[11px] mb-4" style={{ color: SLATE }}>หุ้นไทย (SET) ยังไม่มี API ฟรีที่ดึงราคาได้ตรงจากเบราว์เซอร์ ต้องอัพเดทราคาด้วยตนเองไปก่อนครับ</p>
+
+        <div style={{ borderTop: '1px solid #E7E0CE' }} className="pt-4">
+          <p className="text-xs mb-2" style={{ color: SLATE }}>Google Calendar — สำหรับเพิ่มนัดหมายลงปฏิทินโดยตรง ต้องสร้าง OAuth Client ID จาก Google Cloud Console ก่อน</p>
+          <input type="text" value={googleClientId || ''} onChange={(e) => onChangeGoogleClientId(e.target.value)} placeholder="วาง Google Client ID ที่นี่ (ลงท้าย .apps.googleusercontent.com)" style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mb-2" />
+          <button onClick={onConnectCalendar} style={{ background: googleToken ? GOOD : INK }} className="w-full text-white rounded-lg py-2 text-sm mb-2">
+            {googleToken ? '✓ เชื่อมต่อแล้ว (กดเพื่อเชื่อมต่อใหม่)' : 'เชื่อมต่อ Google Calendar'}
+          </button>
+          {calendarError && <p className="text-[11px]" style={{ color: BAD }}>{calendarError}</p>}
+          <p className="text-[11px]" style={{ color: SLATE }}>การเชื่อมต่อจะหมดอายุเมื่อปิดแอป ต้องกดเชื่อมต่อใหม่ทุกครั้งที่เปิดใช้งาน</p>
+        </div>
       </div>
     </div>
   );
@@ -504,14 +712,14 @@ async function scanSingleValue(file) {
 
 async function scanBuyTransaction(file) {
   const base64 = await readFileAsBase64(file);
-  const prompt = `นี่คือภาพยืนยันรายการซื้อหุ้นหรือกองทุนจากแอปการลงทุน (เช่น สลิปคำสั่งซื้อ, DCA, ประวัติรายการ) อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amount": จำนวนเงินที่จ่ายจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ได้รับเป็นตัวเลข, "price": ราคาต่อหน่วยที่ซื้อได้จริงเป็นตัวเลข, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
+  const prompt = `นี่คือภาพยืนยันรายการซื้อหุ้นหรือกองทุนจากแอปการลงทุน (เช่น สลิปคำสั่งซื้อ, DCA, ประวัติรายการ, หรือตารางคำสั่งซื้อขาย) ภาพอาจมีหลายรายการหรือหลายสัญลักษณ์ปนกัน — ให้เลือกเฉพาะรายการฝั่งซื้อ (Buy/B) ที่มีสถานะสำเร็จแล้วเท่านั้น (เช่น Match, Filled, Completed, สำเร็จ) ห้ามนับรายการที่สถานะยังเป็น Open/Pending/รอดำเนินการ ถ้ามีหลายรายการที่ผ่านเงื่อนไข ให้เลือกรายการที่ดูเด่นหรือล่าสุดที่สุด อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"symbol": "สัญลักษณ์ย่อของรายการที่เลือก หรือ null ถ้าไม่เห็น", "amount": จำนวนเงินที่จ่ายจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ได้รับเป็นตัวเลข, "price": ราคาต่อหน่วยที่ซื้อได้จริงเป็นตัวเลข, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
 
 async function scanSellTransaction(file) {
   const base64 = await readFileAsBase64(file);
-  const prompt = `นี่คือภาพยืนยันรายการขายหุ้นหรือกองทุนจากแอปการลงทุน อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amount": จำนวนเงินที่ได้รับจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ขายเป็นตัวเลข, "price": ราคาต่อหน่วยที่ขายได้จริงเป็นตัวเลข, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
+  const prompt = `นี่คือภาพยืนยันรายการขายหุ้นหรือกองทุนจากแอปการลงทุน ภาพอาจมีหลายรายการหรือหลายสัญลักษณ์ปนกัน — ให้เลือกเฉพาะรายการฝั่งขาย (Sell/S) ที่มีสถานะสำเร็จแล้วเท่านั้น (เช่น Match, Filled, Completed, สำเร็จ) ห้ามนับรายการที่สถานะยังเป็น Open/Pending/รอดำเนินการ ถ้ามีหลายรายการที่ผ่านเงื่อนไข ให้เลือกรายการที่ดูเด่นหรือล่าสุดที่สุด อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"symbol": "สัญลักษณ์ย่อของรายการที่เลือก หรือ null ถ้าไม่เห็น", "amount": จำนวนเงินที่ได้รับจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ขายเป็นตัวเลข, "price": ราคาต่อหน่วยที่ขายได้จริงเป็นตัวเลข, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
@@ -535,6 +743,13 @@ async function parseExpenseText(transcript, categories) {
 async function scanPortfolioTable(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพหน้าจอแอปการลงทุนที่แสดงรายการสินทรัพย์หลายตัว (อาจเป็นตารางหุ้นไทยแบบมีคอลัมน์ Avail Vol/Avg/Market หรือเป็นรายการแบบ Dime! ที่โชว์มูลค่ารวมกับราคาต่อหน่วยและ % เปลี่ยนแปลง) อ่านทุกแถวที่เห็น แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น สำหรับแต่ละแถวใส่ข้อมูลเท่าที่เห็นจริงในภาพ ถ้าไม่เห็นให้ใส่ null รูปแบบ: [{"symbol":"สัญลักษณ์ย่อ","currency":"THB หรือ USD","shares":จำนวนหน่วยถ้าเห็นตรงๆมิฉะนั้น null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยถ้าเห็นมิฉะนั้น null,"currentPrice":ราคาต่อหน่วยปัจจุบันถ้าเห็นมิฉะนั้น null,"value":มูลค่ารวมของแถวนี้ถ้าเห็นมิฉะนั้น null}]`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  return safeParseJson(text);
+}
+
+async function scanHoldingDetail(file) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพหน้ารายละเอียดของหุ้นหรือกองทุนเพียงตัวเดียว (อาจแสดงจำนวนหน่วย/หุ้นที่ถือ, ต้นทุนเฉลี่ยหรือ NAV ต้นทุนต่อหน่วย, ราคาปัจจุบันหรือ NAV ปัจจุบันต่อหน่วย) อ่านค่าที่เห็นจริงแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น ถ้าไม่เห็นค่าใดให้ใส่ null รูปแบบ: {"shares": จำนวนหน่วยหรือหุ้นเป็นตัวเลขหรือ null, "avgCost": ต้นทุนเฉลี่ยหรือNAVต้นทุนต่อหน่วยเป็นตัวเลขหรือ null, "currentPrice": ราคาปัจจุบันหรือNAVปัจจุบันต่อหน่วยเป็นตัวเลขหรือ null, "currency": "THB หรือ USD"}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
@@ -717,7 +932,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         if ((shares === null || shares === 0) && r.value && currentPrice) shares = Number(r.value) / currentPrice;
         const existing = holdings.find((h) => (h.symbol || '').toUpperCase() === (r.symbol || '').toUpperCase());
         const avgCost = r.avgCost !== null && r.avgCost !== undefined ? Number(r.avgCost) : (existing ? existing.avgCost : 0);
-        return { symbol: (r.symbol || '').toUpperCase(), shares: shares || 0, avgCost, currentPrice, fx: rowCurrency === 'USD' ? 36 : 1, avgCostMissing: r.avgCost === null || r.avgCost === undefined, sharesMissing: r.shares === null || r.shares === undefined };
+        return { symbol: (r.symbol || '').toUpperCase(), shares: shares || 0, avgCost, currentPrice, currency: rowCurrency, fx: rowCurrency === 'USD' ? 36 : 1, avgCostMissing: r.avgCost === null || r.avgCost === undefined, sharesMissing: r.shares === null || r.shares === undefined };
       }));
     } catch (err) { setPortError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setPortScanning(false); if (portFileRef.current) portFileRef.current.value = ''; }
@@ -729,11 +944,12 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const next = [...holdings];
     portDraft.forEach((row) => {
       if (!row.symbol) return;
+      const rowCur = row.currency || currency;
       const idx = next.findIndex((h) => (h.symbol || '').toUpperCase() === row.symbol);
       if (idx >= 0) {
-        next[idx] = { ...next[idx], shares: row.shares, avgCost: row.avgCost, currentPrice: row.currentPrice, currentFx: currency === 'USD' ? row.fx : next[idx].currentFx, lastUpdated: today };
+        next[idx] = { ...next[idx], shares: row.shares, avgCost: row.avgCost, currentPrice: row.currentPrice, currentFx: rowCur === 'USD' ? row.fx : next[idx].currentFx, lastUpdated: today };
       } else {
-        next.push({ id: uid(), symbol: row.symbol, name: '', shares: row.shares, avgCost: row.avgCost, currency, purchaseFx: currency === 'USD' ? row.fx : 1, currentPrice: row.currentPrice, currentFx: currency === 'USD' ? row.fx : 1, lastUpdated: today, purchaseDate: '', dividends: [], sells: [], buys: [] });
+        next.push({ id: uid(), symbol: row.symbol, name: '', shares: row.shares, avgCost: row.avgCost, currency: rowCur, purchaseFx: rowCur === 'USD' ? row.fx : 1, currentPrice: row.currentPrice, currentFx: rowCur === 'USD' ? row.fx : 1, lastUpdated: today, purchaseDate: '', dividends: [], sells: [], buys: [] });
       }
     });
     onUpdate(a.id, { holdings: next });
@@ -769,10 +985,10 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
                 </div>
                 <div className="grid grid-cols-3 gap-1 mb-1">
                   <div><label className="text-[9px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={row.shares} onChange={(v) => updateDraftRow(idx, { shares: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย</label><NumInput value={row.avgCost} onChange={(v) => updateDraftRow(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด</label><NumInput value={row.currentPrice} onChange={(v) => updateDraftRow(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย ({row.currency})</label><NumInput value={row.avgCost} onChange={(v) => updateDraftRow(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด ({row.currency})</label><NumInput value={row.currentPrice} onChange={(v) => updateDraftRow(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
                 </div>
-                {currency === 'USD' && (
+                {row.currency === 'USD' && (
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[9px]" style={{ color: SLATE }}>FX (1 USD =)</span>
                     <NumInput value={row.fx} onChange={(v) => updateDraftRow(idx, { fx: v })} className="text-xs rounded px-1 py-1 w-16" style={{ border: '1px solid #E7E0CE', background: 'white' }} />
@@ -827,6 +1043,10 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
   const [sellScanning, setSellScanning] = useState(false);
   const [sellError, setSellError] = useState('');
   const [sellDraft, setSellDraft] = useState(null); // { amount, shares, price, date }
+  const syncFileRef = useRef(null);
+  const [syncScanning, setSyncScanning] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [syncDraft, setSyncDraft] = useState(null); // { shares, avgCost, currentPrice, currency }
   const marketValue = holdingMarketValueTHB(h);
   const costBasis = holdingCostBasisTHB(h);
   const gain = marketValue - costBasis;
@@ -835,7 +1055,13 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
   const yieldPct = costBasis ? (totalDiv / costBasis) * 100 : 0;
   const cagr = holdingCAGR(h);
   const totalRealized = (h.sells || []).reduce((s, x) => s + Number(x.gain || 0), 0);
-  async function doRefresh() { setRefreshing(true); await onRefreshPrice(accountId, h.id, h.symbol); setRefreshing(false); }
+  const [refreshError, setRefreshError] = useState('');
+  async function doRefresh() {
+    setRefreshing(true); setRefreshError('');
+    const result = await onRefreshPrice(accountId, h.id, h.symbol);
+    if (result && !result.ok) setRefreshError(result.message);
+    setRefreshing(false);
+  }
 
   async function handleBuyFile(e) {
     const file = e.target.files && e.target.files[0];
@@ -843,7 +1069,7 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
     setBuyScanning(true); setBuyError(''); setBuyDraft(null);
     try {
       const parsed = await scanBuyTransaction(file);
-      setBuyDraft({ amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10) });
+      setBuyDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10) });
     } catch (err) { setBuyError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setBuyScanning(false); if (buyFileRef.current) buyFileRef.current.value = ''; }
   }
@@ -854,7 +1080,7 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
     setSellScanning(true); setSellError(''); setSellDraft(null);
     try {
       const parsed = await scanSellTransaction(file);
-      setSellDraft({ amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10) });
+      setSellDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10) });
     } catch (err) { setSellError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setSellScanning(false); if (sellFileRef.current) sellFileRef.current.value = ''; }
   }
@@ -897,6 +1123,31 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
     setBuyDraft(null);
   }
 
+  async function handleSyncFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setSyncScanning(true); setSyncError(''); setSyncDraft(null);
+    try {
+      const parsed = await scanHoldingDetail(file);
+      setSyncDraft({
+        shares: parsed.shares !== null && parsed.shares !== undefined ? Number(parsed.shares) : h.shares,
+        avgCost: parsed.avgCost !== null && parsed.avgCost !== undefined ? Number(parsed.avgCost) : h.avgCost,
+        currentPrice: parsed.currentPrice !== null && parsed.currentPrice !== undefined ? Number(parsed.currentPrice) : h.currentPrice,
+        currency: parsed.currency === 'USD' ? 'USD' : 'THB',
+        fx: h.currency === 'USD' ? h.purchaseFx : 36,
+      });
+    } catch (err) { setSyncError('อ่านภาพไม่สำเร็จ: ' + err.message); }
+    finally { setSyncScanning(false); if (syncFileRef.current) syncFileRef.current.value = ''; }
+  }
+  function confirmSync() {
+    const wasUSD = h.currency === 'USD';
+    const nowUSD = syncDraft.currency === 'USD';
+    const patch = { shares: syncDraft.shares, avgCost: syncDraft.avgCost, currentPrice: syncDraft.currentPrice, currency: syncDraft.currency, lastUpdated: new Date().toISOString().slice(0, 10) };
+    if (nowUSD) { patch.purchaseFx = wasUSD ? h.purchaseFx : syncDraft.fx; patch.currentFx = wasUSD ? h.currentFx : syncDraft.fx; }
+    onUpdate(accountId, h.id, patch);
+    setSyncDraft(null);
+  }
+
   return (
     <div style={{ background: PAPER_DIM }} className="rounded-lg p-3 mb-2">
       <div className="flex gap-2 mb-2"><input value={h.symbol} onChange={(e) => onUpdate(accountId, h.id, { symbol: e.target.value.toUpperCase() })} placeholder="สัญลักษณ์" className="text-sm font-semibold flex-1 outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /><button onClick={() => onRemove(accountId, h.id)}><Trash2 size={14} color={BAD} /></button></div>
@@ -908,7 +1159,32 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
         {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ปัจจุบัน</label><NumInput value={h.currentFx} onChange={(v) => onUpdate(accountId, h.id, { currentFx: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>}
         <div className="col-span-2"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่มถือ (สำหรับ CAGR)</label><input type="date" value={h.purchaseDate || ''} onChange={(e) => onUpdate(accountId, h.id, { purchaseDate: e.target.value })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
       </div>
-      {canRefresh && <button onClick={doRefresh} disabled={!h.symbol} className="flex items-center gap-1 text-[11px] mb-2" style={{ color: finnhubKey ? BRASS : SLATE }}>{refreshing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {finnhubKey ? 'รีเฟรชราคาล่าสุด' : 'ตั้งค่า API key เพื่อรีเฟรชราคา'}</button>}
+      {canRefresh && <button onClick={doRefresh} disabled={!h.symbol} className="flex items-center gap-1 text-[11px] mb-1" style={{ color: finnhubKey ? BRASS : SLATE }}>{refreshing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {finnhubKey ? 'รีเฟรชราคาล่าสุด' : 'ตั้งค่า API key เพื่อรีเฟรชราคา'}</button>}
+      {refreshError && <p className="text-[10px] mb-2" style={{ color: BAD }}>{refreshError}</p>}
+      {syncDraft ? (
+        <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mb-2">
+          <p className="text-xs mb-2" style={{ color: SLATE }}>ตรวจสอบข้อมูลก่อนตั้งค่าใหม่ทั้งหมด (แทนที่ค่าเดิม)</p>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={syncDraft.shares} onChange={(v) => setSyncDraft({ ...syncDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย ({syncDraft.currency})</label><NumInput value={syncDraft.avgCost} onChange={(v) => setSyncDraft({ ...syncDraft, avgCost: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ราคาปัจจุบัน ({syncDraft.currency})</label><NumInput value={syncDraft.currentPrice} onChange={(v) => setSyncDraft({ ...syncDraft, currentPrice: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+            {syncDraft.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX</label><NumInput value={syncDraft.fx} onChange={(v) => setSyncDraft({ ...syncDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>}
+          </div>
+          {syncDraft.currency !== h.currency && <p className="text-[11px] mb-2" style={{ color: WARN }}>สังเกตว่าสกุลเงินตรวจพบเป็น {syncDraft.currency} ต่างจากเดิม ({h.currency}) — ระบบจะปรับให้ตรงตามนี้</p>}
+          <div className="flex gap-2">
+            <button onClick={confirmSync} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันตั้งค่าใหม่</button>
+            <button onClick={() => setSyncDraft(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-2">
+          <input ref={syncFileRef} type="file" accept="image/*" onChange={handleSyncFile} className="hidden" />
+          <button onClick={() => syncFileRef.current && syncFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
+            {syncScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {syncScanning ? 'กำลังอ่านภาพ...' : 'ซิงค์ข้อมูลจากภาพหน้ารายละเอียด'}
+          </button>
+          {syncError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{syncError}</p>}
+        </div>
+      )}
       {h.lastUpdated && <p className="text-[10px] mb-2" style={{ color: SLATE }}>อัพเดทล่าสุด: {h.lastUpdated}</p>}
       <div className="flex justify-between text-sm"><span>มูลค่า ฿{fmt(marketValue)}</span><span style={{ color: gain >= 0 ? GOOD : BAD }}>{gain >= 0 ? '+' : ''}{gainPct.toFixed(1)}%</span></div>
       <p className="text-[11px]" style={{ color: SLATE }}>ต้นทุน ฿{fmt(costBasis)} · ปันผลสะสม ฿{fmt(totalDiv)} (Yield {yieldPct.toFixed(1)}%){cagr !== null && ` · CAGR ${cagr.toFixed(1)}%/ปี`}</p>
@@ -920,6 +1196,9 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
       {buyDraft ? (
         <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mt-2">
           <p className="text-xs mb-2" style={{ color: SLATE }}>ตรวจสอบรายการซื้อก่อนยืนยัน (แก้ไขได้)</p>
+          {buyDraft.symbol && buyDraft.symbol.toUpperCase() !== (h.symbol || '').toUpperCase() && (
+            <p className="text-[11px] mb-2" style={{ color: WARN }}>⚠️ ภาพนี้ดูเหมือนเป็นสัญลักษณ์ "{buyDraft.symbol}" แต่หุ้นนี้คือ "{h.symbol}" — เช็คให้ดีว่าภาพถูกต้องก่อนยืนยัน</p>
+          )}
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div><label className="text-[10px]" style={{ color: SLATE }}>จ่ายจริง (บาท)</label><NumInput value={buyDraft.amount} onChange={(v) => setBuyDraft({ ...buyDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ได้</label><NumInput value={buyDraft.shares} onChange={(v) => setBuyDraft({ ...buyDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
@@ -959,6 +1238,9 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
       {sellDraft ? (
         <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mt-2">
           <p className="text-xs mb-2" style={{ color: SLATE }}>ตรวจสอบรายการขายก่อนยืนยัน (แก้ไขได้)</p>
+          {sellDraft.symbol && sellDraft.symbol.toUpperCase() !== (h.symbol || '').toUpperCase() && (
+            <p className="text-[11px] mb-2" style={{ color: WARN }}>⚠️ ภาพนี้ดูเหมือนเป็นสัญลักษณ์ "{sellDraft.symbol}" แต่หุ้นนี้คือ "{h.symbol}" — เช็คให้ดีว่าภาพถูกต้องก่อนยืนยัน</p>
+          )}
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div><label className="text-[10px]" style={{ color: SLATE }}>ได้รับจริง (บาท)</label><NumInput value={sellDraft.amount} onChange={(v) => setSellDraft({ ...sellDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ขาย</label><NumInput value={sellDraft.shares} onChange={(v) => setSellDraft({ ...sellDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
@@ -1328,6 +1610,506 @@ function ReportsTab({ contributions, accounts, costBasisByAccount, history }) {
           <div key={s.id} className="flex justify-between text-xs mb-2"><span>{s.date} · {s.symbol}</span><span style={{ color: s.gain >= 0 ? GOOD : BAD }}>{s.gain >= 0 ? '+' : ''}฿{fmt(s.gain)}</span></div>
         ))}
         {allSells.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีประวัติการขาย</p>}
+      </Card>
+    </div>
+  );
+}
+
+function ageString(birthdate) {
+  if (!birthdate) return '-';
+  const bd = new Date(birthdate); const now = new Date();
+  let years = now.getFullYear() - bd.getFullYear();
+  let months = now.getMonth() - bd.getMonth();
+  if (now.getDate() < bd.getDate()) months--;
+  if (months < 0) { years--; months += 12; }
+  if (years < 0) return '-';
+  return `${years} ปี ${months} เดือน`;
+}
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  return Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24));
+}
+function computeDogInsights(dog) {
+  const insights = [];
+  const weights = [...(dog.weights || [])].sort((a, b) => b.date.localeCompare(a.date));
+  if (weights.length >= 2) {
+    const latest = Number(weights[0].weight); const prev = Number(weights[1].weight);
+    if (prev > 0) {
+      const pct = ((latest - prev) / prev) * 100;
+      if (pct >= 10) insights.push({ tone: 'warn', text: `น้ำหนักเพิ่มขึ้น ${pct.toFixed(1)}% จากครั้งก่อน — น้ำหนักเพิ่มผิดปกติ` });
+      else if (pct <= -10) insights.push({ tone: 'warn', text: `น้ำหนักลดลง ${Math.abs(pct).toFixed(1)}% จากครั้งก่อน — น้ำหนักลดผิดปกติ` });
+    }
+  }
+  const ft = dog.fleaTick || {};
+  if (ft.lastGivenDate && ft.intervalDays) {
+    const due = new Date(ft.lastGivenDate); due.setDate(due.getDate() + Number(ft.intervalDays || 84));
+    const d = Math.ceil((due - new Date()) / (1000 * 60 * 60 * 24));
+    if (d <= 7) insights.push({ tone: d < 0 ? 'warn' : 'info', text: d < 0 ? `ยาเห็บหมัดเลยกำหนดมา ${Math.abs(d)} วันแล้ว` : `ยาเห็บหมัดครบกำหนดในอีก ${d} วัน` });
+  }
+  (dog.appointments || []).forEach((a) => {
+    const d = daysUntil(a.date);
+    if (d !== null && d >= 0 && d <= 7) insights.push({ tone: 'info', text: `นัดหมายที่ ${a.hospital || '-'} อีก ${d} วัน` });
+  });
+  if (dog.insurance && dog.insurance.endDate) {
+    const d = daysUntil(dog.insurance.endDate);
+    if (d !== null && d >= 0 && d <= 30) insights.push({ tone: 'warn', text: `ประกันจะหมดอายุในอีก ${d} วัน` });
+  }
+  const activeMeds = (dog.medications || []).filter((m) => !m.stopDate);
+  if (activeMeds.length > 0) insights.push({ tone: 'info', text: `กำลังใช้ยาอยู่ ${activeMeds.length} รายการ: ${activeMeds.map((m) => m.name).join(', ')}` });
+  if (insights.length === 0) insights.push({ tone: 'good', text: 'ไม่มีรายการที่ต้องระวังตอนนี้' });
+  return insights;
+}
+
+function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onAddAppointment, onRemoveAppointment, onAddBloodTest, onAddOrganExam, onAddImaging, onAddDogExpense, onRemoveDogExpense, googleConnected, onAddToCalendar }) {
+  const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
+  const [section, setSection] = useState('overview');
+  const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
+
+  const sections = [
+    { id: 'overview', label: 'ภาพรวม' },
+    { id: 'profile', label: 'ข้อมูลส่วนตัว' },
+    { id: 'weight', label: 'น้ำหนัก' },
+    { id: 'meds', label: 'ยา' },
+    { id: 'flea', label: 'เห็บหมัด' },
+    { id: 'insurance', label: 'ประกัน' },
+    { id: 'appt', label: 'นัดหมาย' },
+    { id: 'records', label: 'เวชระเบียน' },
+    { id: 'expenses', label: 'ค่าใช้จ่าย' },
+    { id: 'allreport', label: 'รายงานรวม 8 ตัว' },
+  ];
+
+  return (
+    <div className="px-5 pt-5">
+      <div className="flex gap-2 mb-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+        {dogs.map((d) => (
+          <button key={d.id} onClick={() => setSelectedId(d.id)} style={{ background: selectedId === d.id ? INK : PAPER_DIM, color: selectedId === d.id ? 'white' : INK, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{d.name}</button>
+        ))}
+      </div>
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+        {sections.map((s) => (
+          <button key={s.id} onClick={() => setSection(s.id)} style={{ background: section === s.id ? BRASS : PAPER_DIM, color: section === s.id ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1 text-[11px] whitespace-nowrap">{s.label}</button>
+        ))}
+      </div>
+
+      {section === 'allreport' ? (
+        <AllDogsReportSection dogs={dogs} />
+      ) : dog && (
+        <>
+          {section === 'overview' && <DogOverviewSection dog={dog} />}
+          {section === 'profile' && <DogProfileSection dog={dog} onUpdateDog={onUpdateDog} />}
+          {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} />}
+          {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} />}
+          {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onUpdateFleaTickInfo={onUpdateFleaTickInfo} />}
+          {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} />}
+          {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
+          {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onAddOrganExam={onAddOrganExam} onAddImaging={onAddImaging} />}
+          {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function DogOverviewSection({ dog }) {
+  const latestWeight = [...(dog.weights || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
+  const thisYear = new Date().getFullYear();
+  const expensesThisYear = (dog.expenses || []).filter((e) => e.date.startsWith(String(thisYear))).reduce((s, e) => s + Number(e.amount || 0), 0);
+  const expensesLifetime = (dog.expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0);
+  const activeMeds = (dog.medications || []).filter((m) => !m.stopDate);
+  const nextAppt = [...(dog.appointments || [])].filter((a) => daysUntil(a.date) >= 0).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const ft = dog.fleaTick || {};
+  const nextFleaDue = ft.lastGivenDate ? (() => { const d = new Date(ft.lastGivenDate); d.setDate(d.getDate() + Number(ft.intervalDays || 84)); return d.toISOString().slice(0, 10); })() : null;
+  const insights = computeDogInsights(dog);
+
+  return (
+    <div>
+      <Card>
+        <p className="text-lg font-semibold mb-1">{dog.name}{dog.nickname && ` (${dog.nickname})`}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatBox label="อายุ" value={ageString(dog.birthdate)} />
+          <StatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} />
+          <StatBox label="BCS" value={dog.bcs || '-'} />
+          <StatBox label="เพศ/สี" value={`${dog.sex || '-'} / ${dog.color || '-'}`} />
+        </div>
+      </Card>
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>สรุปสำคัญ</p>
+        <p className="text-sm mb-1">โรคประจำตัว: {dog.chronicDiseases || 'ไม่มี'}</p>
+        <p className="text-sm mb-1">แพ้ยา: {dog.drugAllergies || 'ไม่มี'}</p>
+        <p className="text-sm mb-1">ยาที่กำลังกิน: {activeMeds.length > 0 ? activeMeds.map((m) => m.name).join(', ') : 'ไม่มี'}</p>
+        <p className="text-sm mb-1">นัดถัดไป: {nextAppt ? `${nextAppt.date} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</p>
+        <p className="text-sm mb-1">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue || 'ยังไม่ได้ตั้งค่า'}</p>
+        <p className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate || 'ไม่มี'}</p>
+      </Card>
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>ค่าใช้จ่าย</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatBox label="ปีนี้" value={`฿${fmt(expensesThisYear)}`} />
+          <StatBox label="ตลอดชีวิต" value={`฿${fmt(expensesLifetime)}`} />
+        </div>
+      </Card>
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>ข้อสังเกต/แจ้งเตือน</p>
+        {insights.map((it, i) => <InsightRow key={i} tone={it.tone} text={it.text} />)}
+      </Card>
+    </div>
+  );
+}
+
+function DogProfileSection({ dog, onUpdateDog }) {
+  const field = (label, key, type = 'text') => (
+    <div className="mb-3">
+      <label className="text-xs" style={{ color: SLATE }}>{label}</label>
+      <input type={type} value={dog[key] || ''} onChange={(e) => onUpdateDog(dog.id, { [key]: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} />
+    </div>
+  );
+  return (
+    <Card>
+      <div className="mb-3"><label className="text-xs" style={{ color: SLATE }}>ชื่อ</label><input value={dog.name} onChange={(e) => onUpdateDog(dog.id, { name: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 font-semibold" style={{ border: '1px solid #E7E0CE' }} /></div>
+      {field('ชื่อเล่น', 'nickname')}
+      {field('วันเกิด', 'birthdate', 'date')}
+      {field('เพศ', 'sex')}
+      {field('สี', 'color')}
+      {field('สายพันธุ์', 'breed')}
+      {field('หมายเลขไมโครชิป', 'microchip')}
+      {field('ผู้เพาะพันธุ์', 'breeder')}
+      <div className="mb-3"><label className="text-xs" style={{ color: SLATE }}>BCS (Body Condition Score)</label><NumInput value={dog.bcs} onChange={(v) => onUpdateDog(dog.id, { bcs: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+      {field('นิสัย', 'personality')}
+      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>โรคประจำตัว</label><textarea value={dog.chronicDiseases || ''} onChange={(e) => onUpdateDog(dog.id, { chronicDiseases: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
+      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>การแพ้ยา</label><textarea value={dog.drugAllergies || ''} onChange={(e) => onUpdateDog(dog.id, { drugAllergies: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
+      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
+    </Card>
+  );
+}
+
+function DogWeightSection({ dog, onAddWeight, onRemoveWeight }) {
+  const [weight, setWeight] = useState(0);
+  const [location, setLocation] = useState('');
+  const [weigher, setWeigher] = useState('');
+  const [note, setNote] = useState('');
+  const [range, setRange] = useState(90);
+  const weights = [...(dog.weights || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const chartData = weights.filter((w) => range === 9999 || (Date.now() - new Date(w.date).getTime()) / (1000 * 60 * 60 * 24) <= range).map((w) => ({ date: w.date.slice(5), weight: Number(w.weight) }));
+
+  function submit() {
+    if (!weight) return;
+    onAddWeight(dog.id, { date: new Date().toISOString().slice(0, 10), time: new Date().toTimeString().slice(0, 5), weight, location, weigher, note });
+    setWeight(0); setNote('');
+  }
+
+  return (
+    <div>
+      <Card>
+        <label className="text-xs" style={{ color: SLATE }}>น้ำหนัก (กก.)</label>
+        <NumInput value={weight} onChange={setWeight} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <label className="text-xs" style={{ color: SLATE }}>สถานที่ชั่ง</label>
+        <input value={location} onChange={(e) => setLocation(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <label className="text-xs" style={{ color: SLATE }}>ผู้ชั่ง</label>
+        <input value={weigher} onChange={(e) => setWeigher(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกน้ำหนัก</button>
+      </Card>
+      <Card>
+        <div className="flex gap-1 mb-3">
+          {[{ v: 90, l: '3 เดือน' }, { v: 180, l: '6 เดือน' }, { v: 365, l: '1 ปี' }, { v: 9999, l: 'ตลอดอายุ' }].map((r) => (
+            <button key={r.v} onClick={() => setRange(r.v)} style={{ background: range === r.v ? INK : PAPER_DIM, color: range === r.v ? 'white' : INK }} className="rounded-full px-2 py-1 text-[10px]">{r.l}</button>
+          ))}
+        </div>
+        {chartData.length >= 2 ? (
+          <div style={{ width: '100%', height: 160 }}><ResponsiveContainer><LineChart data={chartData}><XAxis dataKey="date" tick={{ fontSize: 9 }} /><YAxis tick={{ fontSize: 9 }} /><Tooltip /><Line type="monotone" dataKey="weight" stroke={BRASS} strokeWidth={2} dot={{ r: 2 }} /></LineChart></ResponsiveContainer></div>
+        ) : <p className="text-xs" style={{ color: SLATE }}>ต้องมีอย่างน้อย 2 ครั้งถึงจะขึ้นกราฟ</p>}
+      </Card>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติ</p>
+      {[...weights].reverse().map((w) => (
+        <Card key={w.id}><div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}</p><p className="text-xs" style={{ color: SLATE }}>{w.date} {w.time}</p></div><button onClick={() => onRemoveWeight(dog.id, w.id)}><Trash2 size={14} color={BAD} /></button></div></Card>
+      ))}
+    </div>
+  );
+}
+
+function DogMedicationSection({ dog, onAddMedication, onUpdateMedication }) {
+  const [form, setForm] = useState({ name: '', strength: '', form: '', dose: '', usage: '', timing: '', startDate: new Date().toISOString().slice(0, 10), startReason: '', hospital: '', doctor: '' });
+  function submit() {
+    if (!form.name) return;
+    onAddMedication(dog.id, { ...form, stopDate: '', stopReason: '' });
+    setForm({ name: '', strength: '', form: '', dose: '', usage: '', timing: '', startDate: new Date().toISOString().slice(0, 10), startReason: '', hospital: '', doctor: '' });
+  }
+  const meds = [...(dog.medications || [])].sort((a, b) => b.startDate.localeCompare(a.startDate));
+  return (
+    <div>
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>เพิ่มยาใหม่ (ปรับยา = เพิ่มรายการใหม่ ไม่ลบของเดิม)</p>
+        {['name:ชื่อยา', 'strength:ความแรง', 'form:รูปแบบยา', 'dose:ขนาดยา/จำนวน', 'usage:วิธีใช้', 'timing:เวลาใช้ (ก่อน/หลังอาหาร)', 'startReason:เหตุผลที่เริ่ม', 'hospital:โรงพยาบาล', 'doctor:หมอผู้สั่ง'].map((f) => {
+          const [k, l] = f.split(':');
+          return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>;
+        })}
+        <div className="mb-3"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่ม</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกยา</button>
+      </Card>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติยาทั้งหมด (ห้ามลบ)</p>
+      {meds.map((m) => (
+        <Card key={m.id}>
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-sm font-semibold">{m.name} {m.strength}</p>
+              <p className="text-xs" style={{ color: SLATE }}>{m.dose} · {m.usage} · {m.timing}</p>
+              <p className="text-xs" style={{ color: SLATE }}>เริ่ม {m.startDate}{m.stopDate ? ` · หยุด ${m.stopDate}` : ''}</p>
+              {m.hospital && <p className="text-xs" style={{ color: SLATE }}>{m.hospital} · {m.doctor}</p>}
+            </div>
+            {!m.stopDate && <span className="text-[10px] rounded-full px-2 py-1" style={{ background: PAPER_DIM, color: GOOD }}>กำลังใช้</span>}
+          </div>
+          {!m.stopDate && (
+            <button onClick={() => { const reason = prompt('เหตุผลที่หยุดยา (ไม่บังคับ)') || ''; onUpdateMedication(dog.id, m.id, { stopDate: new Date().toISOString().slice(0, 10), stopReason: reason }); }} className="text-[11px] mt-2" style={{ color: BAD }}>บันทึกหยุดยา</button>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
+  const ft = dog.fleaTick || {};
+  const [doseGiven, setDoseGiven] = useState('');
+  const [cost, setCost] = useState(0);
+  const nextDue = ft.lastGivenDate ? (() => { const d = new Date(ft.lastGivenDate); d.setDate(d.getDate() + Number(ft.intervalDays || 84)); return d.toISOString().slice(0, 10); })() : null;
+  const costPerDose = ft.tabletsPurchased > 0 ? (Number(ft.totalCost || 0) / Number(ft.tabletsPurchased)) : 0;
+
+  function submit() {
+    onLogFleaTick(dog.id, { date: new Date().toISOString().slice(0, 10), doseGiven, cost });
+    setDoseGiven(''); setCost(0);
+  }
+
+  return (
+    <div>
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>ข้อมูลผลิตภัณฑ์</p>
+        <label className="text-[10px]" style={{ color: SLATE }}>ชื่อผลิตภัณฑ์ (เช่น Bravecto)</label>
+        <input value={ft.productName || ''} onChange={(e) => onUpdateFleaTickInfo(dog.id, { productName: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ขนาดเม็ดยา (mg)</label><NumInput value={ft.tabletMg} onChange={(v) => onUpdateFleaTickInfo(dog.id, { tabletMg: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนเม็ดที่ซื้อ</label><NumInput value={ft.tabletsPurchased} onChange={(v) => onUpdateFleaTickInfo(dog.id, { tabletsPurchased: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ราคารวมที่ซื้อ (บาท)</label><NumInput value={ft.totalCost} onChange={(v) => onUpdateFleaTickInfo(dog.id, { totalCost: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ระยะห่างรอบถัดไป (วัน)</label><NumInput value={ft.intervalDays || 84} onChange={(v) => onUpdateFleaTickInfo(dog.id, { intervalDays: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+        </div>
+        {costPerDose > 0 && <p className="text-xs mb-2" style={{ color: SLATE }}>ต้นทุนต่อครั้ง ≈ ฿{fmt(costPerDose)}</p>}
+        <p className="text-[10px]" style={{ color: WARN }}>⚠️ หากแบ่งเม็ดยาเอง ควรเป็นไปตามคำแนะนำของสัตวแพทย์และข้อมูลผู้ผลิตเท่านั้น ยาบางชนิดไม่เหมาะกับการแบ่งเม็ด ระบบนี้ไม่ได้คำนวณขนาดยาที่ถูกต้องให้ กรุณาให้ตามที่สัตวแพทย์สั่งเท่านั้น</p>
+      </Card>
+      <Card>
+        <p className="text-xs mb-1" style={{ color: SLATE }}>ให้ยาล่าสุด: {ft.lastGivenDate || 'ยังไม่เคยบันทึก'}</p>
+        <p className="text-xs mb-3" style={{ color: nextDue && daysUntil(nextDue) < 0 ? BAD : GOOD }}>ครั้งถัดไป: {nextDue || '-'}</p>
+        <label className="text-[10px]" style={{ color: SLATE }}>ให้ไปเท่าไหร่ (เช่น 1 เม็ด)</label>
+        <input value={doseGiven} onChange={(e) => setDoseGiven(e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่ายครั้งนี้ (ไม่บังคับ)</label>
+        <NumInput value={cost} onChange={setCost} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกให้ยาวันนี้</button>
+      </Card>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติ</p>
+      {(dog.fleaTickHistory || []).map((h) => <Card key={h.id}><div className="flex justify-between text-sm"><span>{h.date} · {h.doseGiven}</span><span>{h.cost ? `฿${fmt(h.cost)}` : ''}</span></div></Card>)}
+    </div>
+  );
+}
+
+function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim }) {
+  const ins = dog.insurance || {};
+  const [claimAmount, setClaimAmount] = useState(0);
+  const [claimReason, setClaimReason] = useState('');
+  const totalClaimed = (ins.claims || []).reduce((s, c) => s + Number(c.amount || 0), 0);
+  function submitClaim() {
+    if (!claimAmount) return;
+    onAddInsuranceClaim(dog.id, { date: new Date().toISOString().slice(0, 10), amount: claimAmount, reason: claimReason });
+    setClaimAmount(0); setClaimReason('');
+  }
+  return (
+    <div>
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>ข้อมูลกรมธรรม์</p>
+        {['company:บริษัทประกัน', 'policyNumber:เลขกรมธรรม์'].map((f) => { const [k, l] = f.split(':'); return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={ins[k] || ''} onChange={(e) => onUpdateInsurance(dog.id, { [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>; })}
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วันเริ่ม</label><input type="date" value={ins.startDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วันหมดอายุ</label><input type="date" value={ins.endDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { endDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+        </div>
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ค่าเบี้ย</label><NumInput value={ins.premium} onChange={(v) => onUpdateInsurance(dog.id, { premium: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วงเงิน OPD</label><NumInput value={ins.opdLimit} onChange={(v) => onUpdateInsurance(dog.id, { opdLimit: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วงเงิน IPD</label><NumInput value={ins.ipdLimit} onChange={(v) => onUpdateInsurance(dog.id, { ipdLimit: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+        </div>
+        <p className="text-xs" style={{ color: SLATE }}>ใช้สิทธิ์ไปแล้ว ฿{fmt(totalClaimed)}</p>
+      </Card>
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการเคลม</p>
+        <NumInput value={claimAmount} onChange={setClaimAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
+        <input value={claimReason} onChange={(e) => setClaimReason(e.target.value)} placeholder="เหตุผล/อาการ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <button onClick={submitClaim} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเคลม</button>
+      </Card>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติการเคลม</p>
+      {(ins.claims || []).map((c) => <Card key={c.id}><div className="flex justify-between text-sm"><span>{c.date} · {c.reason}</span><span>฿{fmt(c.amount)}</span></div></Card>)}
+    </div>
+  );
+}
+
+function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, googleConnected, onAddToCalendar }) {
+  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '' });
+  const [syncingId, setSyncingId] = useState(null);
+  const [syncResult, setSyncResult] = useState({});
+  function submit() {
+    if (!form.date) return;
+    onAddAppointment(dog.id, form);
+    setForm({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '' });
+  }
+  async function syncToCalendar(a) {
+    setSyncingId(a.id);
+    const result = await onAddToCalendar(dog.name, a);
+    setSyncResult({ ...syncResult, [a.id]: result });
+    setSyncingId(null);
+  }
+  const appts = [...(dog.appointments || [])].sort((a, b) => a.date.localeCompare(b.date));
+  return (
+    <div>
+      {!googleConnected && <Card><p className="text-xs" style={{ color: SLATE }}>ยังไม่ได้เชื่อมต่อ Google Calendar — ไปที่ไอคอนตั้งค่า ⚙️ ที่หน้าภาพรวมเพื่อเชื่อมต่อก่อน จะได้กดเพิ่มนัดลงปฏิทินได้</p></Card>}
+      <Card>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่</label><input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>เวลา</label><input type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+        </div>
+        <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label>
+        <input value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>วัตถุประสงค์</label>
+        <input value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">เพิ่มนัดหมาย</button>
+      </Card>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>นัดหมายทั้งหมด</p>
+      {appts.map((a) => {
+        const d = daysUntil(a.date);
+        const result = syncResult[a.id];
+        return (
+          <Card key={a.id}>
+            <div className="flex justify-between items-center">
+              <div><p className="text-sm">{a.hospital} · {a.purpose}</p><p className="text-xs" style={{ color: d < 0 ? SLATE : GOOD }}>{a.date} {a.time} {d >= 0 && `(อีก ${d} วัน)`}</p></div>
+              <button onClick={() => onRemoveAppointment(dog.id, a.id)}><Trash2 size={14} color={BAD} /></button>
+            </div>
+            {googleConnected && (
+              <button onClick={() => syncToCalendar(a)} disabled={syncingId === a.id} className="flex items-center gap-1 text-[11px] mt-2" style={{ color: BRASS }}>
+                {syncingId === a.id ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />} เพิ่มลง Google Calendar
+              </button>
+            )}
+            {result && (result.ok ? <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินสำเร็จ ✓</p> : <p className="text-[11px] mt-1" style={{ color: BAD }}>ไม่สำเร็จ: {result.message}</p>)}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function DogMedicalRecordsSection({ dog, onAddBloodTest, onAddOrganExam, onAddImaging }) {
+  const [subTab, setSubTab] = useState('blood');
+  const [bt, setBt] = useState({ type: BLOOD_TEST_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
+  const [oe, setOe] = useState({ organ: ORGAN_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
+  const [im, setIm] = useState({ type: IMAGING_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
+  return (
+    <div>
+      <div className="flex gap-2 mb-3">
+        {[{ id: 'blood', l: 'ตรวจเลือด' }, { id: 'organ', l: 'อวัยวะ' }, { id: 'imaging', l: 'Imaging' }].map((s) => (
+          <button key={s.id} onClick={() => setSubTab(s.id)} style={{ background: subTab === s.id ? INK : PAPER_DIM, color: subTab === s.id ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">{s.l}</button>
+        ))}
+      </div>
+      {subTab === 'blood' && (
+        <>
+          <Card>
+            <select value={bt.type} onChange={(e) => setBt({ ...bt, type: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{BLOOD_TEST_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <input type="date" value={bt.date} onChange={(e) => setBt({ ...bt, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }} />
+            <textarea value={bt.note} onChange={(e) => setBt({ ...bt, note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
+            <button onClick={() => { onAddBloodTest(dog.id, bt); setBt({ ...bt, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
+          </Card>
+          {[...(dog.bloodTests || [])].reverse().map((r) => <Card key={r.id}><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></Card>)}
+        </>
+      )}
+      {subTab === 'organ' && (
+        <>
+          <Card>
+            <select value={oe.organ} onChange={(e) => setOe({ ...oe, organ: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{ORGAN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <input type="date" value={oe.date} onChange={(e) => setOe({ ...oe, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }} />
+            <textarea value={oe.note} onChange={(e) => setOe({ ...oe, note: e.target.value })} placeholder="ผลตรวจ/ลักษณะที่พบ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
+            <button onClick={() => { onAddOrganExam(dog.id, oe); setOe({ ...oe, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจอวัยวะ</button>
+          </Card>
+          {[...(dog.organExams || [])].reverse().map((r) => <Card key={r.id}><p className="text-sm font-semibold">{r.organ} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></Card>)}
+        </>
+      )}
+      {subTab === 'imaging' && (
+        <>
+          <Card>
+            <select value={im.type} onChange={(e) => setIm({ ...im, type: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{IMAGING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <input type="date" value={im.date} onChange={(e) => setIm({ ...im, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }} />
+            <textarea value={im.note} onChange={(e) => setIm({ ...im, note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
+            <button onClick={() => { onAddImaging(dog.id, im); setIm({ ...im, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผล Imaging</button>
+          </Card>
+          {[...(dog.imaging || [])].reverse().map((r) => <Card key={r.id}><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></Card>)}
+        </>
+      )}
+    </div>
+  );
+}
+
+function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense }) {
+  const [amount, setAmount] = useState(0);
+  const [category, setCategory] = useState(PET_EXPENSE_CATEGORIES[0]);
+  const [note, setNote] = useState('');
+  const [periodType, setPeriodType] = useState('month');
+  const keyFn = periodType === 'month' ? monthKey : yearKey;
+  const expenses = dog.expenses || [];
+  const periods = Array.from(new Set(expenses.map((e) => keyFn(e.date)))).sort().reverse();
+  const [selPeriod, setSelPeriod] = useState(periods[0] || '');
+  useEffect(() => { setSelPeriod(periods[0] || ''); }, [periodType, expenses.length]);
+  const periodExpenses = expenses.filter((e) => keyFn(e.date) === selPeriod);
+  const periodTotal = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+
+  function submit() { if (!amount) return; onAddDogExpense(dog.id, { date: new Date().toISOString().slice(0, 10), amount, category, note }); setAmount(0); setNote(''); }
+
+  return (
+    <div>
+      <Card>
+        <NumInput value={amount} onChange={setAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{PET_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="โน้ต" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกค่าใช้จ่าย</button>
+      </Card>
+      <Card>
+        <div className="flex gap-2 mb-3">
+          <button onClick={() => setPeriodType('month')} style={{ background: periodType === 'month' ? INK : PAPER_DIM, color: periodType === 'month' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายเดือน</button>
+          <button onClick={() => setPeriodType('year')} style={{ background: periodType === 'year' ? INK : PAPER_DIM, color: periodType === 'year' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายปี</button>
+        </div>
+        {periods.length > 0 ? <select value={selPeriod} onChange={(e) => setSelPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }}>{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
+        {selPeriod && <p className="text-xl">รวม ฿{fmt(periodTotal)}</p>}
+      </Card>
+      {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><button onClick={() => onRemoveDogExpense(dog.id, e.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
+    </div>
+  );
+}
+
+function AllDogsReportSection({ dogs }) {
+  const totals = dogs.map((d) => ({ name: d.name, total: (d.expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0) })).sort((a, b) => b.total - a.total);
+  const grandTotal = totals.reduce((s, t) => s + t.total, 0);
+  const avg = dogs.length ? grandTotal / dogs.length : 0;
+  const byCategory = useMemo(() => {
+    const map = {};
+    dogs.forEach((d) => (d.expenses || []).forEach((e) => { map[e.category] = (map[e.category] || 0) + Number(e.amount || 0); }));
+    return Object.entries(map).map(([cat, value]) => ({ cat, value })).sort((a, b) => b.value - a.value);
+  }, [dogs]);
+  return (
+    <div>
+      <Card>
+        <p className="text-xs mb-1" style={{ color: SLATE }}>ค่าใช้จ่ายรวมทั้ง 8 ตัว (ตลอดชีวิต)</p>
+        <p className="text-2xl mb-2">฿{fmt(grandTotal)}</p>
+        <p className="text-xs" style={{ color: SLATE }}>เฉลี่ยต่อตัว ฿{fmt(avg)}</p>
+      </Card>
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>อันดับค่าใช้จ่ายแต่ละตัว</p>
+        {totals.map((t) => <div key={t.name} className="flex justify-between text-sm mb-2"><span>{t.name}</span><span>฿{fmt(t.total)}</span></div>)}
+      </Card>
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>แยกตามหมวดหมู่ (รวมทุกตัว)</p>
+        {byCategory.map((c) => <div key={c.cat} className="flex justify-between text-sm mb-2"><span>{c.cat}</span><span>฿{fmt(c.value)}</span></div>)}
+        {byCategory.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูลค่าใช้จ่าย</p>}
       </Card>
     </div>
   );
