@@ -5,5 +5,14 @@
   "display": "standalone",
   "background_color": "#FAF7F0",
   "theme_color": "#14213D",
-  "icons": []
+  "icons": [],
+  "shortcuts": [
+    {
+      "name": "บันทึกรายจ่ายด่วน",
+      "short_name": "บันทึกด่วน",
+      "description": "บันทึกรายจ่ายด้วยเสียงหรือถ่ายรูปใบเสร็จทันที",
+      "url": "/?quick=expense",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
 }
