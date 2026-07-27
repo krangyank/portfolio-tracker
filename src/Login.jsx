@@ -22,13 +22,24 @@ export default function AuthGate({ children }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [autoTried, setAutoTried] = useState(false);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
       setUnlocked(false);
+      setAutoTried(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!user || unlocked || autoTried) return;
+    if (isWebAuthnAvailable() && hasFingerprintRegistered(user.uid)) {
+      setAutoTried(true);
+      handleVerifyFingerprint();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, unlocked]);
 
   async function handleSubmit() {
     setError(''); setBusy(true);
