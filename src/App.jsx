@@ -23,6 +23,7 @@ const WARN = '#B8874B';
 
 const CATEGORY_META = {
   cooperative: { label: 'สหกรณ์ออมทรัพย์ครู', color: '#B8874B' },
+  bank_savings: { label: 'บัญชีออมทรัพย์ธนาคาร', color: '#3F6152' },
   real_estate: { label: 'อสังหาริมทรัพย์', color: '#7A5230' },
   business: { label: 'ธุรกิจร้านยา', color: '#9C6B3E' },
   bond: { label: 'หุ้นกู้ / ตราสารหนี้', color: '#4B6B53' },
@@ -33,6 +34,7 @@ const CATEGORY_META = {
 };
 const HOLDING_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const RISK_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
+const INTEREST_CATEGORIES = ['cooperative', 'bank_savings'];
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -73,6 +75,7 @@ const EMPTY_STATE = {
   expenseCategories: ['อาหาร', 'เดินทาง', 'ของใช้', 'บันเทิง', 'สุขภาพ', 'อื่นๆ'],
   targetDate: '2029-01-01', goalNetWorth: 0, finnhubKey: '', dogs: [], googleClientId: '', googleRefreshToken: '',
   hospitalList: ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'],
+  weigherList: ['พ่อ', 'แม่'],
 };
 
 function readFileAsBase64(file) {
@@ -253,7 +256,7 @@ function computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredD
 
 export default function App() {
   return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
-        }function Tracker({ user }) {
+  }function Tracker({ user }) {
   const [state, setState] = useState(null);
   const [tab, setTab] = useState(() => {
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('quick') === 'expense') return 'expenses';
@@ -345,6 +348,7 @@ export default function App() {
   const expenseCategories = state?.expenseCategories || ['อาหาร', 'เดินทาง', 'ของใช้', 'บันเทิง', 'สุขภาพ', 'อื่นๆ'];
   const dogs = (state?.dogs && state.dogs.length > 0) ? state.dogs : DEFAULT_DOGS;
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
+  const weigherList = state?.weigherList || ['พ่อ', 'แม่'];
 
   const totalNetWorth = useMemo(() => accounts.reduce((s, a) => s + accountValueTHB(a), 0), [accounts]);
   const monthlyIncome = useMemo(() => income.reduce((s, i) => s + Number(i.amount || 0), 0), [income]);
@@ -480,6 +484,7 @@ export default function App() {
 
   function updateDog(dogId, patch) { persist({ ...state, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
   function addHospital(name) { if (name && !hospitalList.includes(name)) persist({ ...state, hospitalList: [...hospitalList, name] }); }
+  function addWeigher(name) { if (name && !weigherList.includes(name)) persist({ ...state, weigherList: [...weigherList, name] }); }
   function addWeight(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { weights: [{ id: uid(), ...entry }, ...(d.weights || [])] });
@@ -584,7 +589,7 @@ export default function App() {
     if (!state.finnhubKey) { setShowSettings(true); return { ok: false, message: 'ยังไม่ได้ตั้งค่า API key' }; }
     if (!symbol) return { ok: false, message: 'ยังไม่ได้ใส่สัญลักษณ์หุ้น' };
     try {
-      const res = await fetch(`https://finnhub.io/api/v2/quote?symbol=${encodeURIComponent(symbol)}&token=${state.finnhubKey}`);
+      const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${state.finnhubKey}`);
       if (!res.ok) return { ok: false, message: `เซิร์ฟเวอร์ตอบกลับผิดพลาด (HTTP ${res.status})` };
       const data = await res.json();
       if (data && data.error) return { ok: false, message: 'Finnhub: ' + data.error };
@@ -643,7 +648,7 @@ export default function App() {
           onAddMedication={addMedication} onUpdateMedication={updateMedication} onLogFleaTick={logFleaTick} onUpdateFleaTickInfo={updateFleaTickInfo}
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
-          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} />
+          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} />
       )}
 
       <div style={{ background: INK, borderTop: `1px solid ${BRASS}33` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
@@ -747,9 +752,7 @@ function InsightRow({ tone, text }) {
   const Icon = tone === 'warn' ? AlertTriangle : tone === 'good' ? CheckCircle2 : Info;
   const color = tone === 'warn' ? WARN : tone === 'good' ? GOOD : SLATE;
   return <div className="flex items-start gap-2 mb-2"><Icon size={15} color={color} style={{ marginTop: 1, flexShrink: 0 }} /><p className="text-sm">{text}</p></div>;
-}
-
-function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
+                                                  }function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiText, setAiText] = useState('');
@@ -915,7 +918,9 @@ async function scanPortfolioTable(file) {
   const prompt = `นี่คือภาพหน้าจอแอปการลงทุนที่แสดงรายการสินทรัพย์หลายตัว (อาจเป็นตารางหุ้นไทยแบบมีคอลัมน์ Avail Vol/Avg/Market หรือเป็นรายการแบบ Dime! ที่โชว์มูลค่ารวมกับราคาต่อหน่วยและ % เปลี่ยนแปลง) อ่านทุกแถวที่เห็น แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น สำหรับแต่ละแถวใส่ข้อมูลเท่าที่เห็นจริงในภาพ ถ้าไม่เห็นให้ใส่ null รูปแบบ: [{"symbol":"สัญลักษณ์ย่อ","currency":"THB หรือ USD","shares":จำนวนหน่วยถ้าเห็นตรงๆมิฉะนั้น null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยถ้าเห็นมิฉะนั้น null,"currentPrice":ราคาต่อหน่วยปัจจุบันถ้าเห็นมิฉะนั้น null,"value":มูลค่ารวมของแถวนี้ถ้าเห็นมิฉะนั้น null}]`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
-                                                  }async function scanHoldingDetail(file) {
+}
+
+async function scanHoldingDetail(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพหน้ารายละเอียดของหุ้นหรือกองทุนเพียงตัวเดียว (อาจแสดงจำนวนหน่วย/หุ้นที่ถือ, ต้นทุนเฉลี่ยหรือ NAV ต้นทุนต่อหน่วย, ราคาปัจจุบันหรือ NAV ปัจจุบันต่อหน่วย) อ่านค่าที่เห็นจริงแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น ถ้าไม่เห็นค่าใดให้ใส่ null รูปแบบ: {"shares": จำนวนหน่วยหรือหุ้นเป็นตัวเลขหรือ null, "avgCost": ต้นทุนเฉลี่ยหรือNAVต้นทุนต่อหน่วยเป็นตัวเลขหรือ null, "currentPrice": ราคาปัจจุบันหรือNAVปัจจุบันต่อหน่วยเป็นตัวเลขหรือ null, "currency": "THB หรือ USD"}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
@@ -973,9 +978,7 @@ function mergePortfolioScans(results) {
     });
   });
   return { bySymbol, orderRows };
-}
-
-function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+}function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -1132,15 +1135,48 @@ function ScanValueButton({ onScanValue, onApply, defaultFx }) {
 
 function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue }) {
   const gain = a.value - basis;
+  const showInterest = INTEREST_CATEGORIES.includes(a.category);
+  const [showInterestHistory, setShowInterestHistory] = useState(false);
+  const [interestAmount, setInterestAmount] = useState(0);
+  const [interestDate, setInterestDate] = useState(new Date().toISOString().slice(0, 10));
+  const estimatedAnnualInterest = showInterest ? Number(a.value || 0) * Number(a.interestRate || 0) / 100 : 0;
+  function recordInterest() {
+    if (!interestAmount) return;
+    const history = a.interestHistory || [];
+    onUpdate(a.id, { interestHistory: [{ id: uid(), date: interestDate, amount: interestAmount }, ...history] });
+    setInterestAmount(0);
+  }
   return (
     <Card>
       <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} /><button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
       <div className="flex items-center mt-2 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={a.value} onChange={(v) => onUpdate(a.id, { value: v })} className="text-lg font-semibold flex-1 outline-none" style={{ border: 'none' }} /></div>
       {basis > 0 && <p className="text-xs mb-2" style={{ color: gain >= 0 ? GOOD : BAD }}>ต้นทุนสะสม ฿{fmt(basis)} · {gain >= 0 ? '+' : ''}฿{fmt(gain)}</p>}
       {onScanValue && <ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { value: v })} />}
+      {showInterest && (
+        <div style={{ borderTop: '1px solid #E7E0CE' }} className="mt-3 pt-3">
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ดอกเบี้ยต่อปี (%)</label><NumInput value={a.interestRate} onChange={(v) => onUpdate(a.id, { interestRate: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่จ่ายดอกเบี้ย</label><input value={a.interestPayDate || ''} onChange={(e) => onUpdate(a.id, { interestPayDate: e.target.value })} placeholder="เช่น 31 ธ.ค." className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          </div>
+          {a.interestRate > 0 && <p className="text-xs mb-2" style={{ color: GOOD }}>ประมาณการดอกเบี้ยที่ควรได้ต่อปี ~฿{fmt(estimatedAnnualInterest)}</p>}
+          <div className="flex gap-2 mb-2">
+            <input type="date" value={interestDate} onChange={(e) => setInterestDate(e.target.value)} className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7E0CE' }} />
+            <NumInput value={interestAmount} onChange={setInterestAmount} placeholder="ดอกเบี้ยที่ได้รับจริง" className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7E0CE' }} />
+          </div>
+          <button onClick={recordInterest} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 w-full mb-1">บันทึกดอกเบี้ยที่ได้รับ</button>
+          {(a.interestHistory || []).length > 0 && (
+            <button onClick={() => setShowInterestHistory(!showInterestHistory)} className="text-[11px]" style={{ color: BRASS }}>{showInterestHistory ? 'ซ่อนประวัติดอกเบี้ย' : `ดูประวัติดอกเบี้ย (${(a.interestHistory || []).length})`}</button>
+          )}
+          {showInterestHistory && (a.interestHistory || []).map((h) => (
+            <div key={h.id} className="flex justify-between text-xs mt-1"><span>{h.date}</span><span>฿{fmt(h.amount)}</span></div>
+          ))}
+        </div>
+      )}
     </Card>
   );
-  }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+}
+
+function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [expanded, setExpanded] = useState(true);
   const holdings = a.holdings || [];
   const totalValue = holdings.reduce((s, h) => s + holdingMarketValueTHB(h), 0);
@@ -1158,6 +1194,10 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
   const [syncScanningMulti, setSyncScanningMulti] = useState(false);
   const [syncErrorMulti, setSyncErrorMulti] = useState('');
   const [syncDraftMulti, setSyncDraftMulti] = useState(null); // { rows: [...], removedSymbols: [...] }
+
+  const [showYieldHistory, setShowYieldHistory] = useState(false);
+  const [yieldConfirmAmount, setYieldConfirmAmount] = useState(0);
+  const [yieldConfirmDest, setYieldConfirmDest] = useState('');
 
   async function handlePortfolioFile(e) {
     const file = e.target.files && e.target.files[0];
@@ -1289,11 +1329,51 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
     setSyncDraftMulti(null);
   }
 
+  function confirmYieldTech() {
+    if (!yieldConfirmAmount) return;
+    const history = a.yieldTechHistory || [];
+    const today = new Date().toISOString().slice(0, 10);
+    onUpdate(a.id, { yieldTechHistory: [{ id: uid(), date: today, amount: yieldConfirmAmount, reinvestAccountId: yieldConfirmDest || undefined }, ...history] });
+    setYieldConfirmAmount(0); setYieldConfirmDest('');
+  }
+  const yieldBase = holdings.length > 0 ? totalCost : Number(a.value || 0);
+  const yieldAnnualPct = (a.yieldTechMonthly && yieldBase > 0) ? (Number(a.yieldTechMonthly) * 12 / yieldBase) * 100 : 0;
+  const today_ = new Date();
+  const yieldDueThisMonth = a.yieldTechDay && today_.getDate() >= Number(a.yieldTechDay);
+  const yieldRecordedThisMonth = (a.yieldTechHistory || []).some((h) => monthKey(h.date) === monthKey(today_.toISOString().slice(0, 10)));
+
   return (
     <Card>
       <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} /><button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
       {a.category === 'mutual_fund' && (
         <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7E0CE', color: SLATE }} />
+      )}
+      {a.category === 'mutual_fund' && (
+        <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
+          <p className="text-[11px] font-semibold mb-2" style={{ color: SLATE }}>YieldTech (ถอนแบบไม่กินทุน)</p>
+          <div className="grid grid-cols-2 gap-2 mb-1">
+            <div><label className="text-[9px]" style={{ color: SLATE }}>ถอนต่อเดือน (บาท)</label><NumInput value={a.yieldTechMonthly} onChange={(v) => onUpdate(a.id, { yieldTechMonthly: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+            <div><label className="text-[9px]" style={{ color: SLATE }}>วันที่ตัดในเดือน</label><NumInput value={a.yieldTechDay} onChange={(v) => onUpdate(a.id, { yieldTechDay: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+          </div>
+          {yieldAnnualPct > 0 && <p className="text-[11px] mb-1" style={{ color: GOOD }}>คิดเป็น Yield ~{yieldAnnualPct.toFixed(2)}% ต่อปี</p>}
+          {yieldDueThisMonth && !yieldRecordedThisMonth && (
+            <div style={{ background: '#FFF6E5', border: '1px solid #E7D0A0' }} className="rounded-lg p-2 mb-1">
+              <p className="text-[11px] mb-2" style={{ color: WARN }}>เดือนนี้ถึงวันตัด YieldTech แล้ว (วันที่ {a.yieldTechDay}) — บันทึกยอดที่ได้รับจริง</p>
+              <NumInput value={yieldConfirmAmount} onChange={setYieldConfirmAmount} placeholder="ยอดรับจริง (บาท)" className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} />
+              <select value={yieldConfirmDest} onChange={(e) => setYieldConfirmDest(e.target.value)} className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7E0CE', background: 'white' }}>
+                <option value="">— เก็บไว้เฉยๆ / ยังไม่ระบุ —</option>
+                {(allAccounts || []).map((acc) => <option key={acc.id} value={acc.id}>นำไปลงทุนต่อที่: {acc.name}</option>)}
+              </select>
+              <button onClick={confirmYieldTech} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 w-full">ยืนยันบันทึก</button>
+            </div>
+          )}
+          {(a.yieldTechHistory || []).length > 0 && (
+            <button onClick={() => setShowYieldHistory(!showYieldHistory)} className="text-[10px]" style={{ color: BRASS }}>{showYieldHistory ? 'ซ่อนประวัติ' : `ดูประวัติ YieldTech (${(a.yieldTechHistory || []).length})`}</button>
+          )}
+          {showYieldHistory && (a.yieldTechHistory || []).map((h) => (
+            <div key={h.id} className="flex justify-between text-[11px] mt-1"><span>{h.date}{h.reinvestAccountId && ' · ลงทุนต่อ'}</span><span>฿{fmt(h.amount)}</span></div>
+          ))}
+        </div>
       )}
       <p className="text-lg font-semibold mt-1">฿{fmt(displayValue)}</p>
       {holdings.length > 0 && totalCost > 0 && <p className="text-xs mb-2" style={{ color: totalGain >= 0 ? GOOD : BAD }}>ต้นทุนรวม ฿{fmt(totalCost)} · {totalGain >= 0 ? '+' : ''}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</p>}
@@ -1394,9 +1474,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
     </Card>
   );
-}
-
-function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+                }function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [showDiv, setShowDiv] = useState(false);
   const [divAmount, setDivAmount] = useState(0);
   const [divDate, setDivDate] = useState(new Date().toISOString().slice(0, 10));
@@ -1558,7 +1636,7 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
         </div>
       )}
       {h.lastUpdated && <p className="text-[10px] mb-2" style={{ color: SLATE }}>อัพเดทล่าสุด: {h.lastUpdated}</p>}
-      <div className="flex justify-between text-sm"><span>มูลค่า ฿{fmt(marketValue)}</span><span style={{ color: gain >= 0 ? GOOD : BAD }}>{gain >= 0 ? '+' : ''}{gainPct.toFixed(1)}%</span></div>
+      <div className="flex justify-between items-center mt-1"><span className="text-xl font-bold">฿{fmt(marketValue)}</span><span className="text-xl font-bold" style={{ color: gain >= 0 ? GOOD : BAD }}>{gain >= 0 ? '+' : ''}{gainPct.toFixed(1)}%</span></div>
       <p className="text-[11px]" style={{ color: SLATE }}>ต้นทุน ฿{fmt(costBasis)} · ปันผลสะสม ฿{fmt(totalDiv)} (Yield {yieldPct.toFixed(1)}%){cagr !== null && ` · CAGR ${cagr.toFixed(1)}%/ปี`}</p>
       {h.currency === 'USD' && <p className="text-[11px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ยต่อหุ้นเป็นบาท ≈ ฿{fmt2(Number(h.avgCost || 0) * Number(h.purchaseFx || 0))} (จาก {Number(h.avgCost || 0).toFixed(2)} USD × FX {Number(h.purchaseFx || 0).toFixed(2)})</p>}
       {(h.sells || []).length > 0 && (
@@ -1589,10 +1667,13 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
           </div>
         </div>
       ) : (
-        <div className="mt-2">
+        <div className="mt-2 flex items-center gap-3">
           <input ref={buyFileRef} type="file" accept="image/*" onChange={handleBuyFile} className="hidden" />
           <button onClick={() => buyFileRef.current && buyFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
-            {buyScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {buyScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการซื้อ (ซื้อเพิ่ม)'}
+            {buyScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {buyScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการซื้อ'}
+          </button>
+          <button onClick={() => setBuyDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10) })} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
+            ✍️ กรอกด้วยมือ
           </button>
           {buyError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{buyError}</p>}
         </div>
@@ -1642,10 +1723,13 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
           </div>
         </div>
       ) : (
-        <div className="mt-1">
+        <div className="mt-1 flex items-center gap-3">
           <input ref={sellFileRef} type="file" accept="image/*" onChange={handleSellFile} className="hidden" />
           <button onClick={() => sellFileRef.current && sellFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
-            {sellScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {sellScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการขาย (บันทึกกำไร/ขาดทุน)'}
+            {sellScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {sellScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการขาย'}
+          </button>
+          <button onClick={() => setSellDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10) })} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
+            ✍️ กรอกด้วยมือ
           </button>
           {sellError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{sellError}</p>}
         </div>
@@ -1715,10 +1799,22 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
   const [usdAmount, setUsdAmount] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [editing, setEditing] = useState(null); // contribution being edited
+  const [summaryPeriodType, setSummaryPeriodType] = useState('month');
   const destAccount = accounts.find((a) => a.id === accountId);
   const isDime = destAccount && destAccount.category === 'dime';
   function submit() { if (!accountId) return; onAdd({ date, amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined }); setUsdAmount(0); }
   const thisMonthTotal = useMemo(() => { const ym = new Date().toISOString().slice(0, 7); return contributions.filter((c) => c.date.startsWith(ym)).reduce((s, c) => s + Number(c.amount || 0), 0); }, [contributions]);
+  const summaryKeyFn = summaryPeriodType === 'month' ? monthKey : yearKey;
+  const summaryPeriods = useMemo(() => Array.from(new Set(contributions.map((c) => summaryKeyFn(c.date)))).sort().reverse(), [contributions, summaryPeriodType]);
+  const [summaryPeriod, setSummaryPeriod] = useState(summaryPeriods[0] || '');
+  useEffect(() => { setSummaryPeriod(summaryPeriods[0] || ''); }, [summaryPeriodType, contributions.length]);
+  const bySourceThisPeriod = useMemo(() => {
+    const filtered = contributions.filter((c) => summaryKeyFn(c.date) === summaryPeriod);
+    const map = {};
+    filtered.forEach((c) => { map[c.source] = (map[c.source] || 0) + Number(c.amount || 0); });
+    return Object.entries(map).map(([src, total]) => ({ src, label: SOURCES.find((s) => s.id === src)?.label || src, total })).sort((a, b) => b.total - a.total);
+  }, [contributions, summaryPeriod, summaryPeriodType]);
+  const periodGrandTotal = bySourceThisPeriod.reduce((s, r) => s + r.total, 0);
   return (
     <div className="px-5 pt-5">
       <Card>
@@ -1733,6 +1829,20 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
         <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
         {isDime && <><label className="text-xs" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" /></>}
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเงินเข้า</button>
+      </Card>
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>สรุปแยกตามแหล่งที่มา</p>
+        <div className="flex gap-2 mb-3">
+          <button onClick={() => setSummaryPeriodType('month')} style={{ background: summaryPeriodType === 'month' ? INK : PAPER_DIM, color: summaryPeriodType === 'month' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายเดือน</button>
+          <button onClick={() => setSummaryPeriodType('year')} style={{ background: summaryPeriodType === 'year' ? INK : PAPER_DIM, color: summaryPeriodType === 'year' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายปี</button>
+        </div>
+        {summaryPeriods.length > 0 ? (
+          <select value={summaryPeriod} onChange={(e) => setSummaryPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }}>{summaryPeriods.map((p) => <option key={p} value={p}>{p}</option>)}</select>
+        ) : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
+        {bySourceThisPeriod.map((r) => (
+          <div key={r.src} className="flex justify-between text-sm mb-1.5"><span>{r.label}</span><span>฿{fmt(r.total)}</span></div>
+        ))}
+        {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7E0CE' }}><span>รวมทั้งหมด</span><span>฿{fmt(periodGrandTotal)}</span></div>}
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด</p>
       {contributions.slice(0, 30).map((c) => {
@@ -1769,7 +1879,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-  }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
+                                                                                                                    }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
   const [note, setNote] = useState('');
@@ -2104,7 +2214,7 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital }) {
+function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
   const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
@@ -2141,7 +2251,7 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
         <>
           {section === 'overview' && <DogOverviewSection dog={dog} />}
           {section === 'profile' && <DogProfileSection dog={dog} onUpdateDog={onUpdateDog} />}
-          {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} onUpdateWeight={onUpdateWeight} />}
+          {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} onUpdateWeight={onUpdateWeight} hospitalList={hospitalList} onAddHospital={onAddHospital} weigherList={weigherList} onAddWeigher={onAddWeigher} />}
           {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} />}
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onUpdateFleaTickInfo={onUpdateFleaTickInfo} />}
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} />}
@@ -2246,8 +2356,9 @@ function DogProfileSection({ dog, onUpdateDog }) {
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
     </Card>
   );
-        }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight }) {
+                                                   }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
   const [weight, setWeight] = useState(0);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [location, setLocation] = useState('');
   const [weigher, setWeigher] = useState('');
   const [note, setNote] = useState('');
@@ -2256,12 +2367,14 @@ function DogProfileSection({ dog, onUpdateDog }) {
   const scaleFileRef = useRef(null);
   const [scaleScanning, setScaleScanning] = useState(false);
   const [scaleError, setScaleError] = useState('');
+  const hList = hospitalList || [];
+  const wList = weigherList || ['พ่อ', 'แม่'];
   const weights = [...(dog.weights || [])].sort((a, b) => a.date.localeCompare(b.date));
   const chartData = weights.filter((w) => range === 9999 || (Date.now() - new Date(w.date).getTime()) / (1000 * 60 * 60 * 24) <= range).map((w) => ({ date: w.date.slice(5), weight: Number(w.weight) }));
 
   function submit() {
     if (!weight) return;
-    onAddWeight(dog.id, { date: new Date().toISOString().slice(0, 10), time: new Date().toTimeString().slice(0, 5), weight, location, weigher, note });
+    onAddWeight(dog.id, { date, time: new Date().toTimeString().slice(0, 5), weight, location, weigher, note });
     setWeight(0); setNote('');
   }
 
@@ -2273,7 +2386,7 @@ function DogProfileSection({ dog, onUpdateDog }) {
       const result = await scanWeightScale(file);
       const w = Number(result.weight);
       if (!w) { setScaleError('อ่านตัวเลขน้ำหนักจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้'); return; }
-      onAddWeight(dog.id, { date: new Date().toISOString().slice(0, 10), time: new Date().toTimeString().slice(0, 5), weight: w, location, weigher, note: 'ถ่ายจากตาชั่ง' });
+      onAddWeight(dog.id, { date, time: new Date().toTimeString().slice(0, 5), weight: w, location, weigher, note: 'ถ่ายจากตาชั่ง' });
     } catch (err) { setScaleError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setScaleScanning(false); if (scaleFileRef.current) scaleFileRef.current.value = ''; }
   }
@@ -2286,12 +2399,34 @@ function DogProfileSection({ dog, onUpdateDog }) {
           {scaleScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color={BRASS} />}{scaleScanning ? 'กำลังอ่านตาชั่ง...' : 'ถ่ายรูปตาชั่ง (บันทึกทันที)'}
         </button>
         {scaleError && <p className="text-xs mb-3" style={{ color: BAD }}>{scaleError}</p>}
+        <label className="text-xs" style={{ color: SLATE }}>วันที่</label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
         <label className="text-xs" style={{ color: SLATE }}>หรือกรอกน้ำหนักเอง (กก.)</label>
         <NumInput value={weight} onChange={setWeight} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
-        <label className="text-xs" style={{ color: SLATE }}>สถานที่ชั่ง</label>
-        <input value={location} onChange={(e) => setLocation(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <label className="text-xs" style={{ color: SLATE }}>สถานที่ชั่ง (โรงพยาบาล)</label>
+        <select value={hList.includes(location) ? location : (location ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setLocation(''); else setLocation(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7E0CE' }}>
+          <option value="">— ไม่ระบุ —</option>
+          {hList.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
+          <option value="__new__">+ เพิ่มสถานที่ใหม่</option>
+        </select>
+        {(location && !hList.includes(location)) && (
+          <div className="flex gap-2 mb-2">
+            <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="พิมพ์ชื่อสถานที่" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7E0CE' }} />
+            <button type="button" onClick={() => { if (location) onAddHospital(location); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7E0CE', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+          </div>
+        )}
         <label className="text-xs" style={{ color: SLATE }}>ผู้ชั่ง</label>
-        <input value={weigher} onChange={(e) => setWeigher(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <select value={wList.includes(weigher) ? weigher : (weigher ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setWeigher(''); else setWeigher(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7E0CE' }}>
+          <option value="">— ไม่ระบุ —</option>
+          {wList.map((wName) => <option key={wName} value={wName}>{wName}</option>)}
+          <option value="__new__">+ เพิ่มชื่อใหม่</option>
+        </select>
+        {(weigher && !wList.includes(weigher)) && (
+          <div className="flex gap-2 mb-3">
+            <input value={weigher} onChange={(e) => setWeigher(e.target.value)} placeholder="พิมพ์ชื่อผู้ชั่ง" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7E0CE' }} />
+            <button type="button" onClick={() => { if (weigher) onAddWeigher(weigher); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7E0CE', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+          </div>
+        )}
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกน้ำหนัก</button>
       </Card>
       <Card>
@@ -2306,7 +2441,7 @@ function DogProfileSection({ dog, onUpdateDog }) {
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติ</p>
       {[...weights].reverse().map((w) => (
-        <Card key={w.id}><div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}</p><p className="text-xs" style={{ color: SLATE }}>{w.date} {w.time}</p></div><div className="flex items-center gap-2"><EditButton onClick={() => setEditingWeight(w)} /><button onClick={() => onRemoveWeight(dog.id, w.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>
+        <Card key={w.id}><div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}{w.weigher && ` · ${w.weigher}`}</p><p className="text-xs" style={{ color: SLATE }}>{w.date} {w.time}</p></div><div className="flex items-center gap-2"><EditButton onClick={() => setEditingWeight(w)} /><button onClick={() => onRemoveWeight(dog.id, w.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>
       ))}
       {editingWeight && (
         <EditModal title="แก้ไขน้ำหนัก" onClose={() => setEditingWeight(null)}
