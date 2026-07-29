@@ -1,0 +1,13 @@
+{
+  "name": "บ้านเช่า",
+  "short_name": "บ้านเช่า",
+  "start_url": "/realestate/",
+  "scope": "/realestate/",
+  "display": "standalone",
+  "background_color": "#FAF7F0",
+  "theme_color": "#14213D",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
