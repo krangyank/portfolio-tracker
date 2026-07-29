@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/expense/(.*)", "destination": "/index.html" },
+    { "source": "/expense", "destination": "/index.html" },
+    { "source": "/realestate/(.*)", "destination": "/index.html" },
+    { "source": "/realestate", "destination": "/index.html" }
+  ]
+}
