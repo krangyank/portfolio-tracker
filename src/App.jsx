@@ -5,21 +5,24 @@ import {
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
   Dog, Scale, Syringe, Shield, Bug, Stethoscope, Eye, EyeOff, Search, Upload,
-  ClipboardList, Bell,
+  ClipboardList, Bell, ChevronRight, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
-import { db, auth } from './firebase.js';
+import { db, auth, storage } from './firebase.js';
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import AuthGate from './Login.jsx';
 
-const INK = '#14213D';
-const PAPER = '#FAF7F0';
-const PAPER_DIM = '#F0EBDD';
-const BRASS = '#B8874B';
-const SLATE = '#6B7280';
-const GOOD = '#3F6152';
-const BAD = '#A64B3D';
-const WARN = '#B8874B';
+const INK = '#0F172A';
+const PAPER = '#F5F7FA';
+const PAPER_DIM = '#EEF2F6';
+const BRASS = '#0F172A';
+const SLATE = '#64748B';
+const GOOD = '#16A34A';
+const BAD = '#DC2626';
+const WARN = '#D97706';
+const BORDER = '#E7EAF0';
+const CARD_RADIUS = 18;
 
 const CATEGORY_META = {
   cooperative: { label: 'สหกรณ์ออมทรัพย์ครู', color: '#B8874B' },
@@ -35,6 +38,7 @@ const CATEGORY_META = {
 const HOLDING_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const RISK_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const INTEREST_CATEGORIES = ['cooperative', 'bank_savings'];
+const PIE_COLORS = ['#0F172A', '#16A34A', '#D97706', '#2563EB', '#7A5230', '#5C6F8A'];
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -70,12 +74,29 @@ const makeDog = (name) => ({
 });
 const DEFAULT_DOGS = DOG_NAMES.map((n) => makeDog(n));
 
+const PROPERTY_SEED = [
+  { name: 'คอนโด O2', rent: 5500, purchasePrice: 1300000 },
+  { name: 'บ้านซอยวัชระ', rent: 5000, purchasePrice: 2300000 },
+  { name: 'บ้านซอยปั๊มแก๊ส', rent: 4700, purchasePrice: 2700000 },
+  { name: 'Park View หลักสี่', rent: 6500, purchasePrice: 1200000 },
+  { name: 'Kave กรุงเทพฯ', rent: 11000, purchasePrice: 2500000 },
+  { name: 'Wish Signature', rent: 17000, purchasePrice: 4500000 },
+];
+const makeProperty = (p) => ({
+  id: uid(), name: p.name, rent: p.rent, purchasePrice: p.purchasePrice,
+  status: 'occupied', tenantName: '', tenantPhone: '', tenantLine: '',
+  depositAmount: p.rent * 2, contractStartDate: '', contractEndDate: '', reminderDays: [7, 3, 1],
+  photos: [], payments: {}, transactions: [], repairs: [],
+});
+const DEFAULT_PROPERTIES = PROPERTY_SEED.map((p) => makeProperty(p));
+
 const EMPTY_STATE = {
   accounts: [], income: [], contributions: [], history: [], expenses: [],
   expenseCategories: ['อาหาร', 'เดินทาง', 'ของใช้', 'บันเทิง', 'สุขภาพ', 'อื่นๆ'],
   targetDate: '2029-01-01', goalNetWorth: 0, finnhubKey: '', dogs: [], googleClientId: '', googleRefreshToken: '',
   hospitalList: ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'],
   weigherList: ['พ่อ', 'แม่'],
+  properties: [],
 };
 
 function readFileAsBase64(file) {
@@ -256,7 +277,7 @@ function computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredD
 
 export default function App() {
   return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
-}function Tracker({ user }) {
+  }function Tracker({ user }) {
   const [state, setState] = useState(null);
   const [tab, setTab] = useState(() => {
     if (typeof window === 'undefined') return 'dashboard';
@@ -320,6 +341,17 @@ export default function App() {
       return { ok: true };
     } catch (e) { return { ok: false, message: e.message }; }
   }
+  async function addPropertyEventToCalendar(summary, description, date, reminderDays) {
+    if (!googleToken) { setCalendarError('ยังไม่ได้เชื่อมต่อ Google Calendar'); return { ok: false }; }
+    try {
+      const startDateTime = `${date}T09:00:00`;
+      const endDateTime = `${date}T10:00:00`;
+      const days = (reminderDays && reminderDays.length > 0) ? reminderDays : [7, 3, 1];
+      const reminders = days.map((d) => ({ method: 'popup', minutes: d * 24 * 60 }));
+      await createCalendarEvent(googleToken, { summary, description, startDateTime, endDateTime, reminders });
+      return { ok: true };
+    } catch (e) { return { ok: false, message: e.message }; }
+  }
 
   const docRef = doc(db, 'users', user.uid, 'data', 'portfolio');
 
@@ -351,6 +383,7 @@ export default function App() {
   const expenses = state?.expenses || [];
   const expenseCategories = state?.expenseCategories || ['อาหาร', 'เดินทาง', 'ของใช้', 'บันเทิง', 'สุขภาพ', 'อื่นๆ'];
   const dogs = (state?.dogs && state.dogs.length > 0) ? state.dogs : DEFAULT_DOGS;
+  const properties = (state?.properties && state.properties.length > 0) ? state.properties : DEFAULT_PROPERTIES;
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
   const weigherList = state?.weigherList || ['พ่อ', 'แม่'];
 
@@ -489,6 +522,46 @@ export default function App() {
   function updateDog(dogId, patch) { persist({ ...state, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
   function addHospital(name) { if (name && !hospitalList.includes(name)) persist({ ...state, hospitalList: [...hospitalList, name] }); }
   function addWeigher(name) { if (name && !weigherList.includes(name)) persist({ ...state, weigherList: [...weigherList, name] }); }
+
+  function updateProperty(id, patch) { persist({ ...state, properties: properties.map((p) => (p.id === id ? { ...p, ...patch } : p)) }); }
+  function addProperty(entry) { persist({ ...state, properties: [...properties, { ...makeProperty({ name: entry.name || 'ทรัพย์สินใหม่', rent: 0, purchasePrice: 0 }), ...entry }] }); }
+  function removeProperty(id) { persist({ ...state, properties: properties.filter((p) => p.id !== id) }); }
+  function togglePayment(propertyId, ymKey) {
+    const p = properties.find((x) => x.id === propertyId);
+    const cur = (p.payments || {})[ymKey];
+    const nowPaid = !(cur && cur.paid);
+    updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { paid: nowPaid, date: nowPaid ? new Date().toISOString().slice(0, 10) : (cur && cur.date), amount: p.rent } } });
+  }
+  function addPropertyTransaction(propertyId, entry) {
+    const p = properties.find((x) => x.id === propertyId);
+    updateProperty(propertyId, { transactions: [{ id: uid(), ...entry }, ...(p.transactions || [])] });
+  }
+  function removePropertyTransaction(propertyId, txId) {
+    const p = properties.find((x) => x.id === propertyId);
+    updateProperty(propertyId, { transactions: (p.transactions || []).filter((t) => t.id !== txId) });
+  }
+  function addPropertyRepair(propertyId, entry) {
+    const p = properties.find((x) => x.id === propertyId);
+    updateProperty(propertyId, { repairs: [{ id: uid(), ...entry }, ...(p.repairs || [])] });
+  }
+  function removePropertyRepair(propertyId, repairId) {
+    const p = properties.find((x) => x.id === propertyId);
+    updateProperty(propertyId, { repairs: (p.repairs || []).filter((r) => r.id !== repairId) });
+  }
+  async function addPropertyPhoto(propertyId, file) {
+    const p = properties.find((x) => x.id === propertyId);
+    const path = `properties/${user.uid}/${propertyId}/${Date.now()}_${file.name}`;
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    updateProperty(propertyId, { photos: [{ id: uid(), url, path }, ...(p.photos || [])] });
+  }
+  async function removePropertyPhoto(propertyId, photoId) {
+    const p = properties.find((x) => x.id === propertyId);
+    const photo = (p.photos || []).find((ph) => ph.id === photoId);
+    if (photo && photo.path) { try { await deleteObject(storageRef(storage, photo.path)); } catch (e) { /* ignore */ } }
+    updateProperty(propertyId, { photos: (p.photos || []).filter((ph) => ph.id !== photoId) });
+  }
   function addWeight(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { weights: [{ id: uid(), ...entry }, ...(d.weights || [])] });
@@ -580,7 +653,7 @@ export default function App() {
 
   async function refreshFxRate() {
     try {
-      const res = await fetch('https://api.frankfurter.dev/v1/latest?from=USD&to=THB');
+      const res = await fetch('https://api.frankfurter.dev/v1/latest?base=USD&symbols=THB');
       const data = await res.json();
       const rate = data && data.rates && data.rates.THB;
       if (!rate) return null;
@@ -619,19 +692,19 @@ export default function App() {
   return (
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK }} className="pb-24">
       <div style={{ background: INK }} className="px-5 pt-8 pb-6 text-white relative overflow-hidden">
-        <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid ${BRASS}55`, pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid #FFFFFF22`, pointerEvents: 'none' }} />
         <div className="flex justify-between items-start">
-          <div><p className="text-xs tracking-widest" style={{ color: BRASS }}>สมุดบัญชีการลงทุน</p><h1 className="text-3xl mt-1 font-semibold">สินทรัพย์สุทธิ</h1></div>
+          <div><p className="text-xs tracking-widest" style={{ color: '#94A3B8' }}>สมุดบัญชีการลงทุน</p><h1 className="text-3xl mt-1 font-semibold">สินทรัพย์สุทธิ</h1></div>
           <div className="flex gap-2">
-            <button onClick={() => setShowAmounts(!showAmounts)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: BRASS }}>{showAmounts ? <Eye size={13} /> : <EyeOff size={13} />}</button>
-            <button onClick={() => setShowSettings(true)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: BRASS }}><Settings size={13} /></button>
-            <button onClick={() => setShareMode(true)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: BRASS }}><Share2 size={13} /></button>
-            <button onClick={() => signOut(auth)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: BRASS }}><LogOut size={13} /></button>
+            <button onClick={() => setShowAmounts(!showAmounts)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: '#CBD5E1' }}>{showAmounts ? <Eye size={13} /> : <EyeOff size={13} />}</button>
+            <button onClick={() => setShowSettings(true)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: '#CBD5E1' }}><Settings size={13} /></button>
+            <button onClick={() => setShareMode(true)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: '#CBD5E1' }}><Share2 size={13} /></button>
+            <button onClick={() => signOut(auth)} className="flex items-center gap-1 text-xs rounded-full px-3 py-2" style={{ background: '#ffffff15', color: '#CBD5E1' }}><LogOut size={13} /></button>
           </div>
         </div>
         <p className="text-4xl mt-3 font-semibold">{showAmounts ? `฿${fmt(totalNetWorth)}` : '฿xxx,xxx'}</p>
-        {prevSnapshot && showAmounts && <p className="text-xs mt-1" style={{ color: totalNetWorth >= prevSnapshot.netWorth ? '#9CD3B0' : '#E3A79A' }}>{totalNetWorth >= prevSnapshot.netWorth ? '+' : ''}฿{fmt(totalNetWorth - prevSnapshot.netWorth)} จากเดือนก่อน</p>}
-        <div className="flex items-center gap-2 mt-3"><Flame size={14} color={BRASS} /><p className="text-xs" style={{ color: '#D8CBB0' }}>เป้าหมายเกษียณอีก {daysLeft.toLocaleString()} วัน</p></div>
+        {prevSnapshot && showAmounts && <p className="text-xs mt-1" style={{ color: totalNetWorth >= prevSnapshot.netWorth ? '#86EFAC' : '#FCA5A5' }}>{totalNetWorth >= prevSnapshot.netWorth ? '+' : ''}฿{fmt(totalNetWorth - prevSnapshot.netWorth)} จากเดือนก่อน</p>}
+        <div className="flex items-center gap-2 mt-3"><Flame size={14} color="#FBBF24" /><p className="text-xs" style={{ color: '#94A3B8' }}>เป้าหมายเกษียณอีก {daysLeft.toLocaleString()} วัน</p></div>
       </div>
 
       {showSettings && (
@@ -664,11 +737,17 @@ export default function App() {
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
           googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} />
       )}
+      {tab === 'realestate' && (
+        <RealEstateTab properties={properties} onUpdate={updateProperty} onAdd={addProperty} onRemove={removeProperty}
+          onTogglePayment={togglePayment} onAddTransaction={addPropertyTransaction} onRemoveTransaction={removePropertyTransaction}
+          onAddRepair={addPropertyRepair} onRemoveRepair={removePropertyRepair} onAddPhoto={addPropertyPhoto} onRemovePhoto={removePropertyPhoto}
+          googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} />
+      )}
 
-      <div style={{ background: INK, borderTop: `1px solid ${BRASS}33` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'รายรับ', icon: TrendingUp }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+      <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'รายรับ', icon: TrendingUp }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
-            <t.icon size={17} color={tab === t.id ? BRASS : '#8A93A6'} /><span className="text-[8px]" style={{ color: tab === t.id ? BRASS : '#8A93A6' }}>{t.label}</span>
+            <t.icon size={17} color={tab === t.id ? '#FFFFFF' : '#94A3B8'} /><span className="text-[8px]" style={{ color: tab === t.id ? '#FFFFFF' : '#94A3B8' }}>{t.label}</span>
           </button>
         ))}
       </div>
@@ -676,7 +755,7 @@ export default function App() {
   );
 }
 
-function Card({ children }) { return <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-xl p-4 mb-4">{children}</div>; }
+function Card({ children }) { return <div style={{ background: 'white', borderRadius: CARD_RADIUS, boxShadow: '0 2px 12px rgba(15,23,42,0.05)' }} className="p-4 mb-4">{children}</div>; }
 
 // Popup แก้ไขรายการทั่วไป (ฟีเจอร์ O) — ใช้ร่วมกันทุก Tab ที่มีปุ่มลบ ยกเว้นตัวหุ้น/บัญชีทั้งก้อน
 // fields: [{ key, label, type: 'text'|'number'|'date'|'time'|'select'|'textarea', options }]
@@ -691,15 +770,15 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
           <div key={f.key} className="mb-3">
             <label className="text-xs" style={{ color: SLATE }}>{f.label}</label>
             {f.type === 'number' ? (
-              <NumInput value={values[f.key]} onChange={(v) => setField(f.key, v)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
+              <NumInput value={values[f.key]} onChange={(v) => setField(f.key, v)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
             ) : f.type === 'select' ? (
-              <select value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1">
+              <select value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1">
                 {(f.options || []).map((o) => <option key={o.value !== undefined ? o.value : o} value={o.value !== undefined ? o.value : o}>{o.label || o}</option>)}
               </select>
             ) : f.type === 'textarea' ? (
-              <textarea value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} rows={3} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
+              <textarea value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} rows={3} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
             ) : (
-              <input type={f.type || 'text'} value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
+              <input type={f.type || 'text'} value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
             )}
           </div>
         ))}
@@ -719,17 +798,17 @@ function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChange
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">ตั้งค่า</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
         <p className="text-xs mb-2" style={{ color: SLATE }}>Finnhub API key (ฟรี) — ใช้สำหรับปุ่มรีเฟรชราคาหุ้นสหรัฐฯ สมัครที่ finnhub.io/register</p>
-        <input type="text" value={finnhubKey || ''} onChange={(e) => onChange(e.target.value)} placeholder="วาง API key ที่นี่" style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mb-2" />
+        <input type="text" value={finnhubKey || ''} onChange={(e) => onChange(e.target.value)} placeholder="วาง API key ที่นี่" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mb-2" />
         <p className="text-[11px] mb-4" style={{ color: SLATE }}>หุ้นไทย (SET) ยังไม่มี API ฟรีที่ดึงราคาได้ตรงจากเบราว์เซอร์ ต้องอัพเดทราคาด้วยตนเองไปก่อนครับ</p>
 
-        <div style={{ borderTop: '1px solid #E7E0CE' }} className="pt-4">
+        <div style={{ borderTop: '1px solid #E7EAF0' }} className="pt-4">
           <p className="text-xs mb-2" style={{ color: SLATE }}>Google Calendar — สำหรับเพิ่มนัดหมายลงปฏิทินโดยตรง ต้องสร้าง OAuth Client ID จาก Google Cloud Console ก่อน</p>
-          <input type="text" value={googleClientId || ''} onChange={(e) => onChangeGoogleClientId(e.target.value)} placeholder="วาง Google Client ID ที่นี่ (ลงท้าย .apps.googleusercontent.com)" style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mb-2" />
+          <input type="text" value={googleClientId || ''} onChange={(e) => onChangeGoogleClientId(e.target.value)} placeholder="วาง Google Client ID ที่นี่ (ลงท้าย .apps.googleusercontent.com)" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mb-2" />
           {reconnecting && <p className="text-[11px] mb-2" style={{ color: SLATE }}>กำลังเชื่อมต่ออัตโนมัติ...</p>}
           <button onClick={onConnectCalendar} style={{ background: googleToken ? GOOD : INK }} className="w-full text-white rounded-lg py-2 text-sm mb-2">
             {googleToken ? '✓ เชื่อมต่อแล้ว (จะเชื่อมอัตโนมัติทุกครั้งที่เปิดแอป)' : 'เชื่อมต่อ Google Calendar'}
           </button>
-          {googleToken && <button onClick={onDisconnectCalendar} className="w-full text-xs rounded-lg py-2 mb-2" style={{ border: '1px solid #E7E0CE', color: BAD }}>ยกเลิกการเชื่อมต่อ</button>}
+          {googleToken && <button onClick={onDisconnectCalendar} className="w-full text-xs rounded-lg py-2 mb-2" style={{ border: '1px solid #E7EAF0', color: BAD }}>ยกเลิกการเชื่อมต่อ</button>}
           {calendarError && <p className="text-[11px]" style={{ color: BAD }}>{calendarError}</p>}
           <p className="text-[11px]" style={{ color: SLATE }}>เชื่อมต่อครั้งเดียว ระบบจะจำไว้และเชื่อมต่อให้อัตโนมัติทุกครั้งที่เปิดแอปในอนาคต</p>
         </div>
@@ -741,7 +820,7 @@ function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChange
 function ShareView({ totalNetWorth, categoryBreakdown, monthlyIncome, daysLeft, onClose }) {
   return (
     <div style={{ background: INK, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: 'white' }} className="p-6">
-      <div className="flex justify-between items-center mb-6"><p className="text-xs tracking-widest" style={{ color: BRASS }}>สรุปพอร์ตการลงทุน</p><button onClick={onClose}><X size={20} color="white" /></button></div>
+      <div className="flex justify-between items-center mb-6"><p className="text-xs tracking-widest" style={{ color: '#94A3B8' }}>สรุปพอร์ตการลงทุน</p><button onClick={onClose}><X size={20} color="white" /></button></div>
       <p className="text-2xl mb-1">สินทรัพย์สุทธิ</p>
       <p className="text-4xl font-semibold mb-6">฿{fmt(totalNetWorth)}</p>
       <div className="mb-6">
@@ -752,9 +831,9 @@ function ShareView({ totalNetWorth, categoryBreakdown, monthlyIncome, daysLeft, 
           </div>
         ))}
       </div>
-      <div style={{ borderTop: '1px solid #ffffff22' }} className="pt-4 mb-4"><p className="text-xs" style={{ color: '#D8CBB0' }}>กระแสเงินสดต่อเดือน</p><p className="text-xl">฿{fmt(monthlyIncome)}</p></div>
-      <div className="flex items-center gap-2 mb-8"><Flame size={14} color={BRASS} /><p className="text-xs" style={{ color: '#D8CBB0' }}>เป้าหมายเกษียณอีก {daysLeft.toLocaleString()} วัน</p></div>
-      <p className="text-[11px] text-center" style={{ color: '#8A93A6' }}>ใช้ปุ่มแคปหน้าจอของเครื่องเพื่อบันทึกภาพนี้</p>
+      <div style={{ borderTop: '1px solid #ffffff22' }} className="pt-4 mb-4"><p className="text-xs" style={{ color: '#94A3B8' }}>กระแสเงินสดต่อเดือน</p><p className="text-xl">฿{fmt(monthlyIncome)}</p></div>
+      <div className="flex items-center gap-2 mb-8"><Flame size={14} color="#FBBF24" /><p className="text-xs" style={{ color: '#94A3B8' }}>เป้าหมายเกษียณอีก {daysLeft.toLocaleString()} วัน</p></div>
+      <p className="text-[11px] text-center" style={{ color: '#94A3B8' }}>ใช้ปุ่มแคปหน้าจอของเครื่องเพื่อบันทึกภาพนี้</p>
     </div>
   );
 }
@@ -766,7 +845,7 @@ function InsightRow({ tone, text }) {
   const Icon = tone === 'warn' ? AlertTriangle : tone === 'good' ? CheckCircle2 : Info;
   const color = tone === 'warn' ? WARN : tone === 'good' ? GOOD : SLATE;
   return <div className="flex items-start gap-2 mb-2"><Icon size={15} color={color} style={{ marginTop: 1, flexShrink: 0 }} /><p className="text-sm">{text}</p></div>;
-      }function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
+                    }function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiText, setAiText] = useState('');
@@ -813,7 +892,7 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
           <>
             <div style={{ background: PAPER_DIM }} className="h-3 rounded-full overflow-hidden mb-2"><div style={{ width: `${goalPct}%`, background: BRASS }} className="h-full rounded-full" /></div>
             <p className="text-xs mb-3" style={{ color: SLATE }}>฿{fmt(totalNetWorth)} จากเป้าหมาย ฿{fmt(goalNetWorth)}</p>
-            <div className="flex gap-2 items-center"><span className="text-xs" style={{ color: SLATE }}>ถ้าออมเดือนละ</span><NumInput value={calcMonthly} onChange={setCalcMonthly} className="text-xs rounded px-2 py-1 w-24" style={{ border: '1px solid #E7E0CE' }} /><span className="text-xs" style={{ color: SLATE }}>บาท</span></div>
+            <div className="flex gap-2 items-center"><span className="text-xs" style={{ color: SLATE }}>ถ้าออมเดือนละ</span><NumInput value={calcMonthly} onChange={setCalcMonthly} className="text-xs rounded px-2 py-1 w-24" style={{ border: '1px solid #E7EAF0' }} /><span className="text-xs" style={{ color: SLATE }}>บาท</span></div>
             {monthsToGoal > 0 && <p className="text-xs mt-2" style={{ color: GOOD }}>จะถึงเป้าหมายในอีกประมาณ {monthsToGoal} เดือน ({(monthsToGoal / 12).toFixed(1)} ปี)</p>}
           </>
         ) : <p className="text-xs" style={{ color: SLATE }}>ยังไม่ได้ตั้งเป้าหมายสินทรัพย์สุทธิ</p>}
@@ -837,15 +916,15 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>ตั้งเป้าหมาย</p>
         <label className="text-xs" style={{ color: SLATE }}>วันที่เป้าหมายเกษียณ</label>
-        <input type="date" value={targetDate} onChange={(e) => onChangeTarget(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+        <input type="date" value={targetDate} onChange={(e) => onChangeTarget(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <label className="text-xs" style={{ color: SLATE }}>เป้าหมายสินทรัพย์สุทธิ (บาท)</label>
-        <NumInput value={goalNetWorth} onChange={onChangeGoal} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
+        <NumInput value={goalNetWorth} onChange={onChangeGoal} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
         {requiredDaily > 0 && <p className="text-xs mt-3" style={{ color: GOOD }}>ควรออมเพิ่มวันละ ~฿{fmt(requiredDaily)}</p>}
       </Card>
       <Card>
         <div className="flex items-center gap-2 mb-2"><Sparkles size={16} color={BRASS} /><p className="text-sm font-semibold">ให้ AI แนะนำสัดส่วนการลงทุน</p></div>
         <label className="text-xs" style={{ color: SLATE }}>เงินก้อนใหม่ที่จะลงทุนรอบนี้ (บาท)</label>
-        <NumInput value={newAmount} onChange={setNewAmount} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+        <NumInput value={newAmount} onChange={setNewAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <button onClick={runAi} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">
           {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} color={BRASS} />}{aiLoading ? 'กำลังวิเคราะห์...' : 'ขอคำแนะนำ'}
         </button>
@@ -992,7 +1071,9 @@ function mergePortfolioScans(results) {
     });
   });
   return { bySymbol, orderRows };
-          }function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+}
+
+function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -1035,7 +1116,7 @@ function mergePortfolioScans(results) {
     <div className="px-5 pt-5">
       <div className="relative mb-4">
         <Search size={15} color={SLATE} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาบัญชีหรือสัญลักษณ์หุ้น..." style={{ border: '1px solid #E7E0CE' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาบัญชีหรือสัญลักษณ์หุ้น..." style={{ border: '1px solid #E7EAF0' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
       </div>
       <Card>
         <div className="flex items-center gap-2 mb-2"><Camera size={16} color={BRASS} /><p className="text-sm font-semibold">อัพเดทพอร์ตจากภาพหน้าจอ (หลายรายการ)</p></div>
@@ -1054,7 +1135,7 @@ function mergePortfolioScans(results) {
                   <div><p className="text-sm">{item.name}</p><p className="text-xs" style={{ color: SLATE }}>{item.value} {item.currency}</p></div>
                   <button onClick={() => confirmItem(item, idx)} disabled={!targets[idx]} style={{ color: targets[idx] ? BRASS : '#B8B0A0' }} className="text-xs font-semibold">ยืนยัน</button>
                 </div>
-                <select value={targets[idx] || ''} onChange={(e) => setTargets({ ...targets, [idx]: e.target.value })} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-2 py-1.5 text-xs w-full mb-1">
+                <select value={targets[idx] || ''} onChange={(e) => setTargets({ ...targets, [idx]: e.target.value })} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-2 py-1.5 text-xs w-full mb-1">
                   <option value="">— เลือกบัญชีปลายทาง —</option>
                   {Object.entries(CATEGORY_META).map(([catKey, catMeta]) => (
                     <optgroup key={catKey} label={catMeta.label}>
@@ -1065,7 +1146,7 @@ function mergePortfolioScans(results) {
                   <option value="__new__">+ สร้างบัญชีใหม่</option>
                 </select>
                 {targets[idx] === '__new__' && (
-                  <select value={newCats[idx] || 'other'} onChange={(e) => setNewCats({ ...newCats, [idx]: e.target.value })} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-2 py-1.5 text-xs w-full">
+                  <select value={newCats[idx] || 'other'} onChange={(e) => setNewCats({ ...newCats, [idx]: e.target.value })} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-2 py-1.5 text-xs w-full">
                     {Object.entries(CATEGORY_META).map(([catKey, catMeta]) => <option key={catKey} value={catKey}>{catMeta.label}</option>)}
                   </select>
                 )}
@@ -1122,7 +1203,7 @@ function ScanValueButton({ onScanValue, onApply, defaultFx }) {
             <p className="text-xs mb-2" style={{ color: SLATE }}>อ่านได้ {pendingValue.value.toLocaleString()} USD — ใส่อัตราแลกเปลี่ยนเพื่อแปลงเป็นบาท</p>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xs" style={{ color: SLATE }}>1 USD =</span>
-              <NumInput value={fxRate} onChange={setFxRate} className="text-xs rounded px-2 py-1 w-20" style={{ border: '1px solid #E7E0CE' }} />
+              <NumInput value={fxRate} onChange={setFxRate} className="text-xs rounded px-2 py-1 w-20" style={{ border: '1px solid #E7EAF0' }} />
               <span className="text-xs" style={{ color: SLATE }}>บาท → ฿{fmt(thbValue)}</span>
             </div>
           </>
@@ -1131,7 +1212,7 @@ function ScanValueButton({ onScanValue, onApply, defaultFx }) {
         )}
         <div className="flex gap-2">
           <button onClick={() => { onApply(thbValue); setPendingValue(null); }} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยัน</button>
-          <button onClick={() => setPendingValue(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+          <button onClick={() => setPendingValue(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
         </div>
       </div>
     );
@@ -1167,15 +1248,15 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       {basis > 0 && <p className="text-xs mb-2" style={{ color: gain >= 0 ? GOOD : BAD }}>ต้นทุนสะสม ฿{fmt(basis)} · {gain >= 0 ? '+' : ''}฿{fmt(gain)}</p>}
       {onScanValue && <ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { value: v })} />}
       {showInterest && (
-        <div style={{ borderTop: '1px solid #E7E0CE' }} className="mt-3 pt-3">
+        <div style={{ borderTop: '1px solid #E7EAF0' }} className="mt-3 pt-3">
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="text-[10px]" style={{ color: SLATE }}>ดอกเบี้ยต่อปี (%)</label><NumInput value={a.interestRate} onChange={(v) => onUpdate(a.id, { interestRate: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่จ่ายดอกเบี้ย</label><input value={a.interestPayDate || ''} onChange={(e) => onUpdate(a.id, { interestPayDate: e.target.value })} placeholder="เช่น 31 ธ.ค." className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ดอกเบี้ยต่อปี (%)</label><NumInput value={a.interestRate} onChange={(v) => onUpdate(a.id, { interestRate: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่จ่ายดอกเบี้ย</label><input value={a.interestPayDate || ''} onChange={(e) => onUpdate(a.id, { interestPayDate: e.target.value })} placeholder="เช่น 31 ธ.ค." className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
           </div>
           {a.interestRate > 0 && <p className="text-xs mb-2" style={{ color: GOOD }}>ประมาณการดอกเบี้ยที่ควรได้ต่อปี ~฿{fmt(estimatedAnnualInterest)}</p>}
           <div className="flex gap-2 mb-2">
-            <input type="date" value={interestDate} onChange={(e) => setInterestDate(e.target.value)} className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7E0CE' }} />
-            <NumInput value={interestAmount} onChange={setInterestAmount} placeholder="ดอกเบี้ยที่ได้รับจริง" className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7E0CE' }} />
+            <input type="date" value={interestDate} onChange={(e) => setInterestDate(e.target.value)} className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7EAF0' }} />
+            <NumInput value={interestAmount} onChange={setInterestAmount} placeholder="ดอกเบี้ยที่ได้รับจริง" className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7EAF0' }} />
           </div>
           <button onClick={recordInterest} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 w-full mb-1">บันทึกดอกเบี้ยที่ได้รับ</button>
           {(a.interestHistory || []).length > 0 && (
@@ -1188,8 +1269,11 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
     </Card>
   );
-            }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+}````jsx
+
+function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [expanded, setExpanded] = useState(true);
+  const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
   const totalValue = holdings.reduce((s, h) => s + holdingMarketValueTHB(h), 0);
   const totalCost = holdings.reduce((s, h) => s + holdingCostBasisTHB(h), 0);
@@ -1378,21 +1462,21 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
     <Card>
       <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} /><button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
       {a.category === 'mutual_fund' && (
-        <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7E0CE', color: SLATE }} />
+        <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0', color: SLATE }} />
       )}
       {a.category === 'mutual_fund' && (
         <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
           <p className="text-[11px] font-semibold mb-2" style={{ color: SLATE }}>YieldTech (ถอนแบบไม่กินทุน)</p>
           <div className="grid grid-cols-2 gap-2 mb-1">
-            <div><label className="text-[9px]" style={{ color: SLATE }}>ถอนต่อเดือน (บาท)</label><NumInput value={a.yieldTechMonthly} onChange={(v) => onUpdate(a.id, { yieldTechMonthly: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-            <div><label className="text-[9px]" style={{ color: SLATE }}>วันที่ตัดในเดือน</label><NumInput value={a.yieldTechDay} onChange={(v) => onUpdate(a.id, { yieldTechDay: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+            <div><label className="text-[9px]" style={{ color: SLATE }}>ถอนต่อเดือน (บาท)</label><NumInput value={a.yieldTechMonthly} onChange={(v) => onUpdate(a.id, { yieldTechMonthly: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+            <div><label className="text-[9px]" style={{ color: SLATE }}>วันที่ตัดในเดือน</label><NumInput value={a.yieldTechDay} onChange={(v) => onUpdate(a.id, { yieldTechDay: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
           </div>
           {yieldAnnualPct > 0 && <p className="text-[11px] mb-1" style={{ color: GOOD }}>คิดเป็น Yield ~{yieldAnnualPct.toFixed(2)}% ต่อปี</p>}
           {yieldDueThisMonth && !yieldRecordedThisMonth && (
             <div style={{ background: '#FFF6E5', border: '1px solid #E7D0A0' }} className="rounded-lg p-2 mb-1">
               <p className="text-[11px] mb-2" style={{ color: WARN }}>เดือนนี้ถึงวันตัด YieldTech แล้ว (วันที่ {a.yieldTechDay}) — บันทึกยอดที่ได้รับจริง</p>
-              <NumInput value={yieldConfirmAmount} onChange={setYieldConfirmAmount} placeholder="ยอดรับจริง (บาท)" className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} />
-              <select value={yieldConfirmDest} onChange={(e) => setYieldConfirmDest(e.target.value)} className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7E0CE', background: 'white' }}>
+              <NumInput value={yieldConfirmAmount} onChange={setYieldConfirmAmount} placeholder="ยอดรับจริง (บาท)" className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+              <select value={yieldConfirmDest} onChange={(e) => setYieldConfirmDest(e.target.value)} className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0', background: 'white' }}>
                 <option value="">— เก็บไว้เฉยๆ / ยังไม่ระบุ —</option>
                 {(allAccounts || []).map((acc) => <option key={acc.id} value={acc.id}>นำไปลงทุนต่อที่: {acc.name}</option>)}
               </select>
@@ -1417,26 +1501,26 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
 
       {portDraft ? (
-        <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 my-2">
+        <div style={{ background: 'white', border: '1px solid #E7EAF0' }} className="rounded-lg p-2 my-2">
           <p className="text-xs mb-2" style={{ color: SLATE }}>พบ {portDraft.length} หุ้น — ตรวจสอบ/แก้ไขแล้วกดยืนยันนำเข้าทั้งหมด (หุ้นเดิมจะอัพเดท หุ้นใหม่จะถูกเพิ่ม)</p>
           {portDraft.map((row, idx) => {
             const isExisting = holdings.some((h) => (h.symbol || '').toUpperCase() === row.symbol);
             return (
               <div key={idx} style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
                 <div className="flex justify-between items-center mb-1">
-                  <input value={row.symbol} onChange={(e) => updateDraftRow(idx, { symbol: e.target.value.toUpperCase() })} className="text-xs font-semibold outline-none rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} />
+                  <input value={row.symbol} onChange={(e) => updateDraftRow(idx, { symbol: e.target.value.toUpperCase() })} className="text-xs font-semibold outline-none rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
                   <span className="text-[10px] mx-2" style={{ color: isExisting ? BRASS : GOOD }}>{isExisting ? 'อัพเดทเดิม' : 'เพิ่มใหม่'}</span>
                   <button onClick={() => removeDraftRow(idx)}><Trash2 size={13} color={BAD} /></button>
                 </div>
                 <div className="grid grid-cols-3 gap-1 mb-1">
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={row.shares} onChange={(v) => updateDraftRow(idx, { shares: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย ({row.currency})</label><NumInput value={row.avgCost} onChange={(v) => updateDraftRow(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด ({row.currency})</label><NumInput value={row.currentPrice} onChange={(v) => updateDraftRow(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={row.shares} onChange={(v) => updateDraftRow(idx, { shares: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย ({row.currency})</label><NumInput value={row.avgCost} onChange={(v) => updateDraftRow(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด ({row.currency})</label><NumInput value={row.currentPrice} onChange={(v) => updateDraftRow(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
                 </div>
                 {row.currency === 'USD' && (
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[9px]" style={{ color: SLATE }}>FX (1 USD =)</span>
-                    <NumInput value={row.fx} onChange={(v) => updateDraftRow(idx, { fx: v })} className="text-xs rounded px-1 py-1 w-16" style={{ border: '1px solid #E7E0CE', background: 'white' }} />
+                    <NumInput value={row.fx} onChange={(v) => updateDraftRow(idx, { fx: v })} className="text-xs rounded px-1 py-1 w-16" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
                     <span className="text-[9px]" style={{ color: SLATE }}>บาท</span>
                   </div>
                 )}
@@ -1448,7 +1532,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
           {currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>หุ้นใหม่ที่เพิ่มจะตั้ง FX เริ่มต้นที่ 36 — เข้าไปแก้ไขในแต่ละหุ้นให้ตรงภายหลังได้</p>}
           <div className="flex gap-2">
             <button onClick={confirmPortfolioImport} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันนำเข้าทั้งหมด</button>
-            <button onClick={() => setPortDraft(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+            <button onClick={() => setPortDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
           </div>
         </div>
       ) : (
@@ -1462,7 +1546,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
 
       {syncDraftMulti ? (
-        <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 my-2">
+        <div style={{ background: 'white', border: '1px solid #E7EAF0' }} className="rounded-lg p-2 my-2">
           <p className="text-xs mb-2" style={{ color: SLATE }}>ซิงค์พอร์ตจากภาพ — ตรวจสอบก่อนยืนยัน (สีแดง = จะถูกลบเพราะไม่เจอในภาพ, สีเขียว = หุ้นใหม่)</p>
           {syncDraftMulti.rows.map((row, idx) => (
             <div key={idx} style={{ background: row.willRemove ? '#FBEAE6' : PAPER_DIM }} className="rounded-lg p-2 mb-2">
@@ -1472,9 +1556,9 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
               </div>
               {!row.willRemove && (
                 <div className="grid grid-cols-3 gap-1">
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={row.shares} onChange={(v) => updateSyncRowMulti(idx, { shares: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย</label><NumInput value={row.avgCost} onChange={(v) => updateSyncRowMulti(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด</label><NumInput value={row.currentPrice} onChange={(v) => updateSyncRowMulti(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={row.shares} onChange={(v) => updateSyncRowMulti(idx, { shares: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย</label><NumInput value={row.avgCost} onChange={(v) => updateSyncRowMulti(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด</label><NumInput value={row.currentPrice} onChange={(v) => updateSyncRowMulti(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
                 </div>
               )}
               <button onClick={() => updateSyncRowMulti(idx, { willRemove: !row.willRemove })} className="text-[10px] mt-1" style={{ color: BRASS }}>{row.willRemove ? 'ยกเลิกการลบ (เก็บไว้)' : 'บังคับลบตัวนี้'}</button>
@@ -1483,7 +1567,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
           {currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>อัตราแลกเปลี่ยนที่ใช้: {syncDraftMulti.fxRate ? `1 USD = ${syncDraftMulti.fxRate.toFixed(2)} บาท (เรียลไทม์)` : 'ดึงเรียลไทม์ไม่สำเร็จ ใช้ค่าเดิม'}</p>}
           <div className="flex gap-2">
             <button onClick={confirmSyncMulti} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันซิงค์ทั้งหมด</button>
-            <button onClick={() => setSyncDraftMulti(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+            <button onClick={() => setSyncDraftMulti(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
           </div>
         </div>
       ) : (
@@ -1500,14 +1584,51 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1 text-xs mt-1" style={{ color: categoryColor }}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {holdings.length} หุ้นในบัญชีนี้</button>
       {expanded && (
         <div className="mt-3">
-          {holdings.map((h) => <HoldingRow key={h.id} accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={true} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} />)}
-          <button onClick={() => onAddHolding(a.id)} className="flex items-center gap-1 text-xs mt-1" style={{ color: BRASS }}><PlusCircle size={13} /> เพิ่มหุ้นในบัญชีนี้</button>
+          <div style={{ borderRadius: CARD_RADIUS, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
+            {holdings.map((h, i) => (
+              <button key={h.id} onClick={() => setSelectedHoldingId(h.id)} className="w-full flex items-center justify-between px-3 py-3" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', background: 'white' }}>
+                <div className="flex items-center gap-2.5">
+                  <div style={{ background: PAPER_DIM, color: INK }} className="w-9 h-9 rounded-xl flex items-center justify-center text-[10px] font-bold flex-shrink-0">{(h.symbol || '?').slice(0, 2)}</div>
+                  <div className="text-left">
+                    <p style={{ color: INK }} className="text-sm font-semibold">{h.symbol || '(ยังไม่ตั้งชื่อ)'}</p>
+                    <p style={{ color: SLATE }} className="text-[11px]">{fmt2(h.shares)} หุ้น</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="text-right">
+                    <p style={{ color: INK }} className="text-sm font-bold">฿{fmt(holdingMarketValueTHB(h))}</p>
+                    {(() => { const cb = holdingCostBasisTHB(h); const g = holdingMarketValueTHB(h) - cb; const gp = cb ? (g / cb) * 100 : 0; return (
+                      <span style={{ background: gp >= 0 ? '#16A34A14' : '#DC262614', color: gp >= 0 ? GOOD : BAD }} className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full">{gp >= 0 ? '+' : ''}{gp.toFixed(1)}%</span>
+                    ); })()}
+                  </div>
+                  <ChevronRight size={15} color={SLATE} />
+                </div>
+              </button>
+            ))}
+          </div>
+          <button onClick={() => onAddHolding(a.id)} className="flex items-center gap-1 text-xs mt-2" style={{ color: BRASS }}><PlusCircle size={13} /> เพิ่มหุ้นในบัญชีนี้</button>
         </div>
       )}
+      {selectedHoldingId && (() => {
+        const h = holdings.find((x) => x.id === selectedHoldingId);
+        if (!h) return null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(15,23,42,0.45)' }} onClick={() => setSelectedHoldingId(null)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', borderTopLeftRadius: CARD_RADIUS, borderTopRightRadius: CARD_RADIUS, maxHeight: '88vh' }} className="w-full overflow-y-auto p-4">
+              <div className="flex justify-between items-center mb-2">
+                <p style={{ color: INK }} className="text-base font-bold">{h.symbol}</p>
+                <button onClick={() => setSelectedHoldingId(null)}><X size={20} color={INK} /></button>
+              </div>
+              <HoldingRow accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={(accId, hId) => { onRemoveHolding(accId, hId); setSelectedHoldingId(null); }} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={true} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} />
+            </div>
+          </div>
+        );
+      })()}
     </Card>
   );
 }
 
+````
 function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [showDiv, setShowDiv] = useState(false);
   const [divAmount, setDivAmount] = useState(0);
@@ -1634,14 +1755,14 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
 
   return (
     <div style={{ background: PAPER_DIM }} className="rounded-lg p-3 mb-2">
-      <div className="flex gap-2 mb-2"><input value={h.symbol} onChange={(e) => onUpdate(accountId, h.id, { symbol: e.target.value.toUpperCase() })} placeholder="สัญลักษณ์" className="text-sm font-semibold flex-1 outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /><button onClick={() => onRemove(accountId, h.id)}><Trash2 size={14} color={BAD} /></button></div>
+      <div className="flex gap-2 mb-2"><input value={h.symbol} onChange={(e) => onUpdate(accountId, h.id, { symbol: e.target.value.toUpperCase() })} placeholder="สัญลักษณ์" className="text-sm font-semibold flex-1 outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /><button onClick={() => onRemove(accountId, h.id)}><Trash2 size={14} color={BAD} /></button></div>
       <div className="grid grid-cols-2 gap-2 mb-2">
-        <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={h.shares} onChange={(v) => onUpdate(accountId, h.id, { shares: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-        <div><label className="text-[10px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย/หุ้น ({h.currency})</label><NumInput value={h.avgCost} onChange={(v) => onUpdate(accountId, h.id, { avgCost: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-        {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนซื้อเฉลี่ย</label><NumInput value={h.purchaseFx} onChange={(v) => onUpdate(accountId, h.id, { purchaseFx: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>}
-        <div><label className="text-[10px]" style={{ color: SLATE }}>ราคาปัจจุบัน/หุ้น ({h.currency})</label><NumInput value={h.currentPrice} onChange={(v) => onUpdate(accountId, h.id, { currentPrice: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
-        {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ปัจจุบัน</label><NumInput value={h.currentFx} onChange={(v) => onUpdate(accountId, h.id, { currentFx: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>}
-        <div className="col-span-2"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่มถือ (สำหรับ CAGR)</label><input type="date" value={h.purchaseDate || ''} onChange={(e) => onUpdate(accountId, h.id, { purchaseDate: e.target.value })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
+        <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={h.shares} onChange={(v) => onUpdate(accountId, h.id, { shares: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+        <div><label className="text-[10px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย/หุ้น ({h.currency})</label><NumInput value={h.avgCost} onChange={(v) => onUpdate(accountId, h.id, { avgCost: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+        {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนซื้อเฉลี่ย</label><NumInput value={h.purchaseFx} onChange={(v) => onUpdate(accountId, h.id, { purchaseFx: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>}
+        <div><label className="text-[10px]" style={{ color: SLATE }}>ราคาปัจจุบัน/หุ้น ({h.currency})</label><NumInput value={h.currentPrice} onChange={(v) => onUpdate(accountId, h.id, { currentPrice: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+        {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ปัจจุบัน</label><NumInput value={h.currentFx} onChange={(v) => onUpdate(accountId, h.id, { currentFx: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>}
+        <div className="col-span-2"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่มถือ (สำหรับ CAGR)</label><input type="date" value={h.purchaseDate || ''} onChange={(e) => onUpdate(accountId, h.id, { purchaseDate: e.target.value })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
       </div>
       {canRefresh && (
         <>
@@ -1653,18 +1774,18 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
       )}
       {refreshError && <p className="text-[10px] mb-2" style={{ color: BAD }}>{refreshError}</p>}
       {syncDraft ? (
-        <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mb-2">
+        <div style={{ background: 'white', border: '1px solid #E7EAF0' }} className="rounded-lg p-2 mb-2">
           <p className="text-xs mb-2" style={{ color: SLATE }}>ตรวจสอบข้อมูลก่อนตั้งค่าใหม่ทั้งหมด (แทนที่ค่าเดิม)</p>
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={syncDraft.shares} onChange={(v) => setSyncDraft({ ...syncDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย ({syncDraft.currency})</label><NumInput value={syncDraft.avgCost} onChange={(v) => setSyncDraft({ ...syncDraft, avgCost: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>ราคาปัจจุบัน ({syncDraft.currency})</label><NumInput value={syncDraft.currentPrice} onChange={(v) => setSyncDraft({ ...syncDraft, currentPrice: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            {syncDraft.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX</label><NumInput value={syncDraft.fx} onChange={(v) => setSyncDraft({ ...syncDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>}
+            <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={syncDraft.shares} onChange={(v) => setSyncDraft({ ...syncDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย ({syncDraft.currency})</label><NumInput value={syncDraft.avgCost} onChange={(v) => setSyncDraft({ ...syncDraft, avgCost: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ราคาปัจจุบัน ({syncDraft.currency})</label><NumInput value={syncDraft.currentPrice} onChange={(v) => setSyncDraft({ ...syncDraft, currentPrice: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            {syncDraft.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX</label><NumInput value={syncDraft.fx} onChange={(v) => setSyncDraft({ ...syncDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>}
           </div>
           {syncDraft.currency !== h.currency && <p className="text-[11px] mb-2" style={{ color: WARN }}>สังเกตว่าสกุลเงินตรวจพบเป็น {syncDraft.currency} ต่างจากเดิม ({h.currency}) — ระบบจะปรับให้ตรงตามนี้</p>}
           <div className="flex gap-2">
             <button onClick={confirmSync} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันตั้งค่าใหม่</button>
-            <button onClick={() => setSyncDraft(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+            <button onClick={() => setSyncDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
           </div>
         </div>
       ) : (
@@ -1685,16 +1806,16 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
       )}
 
       {buyDraft ? (
-        <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mt-2">
+        <div style={{ background: 'white', border: '1px solid #E7EAF0' }} className="rounded-lg p-2 mt-2">
           <p className="text-xs mb-2" style={{ color: SLATE }}>ตรวจสอบรายการซื้อก่อนยืนยัน (แก้ไขได้)</p>
           {buyDraft.symbol && buyDraft.symbol.toUpperCase() !== (h.symbol || '').toUpperCase() && (
             <p className="text-[11px] mb-2" style={{ color: WARN }}>⚠️ ภาพนี้ดูเหมือนเป็นสัญลักษณ์ "{buyDraft.symbol}" แต่หุ้นนี้คือ "{h.symbol}" — เช็คให้ดีว่าภาพถูกต้องก่อนยืนยัน</p>
           )}
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="text-[10px]" style={{ color: SLATE }}>จ่ายจริง (บาท)</label><NumInput value={buyDraft.amount} onChange={(v) => setBuyDraft({ ...buyDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ได้</label><NumInput value={buyDraft.shares} onChange={(v) => setBuyDraft({ ...buyDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>ราคา/หุ้น ({h.currency})</label><NumInput value={buyDraft.price} onChange={(v) => setBuyDraft({ ...buyDraft, price: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label><input type="date" value={buyDraft.date} onChange={(e) => setBuyDraft({ ...buyDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>จ่ายจริง (บาท)</label><NumInput value={buyDraft.amount} onChange={(v) => setBuyDraft({ ...buyDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ได้</label><NumInput value={buyDraft.shares} onChange={(v) => setBuyDraft({ ...buyDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ราคา/หุ้น ({h.currency})</label><NumInput value={buyDraft.price} onChange={(v) => setBuyDraft({ ...buyDraft, price: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label><input type="date" value={buyDraft.date} onChange={(e) => setBuyDraft({ ...buyDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
           </div>
           {buyPreview && (
             <p className="text-[11px] mb-2" style={{ color: GOOD }}>
@@ -1704,7 +1825,7 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
           )}
           <div className="flex gap-2">
             <button onClick={confirmBuy} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันซื้อเพิ่ม</button>
-            <button onClick={() => setBuyDraft(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+            <button onClick={() => setBuyDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
           </div>
         </div>
       ) : (
@@ -1742,16 +1863,16 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
       )}
 
       {sellDraft ? (
-        <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mt-2">
+        <div style={{ background: 'white', border: '1px solid #E7EAF0' }} className="rounded-lg p-2 mt-2">
           <p className="text-xs mb-2" style={{ color: SLATE }}>ตรวจสอบรายการขายก่อนยืนยัน (แก้ไขได้)</p>
           {sellDraft.symbol && sellDraft.symbol.toUpperCase() !== (h.symbol || '').toUpperCase() && (
             <p className="text-[11px] mb-2" style={{ color: WARN }}>⚠️ ภาพนี้ดูเหมือนเป็นสัญลักษณ์ "{sellDraft.symbol}" แต่หุ้นนี้คือ "{h.symbol}" — เช็คให้ดีว่าภาพถูกต้องก่อนยืนยัน</p>
           )}
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="text-[10px]" style={{ color: SLATE }}>ได้รับจริง (บาท)</label><NumInput value={sellDraft.amount} onChange={(v) => setSellDraft({ ...sellDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ขาย</label><NumInput value={sellDraft.shares} onChange={(v) => setSellDraft({ ...sellDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>ราคา/หุ้น ({h.currency})</label><NumInput value={sellDraft.price} onChange={(v) => setSellDraft({ ...sellDraft, price: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-            <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ขาย</label><input type="date" value={sellDraft.date} onChange={(e) => setSellDraft({ ...sellDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ได้รับจริง (บาท)</label><NumInput value={sellDraft.amount} onChange={(v) => setSellDraft({ ...sellDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ขาย</label><NumInput value={sellDraft.shares} onChange={(v) => setSellDraft({ ...sellDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ราคา/หุ้น ({h.currency})</label><NumInput value={sellDraft.price} onChange={(v) => setSellDraft({ ...sellDraft, price: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ขาย</label><input type="date" value={sellDraft.date} onChange={(e) => setSellDraft({ ...sellDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
           </div>
           {sellPreview && (
             <p className="text-[11px] mb-2" style={{ color: sellPreview.gainOnSale >= 0 ? GOOD : BAD }}>
@@ -1760,7 +1881,7 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
           )}
           <div className="flex gap-2">
             <button onClick={confirmSell} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันขาย</button>
-            <button onClick={() => setSellDraft(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+            <button onClick={() => setSellDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
           </div>
         </div>
       ) : (
@@ -1807,11 +1928,11 @@ function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, 
       {showDiv && (
         <div className="mt-2">
           <div className="flex gap-2 mb-2">
-            <input type="date" value={divDate} onChange={(e) => setDivDate(e.target.value)} className="text-xs rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} />
-            <NumInput value={divAmount} onChange={setDivAmount} placeholder="จำนวนเงิน" className="text-xs rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} />
+            <input type="date" value={divDate} onChange={(e) => setDivDate(e.target.value)} className="text-xs rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+            <NumInput value={divAmount} onChange={setDivAmount} placeholder="จำนวนเงิน" className="text-xs rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
           </div>
           <label className="text-[10px]" style={{ color: SLATE }}>เอาไปทำอะไรต่อ (ไม่บังคับ — ถ้าเลือกบัญชี จะบันทึกเป็นเงินเข้าให้อัตโนมัติ)</label>
-          <select value={divReinvest} onChange={(e) => setDivReinvest(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded px-2 py-1 text-xs w-full mt-1 mb-2">
+          <select value={divReinvest} onChange={(e) => setDivReinvest(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded px-2 py-1 text-xs w-full mt-1 mb-2">
             <option value="">— เก็บไว้เฉยๆ / ยังไม่ระบุ —</option>
             {(allAccounts || []).map((acc) => <option key={acc.id} value={acc.id}>นำไปลงทุนต่อที่: {acc.name}</option>)}
           </select>
@@ -1861,14 +1982,14 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>เงินเข้าเดือนนี้รวม</p><p className="text-2xl mb-3">฿{fmt(thisMonthTotal)}</p>
         <label className="text-xs" style={{ color: SLATE }}>วันที่</label>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <label className="text-xs" style={{ color: SLATE }}>จำนวนเงิน (บาท)</label>
-        <NumInput value={amount} onChange={setAmount} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+        <NumInput value={amount} onChange={setAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <label className="text-xs" style={{ color: SLATE }}>มาจากแหล่งไหน</label>
-        <select value={source} onChange={(e) => setSource(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
+        <select value={source} onChange={(e) => setSource(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
         <label className="text-xs" style={{ color: SLATE }}>ลงทุนเข้าบัญชีไหน</label>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
-        {isDime && <><label className="text-xs" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" /></>}
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+        {isDime && <><label className="text-xs" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" /></>}
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเงินเข้า</button>
       </Card>
       <Card>
@@ -1878,12 +1999,12 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
           <button onClick={() => setSummaryPeriodType('year')} style={{ background: summaryPeriodType === 'year' ? INK : PAPER_DIM, color: summaryPeriodType === 'year' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายปี</button>
         </div>
         {summaryPeriods.length > 0 ? (
-          <select value={summaryPeriod} onChange={(e) => setSummaryPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }}>{summaryPeriods.map((p) => <option key={p} value={p}>{p}</option>)}</select>
+          <select value={summaryPeriod} onChange={(e) => setSummaryPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }}>{summaryPeriods.map((p) => <option key={p} value={p}>{p}</option>)}</select>
         ) : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
         {bySourceThisPeriod.map((r) => (
           <div key={r.src} className="flex justify-between text-sm mb-1.5"><span>{r.label}</span><span>฿{fmt(r.total)}</span></div>
         ))}
-        {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7E0CE' }}><span>รวมทั้งหมด</span><span>฿{fmt(periodGrandTotal)}</span></div>}
+        {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span>฿{fmt(periodGrandTotal)}</span></div>}
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด</p>
       {contributions.slice(0, 30).map((c) => {
@@ -1904,7 +2025,9 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
       )}
     </div>
   );
-          }function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
+}
+
+function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   return (
     <div className="px-5 pt-5">
       <Card><p className="text-xs mb-1" style={{ color: SLATE }}>รวมรายรับต่อเดือน</p><p className="text-2xl">฿{fmt(monthlyIncome)}</p></Card>
@@ -1913,14 +2036,12 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
         <Card key={i.id}>
           <div className="flex justify-between items-center gap-2"><input value={i.name} onChange={(e) => onUpdate(i.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} /><button onClick={() => onRemove(i.id)}><Trash2 size={16} color={BAD} /></button></div>
           <div className="flex items-center mt-2 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={i.amount} onChange={(v) => onUpdate(i.id, { amount: v })} className="text-lg font-semibold flex-1 outline-none" style={{ border: 'none' }} /><span className="text-xs" style={{ color: SLATE }}>/เดือน</span></div>
-          <select value={i.tag || 'other'} onChange={(e) => onUpdate(i.id, { tag: e.target.value })} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-2 py-1 text-xs">{SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
+          <select value={i.tag || 'other'} onChange={(e) => onUpdate(i.id, { tag: e.target.value })} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-2 py-1 text-xs">{SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
         </Card>
       ))}
     </div>
   );
-}
-
-function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
+        }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
   const [note, setNote] = useState('');
@@ -2008,27 +2129,27 @@ function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCat
     <div className="px-5 pt-5">
       <div className="relative mb-4">
         <Search size={15} color={SLATE} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
-        <input value={listSearch} onChange={(e) => setListSearch(e.target.value)} placeholder="ค้นหารายจ่าย (โน้ต/หมวดหมู่)..." style={{ border: '1px solid #E7E0CE' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
+        <input value={listSearch} onChange={(e) => setListSearch(e.target.value)} placeholder="ค้นหารายจ่าย (โน้ต/หมวดหมู่)..." style={{ border: '1px solid #E7EAF0' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
       </div>
       <Card>
         <p className="text-xs mb-1" style={{ color: SLATE }}>รายจ่ายวันนี้</p>
         <p className="text-2xl mb-3">฿{fmt(todayTotal)}</p>
         <label className="text-xs" style={{ color: SLATE }}>จำนวนเงิน</label>
-        <NumInput value={amount} onChange={setAmount} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+        <NumInput value={amount} onChange={setAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <label className="text-xs" style={{ color: SLATE }}>หมวดหมู่</label>
         {!showNewCat ? (
           <div className="flex gap-2 mt-1 mb-3">
-            <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm flex-1">{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
-            <button onClick={() => setShowNewCat(true)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 text-xs" >+ หมวดใหม่</button>
+            <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm flex-1">{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+            <button onClick={() => setShowNewCat(true)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 text-xs" >+ หมวดใหม่</button>
           </div>
         ) : (
           <div className="flex gap-2 mt-1 mb-3">
-            <input value={newCatInput} onChange={(e) => setNewCatInput(e.target.value)} placeholder="ชื่อหมวดใหม่" style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm flex-1" />
+            <input value={newCatInput} onChange={(e) => setNewCatInput(e.target.value)} placeholder="ชื่อหมวดใหม่" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm flex-1" />
             <button onClick={confirmNewCategory} style={{ background: INK }} className="text-white rounded-lg px-3 text-xs">เพิ่ม</button>
           </div>
         )}
         <label className="text-xs" style={{ color: SLATE }}>โน้ต (ไม่บังคับ)</label>
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ค่าข้าวเที่ยง" style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ค่าข้าวเที่ยง" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <button onClick={submitManual} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm mb-2">บันทึกรายจ่าย</button>
 
         {voiceDraft ? (
@@ -2036,11 +2157,11 @@ function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCat
             <p className="text-xs mb-2" style={{ color: SLATE }}>ได้ยินว่า: ฿{fmt(voiceDraft.amount)} · {voiceDraft.category} · {voiceDraft.note}</p>
             <div className="flex gap-2">
               <button onClick={confirmVoice} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันบันทึก</button>
-              <button onClick={() => setVoiceDraft(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+              <button onClick={() => setVoiceDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
             </div>
           </div>
         ) : (
-          <button onClick={startVoice} disabled={listening} className="w-full flex items-center justify-center gap-2 rounded-lg py-2 text-sm mb-2" style={{ border: '1px solid #E7E0CE', color: listening ? SLATE : BAD }}>
+          <button onClick={startVoice} disabled={listening} className="w-full flex items-center justify-center gap-2 rounded-lg py-2 text-sm mb-2" style={{ border: '1px solid #E7EAF0', color: listening ? SLATE : BAD }}>
             <Mic size={14} className={listening ? 'animate-pulse' : ''} /> {listening ? 'กำลังฟัง... พูดได้เลย' : 'พูดบันทึกรายจ่าย'}
           </button>
         )}
@@ -2052,24 +2173,24 @@ function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCat
             {receiptDraft.map((r, idx) => (
               <div key={idx} style={{ background: 'white' }} className="rounded-lg p-2 mb-2">
                 <div className="flex justify-between items-center mb-1">
-                  <input value={r.item} onChange={(e) => updateReceiptRow(idx, { item: e.target.value })} className="text-xs flex-1 outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE' }} />
+                  <input value={r.item} onChange={(e) => updateReceiptRow(idx, { item: e.target.value })} className="text-xs flex-1 outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} />
                   <button onClick={() => removeReceiptRow(idx)}><Trash2 size={12} color={BAD} /></button>
                 </div>
                 <div className="flex gap-2">
-                  <NumInput value={r.amount} onChange={(v) => updateReceiptRow(idx, { amount: v })} className="text-xs rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7E0CE' }} />
-                  <select value={r.category} onChange={(e) => updateReceiptRow(idx, { category: e.target.value })} className="text-xs rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7E0CE' }}>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+                  <NumInput value={r.amount} onChange={(v) => updateReceiptRow(idx, { amount: v })} className="text-xs rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7EAF0' }} />
+                  <select value={r.category} onChange={(e) => updateReceiptRow(idx, { category: e.target.value })} className="text-xs rounded px-2 py-1 flex-1" style={{ border: '1px solid #E7EAF0' }}>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
                 </div>
               </div>
             ))}
             <div className="flex gap-2">
               <button onClick={confirmReceipt} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันเพิ่มทั้งหมด</button>
-              <button onClick={() => setReceiptDraft(null)} style={{ border: '1px solid #E7E0CE' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+              <button onClick={() => setReceiptDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
             </div>
           </div>
         ) : (
           <div>
             <input ref={receiptFileRef} type="file" accept="image/*" onChange={handleReceiptFile} className="hidden" />
-            <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} className="w-full flex items-center justify-center gap-2 rounded-lg py-2 text-sm" style={{ border: '1px solid #E7E0CE', color: BRASS }}>
+            <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} className="w-full flex items-center justify-center gap-2 rounded-lg py-2 text-sm" style={{ border: '1px solid #E7EAF0', color: BRASS }}>
               {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} {receiptScanning ? 'กำลังอ่านใบเสร็จ...' : 'สแกนใบเสร็จ'}
             </button>
             {receiptError && <p className="text-xs mt-2" style={{ color: BAD }}>{receiptError}</p>}
@@ -2082,7 +2203,7 @@ function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCat
           <button onClick={() => setPeriodType('month')} style={{ background: periodType === 'month' ? INK : PAPER_DIM, color: periodType === 'month' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายเดือน</button>
           <button onClick={() => setPeriodType('year')} style={{ background: periodType === 'year' ? INK : PAPER_DIM, color: periodType === 'year' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายปี</button>
         </div>
-        {periods2.length > 0 ? <select value={selPeriod2} onChange={(e) => setSelPeriod2(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full mb-3">{periods2.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูลรายจ่าย</p>}
+        {periods2.length > 0 ? <select value={selPeriod2} onChange={(e) => setSelPeriod2(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mb-3">{periods2.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูลรายจ่าย</p>}
         {selPeriod2 && (
           <>
             <p className="text-xl mb-3">รวม ฿{fmt(periodExpenseTotal)}</p>
@@ -2169,7 +2290,7 @@ function ReportsTab({ contributions, accounts, costBasisByAccount, history }) {
       </Card>
       <Card>
         <div className="flex gap-2 mb-3">{[{ id: 'month', label: 'รายเดือน' }, { id: 'quarter', label: 'รายไตรมาส' }, { id: 'year', label: 'รายปี' }].map((p) => <button key={p.id} onClick={() => setPeriodType(p.id)} style={{ background: periodType === p.id ? INK : PAPER_DIM, color: periodType === p.id ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">{p.label}</button>)}</div>
-        {periods.length > 0 ? <select value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)} style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-2 text-sm w-full">{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูลเงินเข้า</p>}
+        {periods.length > 0 ? <select value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full">{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูลเงินเข้า</p>}
       </Card>
       {selectedPeriod && (
         <>
@@ -2305,6 +2426,339 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
   );
 }
 
+function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar }) {
+  const [section, setSection] = useState('overview');
+  const [selectedId, setSelectedId] = useState(properties[0]?.id || '');
+  const selected = properties.find((p) => p.id === selectedId) || properties[0];
+
+  return (
+    <div className="px-5 pt-5">
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+        {[{ id: 'overview', l: 'ภาพรวม' }, { id: 'properties', l: 'ทรัพย์สิน' }, { id: 'collection', l: 'รับเงิน' }, { id: 'calendar', l: 'ปฏิทิน' }].map((s) => (
+          <button key={s.id} onClick={() => setSection(s.id)} style={{ background: section === s.id ? INK : PAPER_DIM, color: section === s.id ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-4 py-2 text-xs font-medium">{s.l}</button>
+        ))}
+      </div>
+      {section === 'overview' && <RealEstateOverview properties={properties} onSelectProperty={(id) => { setSelectedId(id); setSection('properties'); }} />}
+      {section === 'properties' && (
+        <>
+          <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+            {properties.map((p) => (
+              <button key={p.id} onClick={() => setSelectedId(p.id)} style={{ background: selectedId === p.id ? BRASS : PAPER_DIM, color: selectedId === p.id ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{p.name}</button>
+            ))}
+            <button onClick={() => onAdd({ name: 'ทรัพย์สินใหม่' })} style={{ color: BRASS, flexShrink: 0 }} className="flex items-center gap-1 text-xs"><PlusCircle size={14} /> เพิ่ม</button>
+          </div>
+          {selected && <PropertyDetail property={selected} onUpdate={onUpdate} onRemove={onRemove} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
+        </>
+      )}
+      {section === 'collection' && <RentCollectionMatrix properties={properties} onTogglePayment={onTogglePayment} />}
+      {section === 'calendar' && <RealEstateCalendarSection properties={properties} googleConnected={googleConnected} />}
+    </div>
+  );
+}
+
+function RealEstateOverview({ properties, onSelectProperty }) {
+  const totalValue = properties.reduce((s, p) => s + Number(p.purchasePrice || 0), 0);
+  const totalRent = properties.reduce((s, p) => s + (p.status === 'occupied' ? Number(p.rent || 0) : 0), 0);
+  const ym = thisMonth();
+  const collected = properties.reduce((s, p) => { const pay = (p.payments || {})[ym]; return s + (pay && pay.paid ? Number(pay.amount || p.rent || 0) : 0); }, 0);
+  const outstanding = Math.max(0, totalRent - collected);
+  const occupiedCount = properties.filter((p) => p.status === 'occupied').length;
+  const occupancy = properties.length ? (occupiedCount / properties.length) * 100 : 0;
+
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiText, setAiText] = useState('');
+  const [aiError, setAiError] = useState('');
+  async function runAi() {
+    setAiLoading(true); setAiError('');
+    try {
+      const detail = properties.map((p) => {
+        const pay = (p.payments || {})[ym];
+        return `${p.name}: ค่าเช่า ${p.rent} บาท สถานะ ${p.status === 'occupied' ? 'มีผู้เช่า' : 'ว่าง'} เดือนนี้${pay && pay.paid ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'}`;
+      }).join('\n');
+      const prompt = `คุณเป็นผู้ช่วยวิเคราะห์การปล่อยเช่าอสังหาริมทรัพย์ นี่คือข้อมูลทรัพย์สินทั้งหมด:\n${detail}\nรวมค่าเช่าที่ควรได้เดือนนี้ ${fmt(totalRent)} บาท เก็บได้แล้ว ${fmt(collected)} บาท ค้างชำระ ${fmt(outstanding)} บาท\nช่วยวิเคราะห์สั้นๆ ภาษาไทยไม่เกิน 150 คำ ว่ามีจุดไหนน่าเป็นห่วง (เช่น ห้องไหนค้างชำระ ห้องไหนว่าง) และคำแนะนำ`;
+      const text = await askServer(prompt);
+      setAiText(text || 'ไม่สามารถวิเคราะห์ได้ในขณะนี้');
+    } catch (e) { setAiError('เกิดข้อผิดพลาด: ' + e.message); } finally { setAiLoading(false); }
+  }
+
+  const pieData = properties.filter((p) => p.status === 'occupied').map((p, i) => ({ name: p.name, value: Number(p.rent || 0), color: PIE_COLORS[i % PIE_COLORS.length] }));
+
+  return (
+    <div>
+      <Card>
+        <p className="text-xs mb-1" style={{ color: SLATE }}>อสังหาทั้งหมด {properties.length} แห่ง</p>
+        <p className="text-xs mb-1" style={{ color: SLATE }}>มูลค่ารวม</p>
+        <p className="text-2xl font-bold mb-3" style={{ color: INK }}>฿{fmt(totalValue)}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatBox label="ค่าเช่าเดือนนี้" value={`฿${fmt(totalRent)}`} />
+          <StatBox label="Occupancy" value={`${occupancy.toFixed(0)}%`} color={GOOD} />
+          <StatBox label="เก็บแล้ว" value={`฿${fmt(collected)}`} color={GOOD} />
+          <StatBox label="ค้างชำระ" value={`฿${fmt(outstanding)}`} color={outstanding > 0 ? BAD : GOOD} />
+        </div>
+      </Card>
+      {pieData.length > 0 && (
+        <Card>
+          <p className="text-xs mb-3" style={{ color: SLATE }}>สัดส่วนรายได้ค่าเช่าแต่ละแห่ง</p>
+          <div style={{ width: '100%', height: 180 }}><ResponsiveContainer><PieChart><Pie data={pieData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={2}>{pieData.map((d, i) => <Cell key={i} fill={d.color} />)}</Pie><Tooltip formatter={(v) => `฿${fmt(v)}`} /></PieChart></ResponsiveContainer></div>
+        </Card>
+      )}
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>ทรัพย์สินของฉัน</p>
+        {properties.map((p, i) => {
+          const pay = (p.payments || {})[ym];
+          const paid = pay && pay.paid;
+          return (
+            <button key={p.id} onClick={() => onSelectProperty(p.id)} className="w-full flex justify-between items-center py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
+              <div className="text-left"><p className="text-sm font-medium" style={{ color: INK }}>{p.name}</p><p className="text-xs" style={{ color: SLATE }}>฿{fmt(p.rent)}/เดือน</p></div>
+              <span style={{ background: p.status !== 'occupied' ? '#D9770614' : (paid ? '#16A34A14' : '#DC262614'), color: p.status !== 'occupied' ? WARN : (paid ? GOOD : BAD) }} className="text-[11px] font-semibold px-2 py-1 rounded-full">{p.status !== 'occupied' ? 'ว่าง' : (paid ? 'เก็บแล้ว' : 'ค้างชำระ')}</span>
+            </button>
+          );
+        })}
+      </Card>
+      <Card>
+        <div className="flex items-center gap-2 mb-3"><Sparkles size={16} color={BRASS} /><p className="text-sm font-semibold" style={{ color: INK }}>AI วิเคราะห์</p></div>
+        <button onClick={runAi} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm flex items-center justify-center gap-2">{aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} color="#FBBF24" />}{aiLoading ? 'กำลังวิเคราะห์...' : 'วิเคราะห์เดือนนี้'}</button>
+        {(aiText || aiError) && <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-3 mt-3 text-sm whitespace-pre-wrap">{aiError ? <span style={{ color: BAD }}>{aiError}</span> : aiText}</div>}
+      </Card>
+    </div>
+  );
+}
+
+function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar }) {
+  const [sub, setSub] = useState('info');
+  return (
+    <Card>
+      <div className="flex justify-between items-center mb-3">
+        <input value={p.name} onChange={(e) => onUpdate(p.id, { name: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
+        <button onClick={() => onRemove(p.id)}><Trash2 size={16} color={BAD} /></button>
+      </div>
+      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+        {[{ id: 'info', l: 'ข้อมูล' }, { id: 'money', l: 'รายรับจ่าย' }, { id: 'repairs', l: 'ซ่อม' }, { id: 'roi', l: 'ROI' }, { id: 'docs', l: 'เอกสาร' }].map((s) => (
+          <button key={s.id} onClick={() => setSub(s.id)} style={{ background: sub === s.id ? BRASS : PAPER_DIM, color: sub === s.id ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1 text-[11px] whitespace-nowrap">{s.l}</button>
+        ))}
+      </div>
+      {sub === 'info' && <PropertyInfoSection property={p} onUpdate={onUpdate} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
+      {sub === 'money' && <PropertyMoneySection property={p} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} />}
+      {sub === 'repairs' && <PropertyRepairsSection property={p} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} />}
+      {sub === 'roi' && <PropertyROISection property={p} />}
+      {sub === 'docs' && <PropertyDocsSection property={p} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} />}
+    </Card>
+  );
+                  }function PropertyInfoSection({ property: p, onUpdate, googleConnected, onAddToCalendar }) {
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+  async function syncContractReminder() {
+    if (!p.contractEndDate) return;
+    setSyncing(true); setSyncMsg('');
+    const r = await onAddToCalendar(`ครบสัญญาเช่า: ${p.name}`, `ผู้เช่า: ${p.tenantName || '-'}\nค่าเช่า: ${fmt(p.rent)} บาท`, p.contractEndDate, p.reminderDays);
+    setSyncMsg(r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}`);
+    setSyncing(false);
+  }
+  function toggleReminderDay(d) {
+    const cur = p.reminderDays || [];
+    onUpdate(p.id, { reminderDays: cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => b - a) });
+  }
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <span style={{ background: p.status === 'occupied' ? '#16A34A14' : '#D9770614', color: p.status === 'occupied' ? GOOD : WARN }} className="text-xs font-semibold px-2.5 py-1 rounded-full">{p.status === 'occupied' ? '🟢 มีผู้เช่า' : '🟡 ว่าง'}</span>
+        <select value={p.status} onChange={(e) => onUpdate(p.id, { status: e.target.value })} className="text-xs rounded-lg px-2 py-1" style={{ border: `1px solid ${BORDER}` }}>
+          <option value="occupied">มีผู้เช่า</option>
+          <option value="vacant">ว่าง</option>
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div><label className="text-[10px]" style={{ color: SLATE }}>ค่าเช่า/เดือน</label><NumInput value={p.rent} onChange={(v) => onUpdate(p.id, { rent: v })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+        <div><label className="text-[10px]" style={{ color: SLATE }}>เงินประกัน</label><NumInput value={p.depositAmount} onChange={(v) => onUpdate(p.id, { depositAmount: v })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+        <div><label className="text-[10px]" style={{ color: SLATE }}>วันเริ่มสัญญา</label><input type="date" value={p.contractStartDate || ''} onChange={(e) => onUpdate(p.id, { contractStartDate: e.target.value })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+        <div><label className="text-[10px]" style={{ color: SLATE }}>วันครบสัญญา</label><input type="date" value={p.contractEndDate || ''} onChange={(e) => onUpdate(p.id, { contractEndDate: e.target.value })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+        <div className="col-span-2"><label className="text-[10px]" style={{ color: SLATE }}>ราคาซื้อ</label><NumInput value={p.purchasePrice} onChange={(v) => onUpdate(p.id, { purchasePrice: v })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+      </div>
+      <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>ผู้เช่า</p>
+      <div className="mb-2"><input value={p.tenantName || ''} onChange={(e) => onUpdate(p.id, { tenantName: e.target.value })} placeholder="ชื่อผู้เช่า" className="text-sm w-full outline-none rounded-lg px-2.5 py-2" style={{ border: `1px solid ${BORDER}` }} /></div>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div>
+          <input value={p.tenantPhone || ''} onChange={(e) => onUpdate(p.id, { tenantPhone: e.target.value })} placeholder="เบอร์โทร" className="text-sm w-full outline-none rounded-lg px-2.5 py-2 mb-1" style={{ border: `1px solid ${BORDER}` }} />
+          {p.tenantPhone && <a href={`tel:${p.tenantPhone}`} className="flex items-center justify-center gap-1 text-xs rounded-lg py-1.5" style={{ background: PAPER_DIM, color: INK }}><Phone size={12} /> โทร</a>}
+        </div>
+        <div>
+          <input value={p.tenantLine || ''} onChange={(e) => onUpdate(p.id, { tenantLine: e.target.value })} placeholder="LINE ID" className="text-sm w-full outline-none rounded-lg px-2.5 py-2 mb-1" style={{ border: `1px solid ${BORDER}` }} />
+          {p.tenantLine && <a href={`https://line.me/ti/p/~${p.tenantLine}`} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1 text-xs rounded-lg py-1.5" style={{ background: PAPER_DIM, color: INK }}><MessageCircle size={12} /> LINE</a>}
+        </div>
+      </div>
+      <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>เตือนล่วงหน้ากี่วัน (ครบสัญญา)</p>
+      <div className="flex gap-2 mb-3">
+        {[1, 2, 3, 7].map((d) => (<button key={d} onClick={() => toggleReminderDay(d)} style={{ background: (p.reminderDays || []).includes(d) ? BRASS : PAPER_DIM, color: (p.reminderDays || []).includes(d) ? 'white' : SLATE }} className="rounded-full px-3 py-1.5 text-xs">{d} วัน</button>))}
+      </div>
+      {googleConnected && p.contractEndDate && (
+        <button onClick={syncContractReminder} disabled={syncing} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}>{syncing ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />} เพิ่มเตือนครบสัญญาลง Google Calendar</button>
+      )}
+      {syncMsg && <p className="text-[11px] mt-1" style={{ color: syncMsg.includes('สำเร็จ') ? GOOD : BAD }}>{syncMsg}</p>}
+    </div>
+  );
+}
+
+function PropertyMoneySection({ property: p, onAddTransaction, onRemoveTransaction }) {
+  const [amount, setAmount] = useState(0);
+  const [category, setCategory] = useState('ค่าส่วนกลาง');
+  const [type, setType] = useState('expense');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const ym = thisMonth();
+  const monthTx = (p.transactions || []).filter((t) => monthKey(t.date) === ym);
+  const pay = (p.payments || {})[ym];
+  const rentIncome = pay && pay.paid ? Number(pay.amount || p.rent || 0) : 0;
+  const extraIncome = monthTx.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount || 0), 0);
+  const totalExpense = monthTx.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
+  const netProfit = rentIncome + extraIncome - totalExpense;
+
+  function submit() { if (!amount) return; onAddTransaction(p.id, { date, type, category, amount }); setAmount(0); }
+
+  return (
+    <div>
+      <div style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-3 mb-3">
+        <p className="text-[10px] mb-2" style={{ color: SLATE }}>สรุปเดือนนี้ ({ym})</p>
+        <div className="flex justify-between text-sm mb-1"><span>ค่าเช่า</span><span style={{ color: GOOD }}>+฿{fmt(rentIncome)}</span></div>
+        {monthTx.map((t) => (
+          <div key={t.id} className="flex justify-between text-sm mb-1"><span>{t.category}</span><span style={{ color: t.type === 'income' ? GOOD : BAD }}>{t.type === 'income' ? '+' : '-'}฿{fmt(t.amount)}</span></div>
+        ))}
+        <div className="flex justify-between text-sm font-bold mt-2 pt-2" style={{ borderTop: `1px solid ${BORDER}` }}><span>กำไรสุทธิ</span><span style={{ color: netProfit >= 0 ? GOOD : BAD }}>฿{fmt(netProfit)}</span></div>
+      </div>
+      <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>บันทึกรายการ</p>
+      <div className="flex gap-2 mb-2">
+        <button onClick={() => setType('income')} style={{ background: type === 'income' ? GOOD : PAPER_DIM, color: type === 'income' ? 'white' : SLATE }} className="flex-1 text-xs rounded-full py-1.5">รายรับ</button>
+        <button onClick={() => setType('expense')} style={{ background: type === 'expense' ? BAD : PAPER_DIM, color: type === 'expense' ? 'white' : SLATE }} className="flex-1 text-xs rounded-full py-1.5">รายจ่าย</button>
+      </div>
+      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="text-sm w-full outline-none rounded-lg px-2.5 py-2 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+      <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="รายการ เช่น ค่าส่วนกลาง" className="text-sm w-full outline-none rounded-lg px-2.5 py-2 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+      <NumInput value={amount} onChange={setAmount} placeholder="จำนวนเงิน" className="text-sm w-full outline-none rounded-lg px-2.5 py-2 mb-3" style={{ border: `1px solid ${BORDER}` }} />
+      <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm mb-3">บันทึก</button>
+      <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>ประวัติทั้งหมด</p>
+      {(p.transactions || []).map((t) => (
+        <div key={t.id} className="flex justify-between items-center text-sm mb-1.5"><span>{t.date} · {t.category}</span><div className="flex items-center gap-2"><span style={{ color: t.type === 'income' ? GOOD : BAD }}>{t.type === 'income' ? '+' : '-'}฿{fmt(t.amount)}</span><button onClick={() => onRemoveTransaction(p.id, t.id)}><Trash2 size={12} color={BAD} /></button></div></div>
+      ))}
+    </div>
+  );
+}
+
+function PropertyRepairsSection({ property: p, onAddRepair, onRemoveRepair }) {
+  const [item, setItem] = useState('');
+  const [amount, setAmount] = useState(0);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  function submit() { if (!item) return; onAddRepair(p.id, { date, item, amount }); setItem(''); setAmount(0); }
+  const total = (p.repairs || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+  return (
+    <div>
+      <div style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-3 mb-3">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="text-sm w-full outline-none rounded-lg px-2.5 py-2 mb-2" style={{ border: `1px solid ${BORDER}`, background: 'white' }} />
+        <input value={item} onChange={(e) => setItem(e.target.value)} placeholder="รายการซ่อม เช่น เปลี่ยนแอร์" className="text-sm w-full outline-none rounded-lg px-2.5 py-2 mb-2" style={{ border: `1px solid ${BORDER}`, background: 'white' }} />
+        <NumInput value={amount} onChange={setAmount} placeholder="ค่าใช้จ่าย" className="text-sm w-full outline-none rounded-lg px-2.5 py-2 mb-3" style={{ border: `1px solid ${BORDER}`, background: 'white' }} />
+        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกการซ่อม</button>
+      </div>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>รวมค่าซ่อมทั้งหมด ฿{fmt(total)}</p>
+      {(p.repairs || []).map((r) => (
+        <div key={r.id} className="flex justify-between items-center text-sm mb-2 pb-2" style={{ borderBottom: `1px solid ${BORDER}` }}><span>{r.date} · {r.item}</span><div className="flex items-center gap-2"><span>฿{fmt(r.amount)}</span><button onClick={() => onRemoveRepair(p.id, r.id)}><Trash2 size={12} color={BAD} /></button></div></div>
+      ))}
+    </div>
+  );
+}
+
+function PropertyROISection({ property: p }) {
+  const yieldPct = p.purchasePrice ? (Number(p.rent || 0) * 12 / Number(p.purchasePrice)) * 100 : 0;
+  const totalRepairs = (p.repairs || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalExpenses = (p.transactions || []).filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
+  const totalRentCollected = Object.values(p.payments || {}).filter((x) => x.paid).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const cumulativeProfit = totalRentCollected - totalRepairs - totalExpenses;
+  const paybackYears = yieldPct > 0 ? (100 / yieldPct) : null;
+  return (
+    <div>
+      <div style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-3 mb-3">
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <StatBox label="ราคาซื้อ" value={`฿${fmt(p.purchasePrice)}`} />
+          <StatBox label="ค่าเช่า/เดือน" value={`฿${fmt(p.rent)}`} />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <StatBox label="Yield" value={`${yieldPct.toFixed(1)}%`} color={GOOD} />
+          <StatBox label="ระยะเวลาคืนทุน" value={paybackYears ? `${paybackYears.toFixed(1)} ปี` : '-'} />
+        </div>
+      </div>
+      <div style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-3">
+        <p className="text-xs mb-2" style={{ color: SLATE }}>กำไรสะสมทั้งหมด (เก็บค่าเช่า − ค่าซ่อม − ค่าใช้จ่าย)</p>
+        <p className="text-2xl font-bold" style={{ color: cumulativeProfit >= 0 ? GOOD : BAD }}>฿{fmt(cumulativeProfit)}</p>
+      </div>
+    </div>
+  );
+}
+
+function PropertyDocsSection({ property: p, onAddPhoto, onRemovePhoto }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true); setError('');
+    try { await onAddPhoto(p.id, file); } catch (err) { setError('อัพโหลดไม่สำเร็จ: ' + err.message); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
+  }
+  return (
+    <div>
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+      <button onClick={() => fileRef.current && fileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 mb-3">{uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color="#FBBF24" />}{uploading ? 'กำลังอัพโหลด...' : 'ถ่ายรูปห้อง/มิเตอร์'}</button>
+      {error && <p className="text-xs mb-3" style={{ color: BAD }}>{error}</p>}
+      <p className="text-[11px] mb-3" style={{ color: SLATE }}>เก็บรูปห้อง/มิเตอร์ได้ครับ ส่วนสัญญาเช่า/โฉนด (PDF) จะเพิ่มในเฟสถัดไป</p>
+      <div className="grid grid-cols-3 gap-2">
+        {(p.photos || []).map((ph) => (
+          <div key={ph.id} className="relative">
+            <img src={ph.url} className="w-full h-24 object-cover rounded-lg" alt="" />
+            <button onClick={() => onRemovePhoto(p.id, ph.id)} style={{ background: 'rgba(0,0,0,0.5)' }} className="absolute top-1 right-1 rounded-full p-1"><Trash2 size={12} color="white" /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RentCollectionMatrix({ properties, onTogglePayment }) {
+  const [month, setMonth] = useState(thisMonth());
+  return (
+    <div>
+      <div style={{ background: 'white', borderRadius: CARD_RADIUS, boxShadow: '0 2px 12px rgba(15,23,42,0.05)' }} className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => { const d = new Date(month + '-01'); d.setMonth(d.getMonth() - 1); setMonth(d.toISOString().slice(0, 7)); }} style={{ color: BRASS }} className="text-lg px-2">‹</button>
+          <p className="text-sm font-semibold" style={{ color: INK }}>{month}</p>
+          <button onClick={() => { const d = new Date(month + '-01'); d.setMonth(d.getMonth() + 1); setMonth(d.toISOString().slice(0, 7)); }} style={{ color: BRASS }} className="text-lg px-2">›</button>
+        </div>
+        {properties.map((p, i) => {
+          const pay = (p.payments || {})[month];
+          const paid = pay && pay.paid;
+          return (
+            <button key={p.id} onClick={() => onTogglePayment(p.id, month)} className="w-full flex justify-between items-center py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
+              <div className="text-left"><p className="text-sm font-medium" style={{ color: INK }}>{p.name}</p><p className="text-xs" style={{ color: SLATE }}>฿{fmt(p.rent)}</p></div>
+              <span style={{ background: paid ? '#16A34A14' : '#DC262614', color: paid ? GOOD : BAD }} className="text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1">{paid ? '✔️ จ่ายแล้ว' : '❌ ยังไม่จ่าย'}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RealEstateCalendarSection({ properties, googleConnected }) {
+  const upcoming = properties.filter((p) => p.contractEndDate).map((p) => ({ ...p, daysLeft: Math.ceil((new Date(p.contractEndDate) - new Date()) / (1000 * 60 * 60 * 24)) })).sort((a, b) => a.daysLeft - b.daysLeft);
+  return (
+    <div>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>วันครบสัญญาที่ใกล้ถึง</p>
+      {upcoming.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูลวันครบสัญญา</p>}
+      {upcoming.map((p) => (
+        <Card key={p.id}>
+          <div className="flex justify-between items-center"><div><p className="text-sm font-medium" style={{ color: INK }}>{p.name}</p><p className="text-xs" style={{ color: p.daysLeft < 30 ? BAD : SLATE }}>ครบสัญญา {p.contractEndDate} ({p.daysLeft >= 0 ? `อีก ${p.daysLeft} วัน` : 'เลยกำหนดแล้ว'})</p></div></div>
+        </Card>
+      ))}
+      {!googleConnected && <p className="text-xs mt-2" style={{ color: SLATE }}>เชื่อมต่อ Google Calendar ในหน้าตั้งค่าก่อน เพื่อรับการแจ้งเตือนอัตโนมัติจากหน้าข้อมูลของแต่ละทรัพย์สิน</p>}
+    </div>
+  );
+}
+
 function DogOverviewSection({ dog }) {
   const latestWeight = [...(dog.weights || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
   const thisYear = new Date().getFullYear();
@@ -2351,7 +2805,7 @@ function DogOverviewSection({ dog }) {
             { label: 'Ultrasound', item: latestOf(imaging.filter((im) => im.type === 'Ultrasound')) },
           ];
           return rows.map((r) => (
-            <div key={r.label} className="mb-2 pb-2" style={{ borderBottom: '1px solid #F0EBDD' }}>
+            <div key={r.label} className="mb-2 pb-2" style={{ borderBottom: '1px solid #E7EAF0' }}>
               <div className="flex justify-between text-sm"><span className="font-semibold">{r.label}</span><span style={{ color: r.item ? INK : SLATE }}>{r.item ? r.item.date : 'ยังไม่เคยตรวจ'}</span></div>
               {r.item && r.item.note && <p className="text-xs mt-0.5" style={{ color: SLATE }}>{r.item.note}</p>}
             </div>
@@ -2371,16 +2825,18 @@ function DogOverviewSection({ dog }) {
       </Card>
     </div>
   );
-    }function DogProfileSection({ dog, onUpdateDog }) {
+}
+
+function DogProfileSection({ dog, onUpdateDog }) {
   const field = (label, key, type = 'text') => (
     <div className="mb-3">
       <label className="text-xs" style={{ color: SLATE }}>{label}</label>
-      <input type={type} value={dog[key] || ''} onChange={(e) => onUpdateDog(dog.id, { [key]: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} />
+      <input type={type} value={dog[key] || ''} onChange={(e) => onUpdateDog(dog.id, { [key]: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
     </div>
   );
   return (
     <Card>
-      <div className="mb-3"><label className="text-xs" style={{ color: SLATE }}>ชื่อ</label><input value={dog.name} onChange={(e) => onUpdateDog(dog.id, { name: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 font-semibold" style={{ border: '1px solid #E7E0CE' }} /></div>
+      <div className="mb-3"><label className="text-xs" style={{ color: SLATE }}>ชื่อ</label><input value={dog.name} onChange={(e) => onUpdateDog(dog.id, { name: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 font-semibold" style={{ border: '1px solid #E7EAF0' }} /></div>
       {field('ชื่อเล่น', 'nickname')}
       {field('วันเกิด', 'birthdate', 'date')}
       {field('เพศ', 'sex')}
@@ -2388,11 +2844,11 @@ function DogOverviewSection({ dog }) {
       {field('สายพันธุ์', 'breed')}
       {field('หมายเลขไมโครชิป', 'microchip')}
       {field('ผู้เพาะพันธุ์', 'breeder')}
-      <div className="mb-3"><label className="text-xs" style={{ color: SLATE }}>BCS (Body Condition Score)</label><NumInput value={dog.bcs} onChange={(v) => onUpdateDog(dog.id, { bcs: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+      <div className="mb-3"><label className="text-xs" style={{ color: SLATE }}>BCS (Body Condition Score)</label><NumInput value={dog.bcs} onChange={(v) => onUpdateDog(dog.id, { bcs: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
       {field('นิสัย', 'personality')}
-      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>โรคประจำตัว</label><textarea value={dog.chronicDiseases || ''} onChange={(e) => onUpdateDog(dog.id, { chronicDiseases: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
-      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>การแพ้ยา</label><textarea value={dog.drugAllergies || ''} onChange={(e) => onUpdateDog(dog.id, { drugAllergies: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
-      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
+      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>โรคประจำตัว</label><textarea value={dog.chronicDiseases || ''} onChange={(e) => onUpdateDog(dog.id, { chronicDiseases: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
+      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>การแพ้ยา</label><textarea value={dog.drugAllergies || ''} onChange={(e) => onUpdateDog(dog.id, { drugAllergies: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
+      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
     </Card>
   );
 }
@@ -2441,31 +2897,31 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, ho
         </button>
         {scaleError && <p className="text-xs mb-3" style={{ color: BAD }}>{scaleError}</p>}
         <label className="text-xs" style={{ color: SLATE }}>วันที่</label>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-xs" style={{ color: SLATE }}>หรือกรอกน้ำหนักเอง (กก.)</label>
-        <NumInput value={weight} onChange={setWeight} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <NumInput value={weight} onChange={setWeight} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-xs" style={{ color: SLATE }}>สถานที่ชั่ง (โรงพยาบาล)</label>
-        <select value={hList.includes(location) ? location : (location ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setLocation(''); else setLocation(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7E0CE' }}>
+        <select value={hList.includes(location) ? location : (location ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setLocation(''); else setLocation(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
           <option value="">— ไม่ระบุ —</option>
           {hList.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
           <option value="__new__">+ เพิ่มสถานที่ใหม่</option>
         </select>
         {(location && !hList.includes(location)) && (
           <div className="flex gap-2 mb-2">
-            <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="พิมพ์ชื่อสถานที่" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7E0CE' }} />
-            <button type="button" onClick={() => { if (location) onAddHospital(location); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7E0CE', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+            <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="พิมพ์ชื่อสถานที่" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
+            <button type="button" onClick={() => { if (location) onAddHospital(location); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
           </div>
         )}
         <label className="text-xs" style={{ color: SLATE }}>ผู้ชั่ง</label>
-        <select value={wList.includes(weigher) ? weigher : (weigher ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setWeigher(''); else setWeigher(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7E0CE' }}>
+        <select value={wList.includes(weigher) ? weigher : (weigher ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setWeigher(''); else setWeigher(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
           <option value="">— ไม่ระบุ —</option>
           {wList.map((wName) => <option key={wName} value={wName}>{wName}</option>)}
           <option value="__new__">+ เพิ่มชื่อใหม่</option>
         </select>
         {(weigher && !wList.includes(weigher)) && (
           <div className="flex gap-2 mb-3">
-            <input value={weigher} onChange={(e) => setWeigher(e.target.value)} placeholder="พิมพ์ชื่อผู้ชั่ง" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7E0CE' }} />
-            <button type="button" onClick={() => { if (weigher) onAddWeigher(weigher); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7E0CE', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+            <input value={weigher} onChange={(e) => setWeigher(e.target.value)} placeholder="พิมพ์ชื่อผู้ชั่ง" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
+            <button type="button" onClick={() => { if (weigher) onAddWeigher(weigher); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
           </div>
         )}
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกน้ำหนัก</button>
@@ -2514,9 +2970,9 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication }) {
         <p className="text-xs mb-2" style={{ color: SLATE }}>เพิ่มยาใหม่ (ปรับยา = เพิ่มรายการใหม่ ไม่ลบของเดิม)</p>
         {['name:ชื่อยา', 'strength:ความแรง', 'form:รูปแบบยา', 'dose:ขนาดยา/จำนวน', 'usage:วิธีใช้', 'timing:เวลาใช้ (ก่อน/หลังอาหาร)', 'startReason:เหตุผลที่เริ่ม', 'hospital:โรงพยาบาล', 'doctor:หมอผู้สั่ง'].map((f) => {
           const [k, l] = f.split(':');
-          return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>;
+          return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>;
         })}
-        <div className="mb-3"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่ม</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+        <div className="mb-3"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่ม</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกยา</button>
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติยาทั้งหมด (ห้ามลบ)</p>
@@ -2538,9 +2994,7 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication }) {
       ))}
     </div>
   );
-}
-
-function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
+    }function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
   const ft = dog.fleaTick || {};
   const [doseGiven, setDoseGiven] = useState('');
   const [cost, setCost] = useState(0);
@@ -2557,14 +3011,14 @@ function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>ข้อมูลผลิตภัณฑ์</p>
         <label className="text-[10px]" style={{ color: SLATE }}>ชื่อผลิตภัณฑ์ (เช่น Bravecto)</label>
-        <input value={ft.productName || ''} onChange={(e) => onUpdateFleaTickInfo(dog.id, { productName: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
+        <input value={ft.productName || ''} onChange={(e) => onUpdateFleaTickInfo(dog.id, { productName: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <div className="grid grid-cols-2 gap-2 mb-2">
-          <div><label className="text-[10px]" style={{ color: SLATE }}>ขนาดเม็ดยา (mg)</label><NumInput value={ft.tabletMg} onChange={(v) => onUpdateFleaTickInfo(dog.id, { tabletMg: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-          <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนเม็ดที่ซื้อ</label><NumInput value={ft.tabletsPurchased} onChange={(v) => onUpdateFleaTickInfo(dog.id, { tabletsPurchased: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ขนาดเม็ดยา (mg)</label><NumInput value={ft.tabletMg} onChange={(v) => onUpdateFleaTickInfo(dog.id, { tabletMg: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนเม็ดที่ซื้อ</label><NumInput value={ft.tabletsPurchased} onChange={(v) => onUpdateFleaTickInfo(dog.id, { tabletsPurchased: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         </div>
         <div className="grid grid-cols-2 gap-2 mb-2">
-          <div><label className="text-[10px]" style={{ color: SLATE }}>ราคารวมที่ซื้อ (บาท)</label><NumInput value={ft.totalCost} onChange={(v) => onUpdateFleaTickInfo(dog.id, { totalCost: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-          <div><label className="text-[10px]" style={{ color: SLATE }}>ระยะห่างรอบถัดไป (วัน)</label><NumInput value={ft.intervalDays || 84} onChange={(v) => onUpdateFleaTickInfo(dog.id, { intervalDays: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ราคารวมที่ซื้อ (บาท)</label><NumInput value={ft.totalCost} onChange={(v) => onUpdateFleaTickInfo(dog.id, { totalCost: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ระยะห่างรอบถัดไป (วัน)</label><NumInput value={ft.intervalDays || 84} onChange={(v) => onUpdateFleaTickInfo(dog.id, { intervalDays: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         </div>
         {costPerDose > 0 && <p className="text-xs mb-2" style={{ color: SLATE }}>ต้นทุนต่อครั้ง ≈ ฿{fmt(costPerDose)}</p>}
         <p className="text-[10px]" style={{ color: WARN }}>⚠️ หากแบ่งเม็ดยาเอง ควรเป็นไปตามคำแนะนำของสัตวแพทย์และข้อมูลผู้ผลิตเท่านั้น ยาบางชนิดไม่เหมาะกับการแบ่งเม็ด ระบบนี้ไม่ได้คำนวณขนาดยาที่ถูกต้องให้ กรุณาให้ตามที่สัตวแพทย์สั่งเท่านั้น</p>
@@ -2573,9 +3027,9 @@ function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
         <p className="text-xs mb-1" style={{ color: SLATE }}>ให้ยาล่าสุด: {ft.lastGivenDate || 'ยังไม่เคยบันทึก'}</p>
         <p className="text-xs mb-3" style={{ color: nextDue && daysUntil(nextDue) < 0 ? BAD : GOOD }}>ครั้งถัดไป: {nextDue || '-'}</p>
         <label className="text-[10px]" style={{ color: SLATE }}>ให้ไปเท่าไหร่ (เช่น 1 เม็ด)</label>
-        <input value={doseGiven} onChange={(e) => setDoseGiven(e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
+        <input value={doseGiven} onChange={(e) => setDoseGiven(e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่ายครั้งนี้ (ไม่บังคับ)</label>
-        <NumInput value={cost} onChange={setCost} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <NumInput value={cost} onChange={setCost} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกให้ยาวันนี้</button>
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติ</p>
@@ -2599,22 +3053,22 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
     <div>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>ข้อมูลกรมธรรม์</p>
-        {['company:บริษัทประกัน', 'policyNumber:เลขกรมธรรม์'].map((f) => { const [k, l] = f.split(':'); return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={ins[k] || ''} onChange={(e) => onUpdateInsurance(dog.id, { [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>; })}
+        {['company:บริษัทประกัน', 'policyNumber:เลขกรมธรรม์'].map((f) => { const [k, l] = f.split(':'); return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={ins[k] || ''} onChange={(e) => onUpdateInsurance(dog.id, { [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>; })}
         <div className="grid grid-cols-2 gap-2 mb-2">
-          <div><label className="text-[10px]" style={{ color: SLATE }}>วันเริ่ม</label><input type="date" value={ins.startDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-          <div><label className="text-[10px]" style={{ color: SLATE }}>วันหมดอายุ</label><input type="date" value={ins.endDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { endDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วันเริ่ม</label><input type="date" value={ins.startDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วันหมดอายุ</label><input type="date" value={ins.endDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { endDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         </div>
         <div className="grid grid-cols-3 gap-2 mb-2">
-          <div><label className="text-[10px]" style={{ color: SLATE }}>ค่าเบี้ย</label><NumInput value={ins.premium} onChange={(v) => onUpdateInsurance(dog.id, { premium: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-          <div><label className="text-[10px]" style={{ color: SLATE }}>วงเงิน OPD</label><NumInput value={ins.opdLimit} onChange={(v) => onUpdateInsurance(dog.id, { opdLimit: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-          <div><label className="text-[10px]" style={{ color: SLATE }}>วงเงิน IPD</label><NumInput value={ins.ipdLimit} onChange={(v) => onUpdateInsurance(dog.id, { ipdLimit: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ค่าเบี้ย</label><NumInput value={ins.premium} onChange={(v) => onUpdateInsurance(dog.id, { premium: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วงเงิน OPD</label><NumInput value={ins.opdLimit} onChange={(v) => onUpdateInsurance(dog.id, { opdLimit: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วงเงิน IPD</label><NumInput value={ins.ipdLimit} onChange={(v) => onUpdateInsurance(dog.id, { ipdLimit: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         </div>
         <p className="text-xs" style={{ color: SLATE }}>ใช้สิทธิ์ไปแล้ว ฿{fmt(totalClaimed)}</p>
       </Card>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการเคลม</p>
-        <NumInput value={claimAmount} onChange={setClaimAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
-        <input value={claimReason} onChange={(e) => setClaimReason(e.target.value)} placeholder="เหตุผล/อาการ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <NumInput value={claimAmount} onChange={setClaimAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <input value={claimReason} onChange={(e) => setClaimReason(e.target.value)} placeholder="เหตุผล/อาการ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <button onClick={submitClaim} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเคลม</button>
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติการเคลม</p>
@@ -2661,24 +3115,24 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
       {!googleConnected && <Card><p className="text-xs" style={{ color: SLATE }}>ยังไม่ได้เชื่อมต่อ Google Calendar — ไปที่ไอคอนตั้งค่า ⚙️ ที่หน้าภาพรวมเพื่อเชื่อมต่อก่อน จะได้กดเพิ่มนัดลงปฏิทินได้</p></Card>}
       <Card>
         <div className="grid grid-cols-2 gap-2 mb-2">
-          <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่</label><input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
-          <div><label className="text-[10px]" style={{ color: SLATE }}>เวลา</label><input type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่</label><input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>เวลา</label><input type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         </div>
         <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label>
-        <select value={list.includes(form.hospital) ? form.hospital : (form.hospital ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') { setForm({ ...form, hospital: '' }); } else { setForm({ ...form, hospital: e.target.value }); } }} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }}>
+        <select value={list.includes(form.hospital) ? form.hospital : (form.hospital ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') { setForm({ ...form, hospital: '' }); } else { setForm({ ...form, hospital: e.target.value }); } }} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }}>
           <option value="">— เลือกโรงพยาบาล —</option>
           {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
           <option value="__new__">+ เพิ่มโรงพยาบาลใหม่</option>
         </select>
         {(!list.includes(form.hospital)) && (
           <div className="flex gap-2 mt-1 mb-2">
-            <input value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7E0CE' }} />
-            <button type="button" onClick={() => { if (form.hospital) onAddHospital(form.hospital); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7E0CE', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+            <input value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
+            <button type="button" onClick={() => { if (form.hospital) onAddHospital(form.hospital); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
           </div>
         )}
         {list.includes(form.hospital) && <div className="mb-2" />}
         <label className="text-[10px]" style={{ color: SLATE }}>วัตถุประสงค์</label>
-        <input value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <input value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>เตือนล่วงหน้ากี่วัน (เลือกได้หลายอัน)</label>
         <div className="flex gap-2 mt-1 mb-3">
           {[1, 2, 3, 7].map((d) => (
@@ -2741,9 +3195,9 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
       {subTab === 'blood' && (
         <>
           <Card>
-            <select value={bt.type} onChange={(e) => setBt({ ...bt, type: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{BLOOD_TEST_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
-            <input type="date" value={bt.date} onChange={(e) => setBt({ ...bt, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }} />
-            <textarea value={bt.note} onChange={(e) => setBt({ ...bt, note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
+            <select value={bt.type} onChange={(e) => setBt({ ...bt, type: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }}>{BLOOD_TEST_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <input type="date" value={bt.date} onChange={(e) => setBt({ ...bt, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+            <textarea value={bt.note} onChange={(e) => setBt({ ...bt, note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
             <button onClick={() => { onAddBloodTest(dog.id, bt); setBt({ ...bt, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
           </Card>
           {[...(dog.bloodTests || [])].reverse().map((r) => <Card key={r.id}><div className="flex justify-between items-start"><div><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div><EditButton onClick={() => setEditingBt(r)} /></div></Card>)}
@@ -2752,9 +3206,9 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
       {subTab === 'organ' && (
         <>
           <Card>
-            <select value={oe.organ} onChange={(e) => setOe({ ...oe, organ: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{ORGAN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
-            <input type="date" value={oe.date} onChange={(e) => setOe({ ...oe, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }} />
-            <textarea value={oe.note} onChange={(e) => setOe({ ...oe, note: e.target.value })} placeholder="ผลตรวจ/ลักษณะที่พบ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
+            <select value={oe.organ} onChange={(e) => setOe({ ...oe, organ: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }}>{ORGAN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <input type="date" value={oe.date} onChange={(e) => setOe({ ...oe, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+            <textarea value={oe.note} onChange={(e) => setOe({ ...oe, note: e.target.value })} placeholder="ผลตรวจ/ลักษณะที่พบ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
             <button onClick={() => { onAddOrganExam(dog.id, oe); setOe({ ...oe, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจอวัยวะ</button>
           </Card>
           {[...(dog.organExams || [])].reverse().map((r) => <Card key={r.id}><div className="flex justify-between items-start"><div><p className="text-sm font-semibold">{r.organ} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div><EditButton onClick={() => setEditingOe(r)} /></div></Card>)}
@@ -2763,9 +3217,9 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
       {subTab === 'imaging' && (
         <>
           <Card>
-            <select value={im.type} onChange={(e) => setIm({ ...im, type: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{IMAGING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
-            <input type="date" value={im.date} onChange={(e) => setIm({ ...im, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }} />
-            <textarea value={im.note} onChange={(e) => setIm({ ...im, note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} rows={3} />
+            <select value={im.type} onChange={(e) => setIm({ ...im, type: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }}>{IMAGING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <input type="date" value={im.date} onChange={(e) => setIm({ ...im, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+            <textarea value={im.note} onChange={(e) => setIm({ ...im, note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
             <button onClick={() => { onAddImaging(dog.id, im); setIm({ ...im, note: '' }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผล Imaging</button>
           </Card>
           {[...(dog.imaging || [])].reverse().map((r) => <Card key={r.id}><div className="flex justify-between items-start"><div><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div><EditButton onClick={() => setEditingIm(r)} /></div></Card>)}
@@ -2852,21 +3306,21 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
         </button>
         {receiptError && <p className="text-xs mb-3" style={{ color: BAD }}>{receiptError}</p>}
         <label className="text-xs" style={{ color: SLATE }}>หรือกรอกเอง</label>
-        <NumInput value={amount} onChange={setAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7E0CE' }} />
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7E0CE' }}>{PET_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <NumInput value={amount} onChange={setAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }}>{PET_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
         <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล (ไม่บังคับ)</label>
-        <select value={list.includes(hospital) ? hospital : (hospital ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setHospital(''); else setHospital(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7E0CE' }}>
+        <select value={list.includes(hospital) ? hospital : (hospital ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setHospital(''); else setHospital(e.target.value); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
           <option value="">— ไม่ระบุ —</option>
           {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
           <option value="__new__">+ เพิ่มโรงพยาบาลใหม่</option>
         </select>
         {(hospital && !list.includes(hospital)) && (
           <div className="flex gap-2 mb-2">
-            <input value={hospital} onChange={(e) => setHospital(e.target.value)} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7E0CE' }} />
-            <button type="button" onClick={() => { if (hospital) onAddHospital(hospital); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7E0CE', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+            <input value={hospital} onChange={(e) => setHospital(e.target.value)} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
+            <button type="button" onClick={() => { if (hospital) onAddHospital(hospital); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
           </div>
         )}
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="โน้ต" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }} />
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="โน้ต" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกค่าใช้จ่าย</button>
       </Card>
       <Card>
@@ -2874,7 +3328,7 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
           <button onClick={() => setPeriodType('month')} style={{ background: periodType === 'month' ? INK : PAPER_DIM, color: periodType === 'month' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายเดือน</button>
           <button onClick={() => setPeriodType('year')} style={{ background: periodType === 'year' ? INK : PAPER_DIM, color: periodType === 'year' ? 'white' : INK }} className="rounded-full px-3 py-1.5 text-xs">รายปี</button>
         </div>
-        {periods.length > 0 ? <select value={selPeriod} onChange={(e) => setSelPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7E0CE' }}>{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
+        {periods.length > 0 ? <select value={selPeriod} onChange={(e) => setSelPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }}>{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
         {selPeriod && <p className="text-xl">รวม ฿{fmt(periodTotal)}</p>}
       </Card>
       {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => onRemoveDogExpense(dog.id, e.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
@@ -2922,4 +3376,4 @@ function AllDogsReportSection({ dogs }) {
       </Card>
     </div>
   );
-      }
+    }
