@@ -256,10 +256,14 @@ function computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredD
 
 export default function App() {
   return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
-  }function Tracker({ user }) {
+}function Tracker({ user }) {
   const [state, setState] = useState(null);
   const [tab, setTab] = useState(() => {
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('quick') === 'expense') return 'expenses';
+    if (typeof window === 'undefined') return 'dashboard';
+    const path = window.location.pathname;
+    if (path.indexOf('/expense') === 0) return 'expenses';
+    if (path.indexOf('/realestate') === 0) return 'realestate';
+    if (new URLSearchParams(window.location.search).get('quick') === 'expense') return 'expenses';
     return 'dashboard';
   });
   const [shareMode, setShareMode] = useState(false);
@@ -576,7 +580,7 @@ export default function App() {
 
   async function refreshFxRate() {
     try {
-      const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=THB');
+      const res = await fetch('https://api.frankfurter.dev/v1/latest?from=USD&to=THB');
       const data = await res.json();
       const rate = data && data.rates && data.rates.THB;
       if (!rate) return null;
@@ -585,9 +589,19 @@ export default function App() {
       return rate;
     } catch (e) { return null; }
   }
-  async function refreshHoldingPrice(accountId, holdingId, symbol) {
-    if (!state.finnhubKey) { setShowSettings(true); return { ok: false, message: 'ยังไม่ได้ตั้งค่า API key' }; }
+  async function refreshHoldingPrice(accountId, holdingId, symbol, currency) {
     if (!symbol) return { ok: false, message: 'ยังไม่ได้ใส่สัญลักษณ์หุ้น' };
+    if (currency === 'THB') {
+      try {
+        const res = await fetch(`/api/thai-stock?symbol=${encodeURIComponent(symbol)}`);
+        const data = await res.json();
+        if (data && data.error) return { ok: false, message: data.error };
+        if (!data || !data.price) return { ok: false, message: 'ไม่พบข้อมูลราคา ลองตรวจสอบสัญลักษณ์อีกครั้ง' };
+        updateHolding(accountId, holdingId, { currentPrice: data.price, lastUpdated: new Date().toISOString().slice(0, 10) });
+        return { ok: true, price: data.price, delayed: true };
+      } catch (e) { return { ok: false, message: 'เชื่อมต่อไม่สำเร็จ: ' + e.message }; }
+    }
+    if (!state.finnhubKey) { setShowSettings(true); return { ok: false, message: 'ยังไม่ได้ตั้งค่า API key' }; }
     try {
       const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${state.finnhubKey}`);
       if (!res.ok) return { ok: false, message: `เซิร์ฟเวอร์ตอบกลับผิดพลาด (HTTP ${res.status})` };
@@ -752,7 +766,7 @@ function InsightRow({ tone, text }) {
   const Icon = tone === 'warn' ? AlertTriangle : tone === 'good' ? CheckCircle2 : Info;
   const color = tone === 'warn' ? WARN : tone === 'good' ? GOOD : SLATE;
   return <div className="flex items-start gap-2 mb-2"><Icon size={15} color={color} style={{ marginTop: 1, flexShrink: 0 }} /><p className="text-sm">{text}</p></div>;
-                                                  }function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
+      }function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiText, setAiText] = useState('');
@@ -978,7 +992,7 @@ function mergePortfolioScans(results) {
     });
   });
   return { bySymbol, orderRows };
-}function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+          }function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -1174,9 +1188,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
     </Card>
   );
-}
-
-function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+            }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [expanded, setExpanded] = useState(true);
   const holdings = a.holdings || [];
   const totalValue = holdings.reduce((s, h) => s + holdingMarketValueTHB(h), 0);
@@ -1321,7 +1333,27 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const next = kept.map((row) => {
       const existing = holdings.find((h) => (h.symbol || '').toUpperCase() === row.symbol);
       if (existing) {
-        return { ...existing, shares: row.shares, avgCost: row.avgCost, currentPrice: row.currentPrice, currentFx: currency === 'USD' && fx ? fx : existing.currentFx, lastUpdated: today };
+        const oldShares = Number(existing.shares || 0);
+        const newShares = Number(row.shares || 0);
+        const delta = newShares - oldShares;
+        let patch = { ...existing, shares: row.shares, avgCost: row.avgCost, currentPrice: row.currentPrice, currentFx: currency === 'USD' && fx ? fx : existing.currentFx, lastUpdated: today };
+        // ฟีเจอร์ CC: ถ้าจำนวนหุ้นเปลี่ยนไปจากเดิม (ไม่มีภาพ Order มายืนยัน) ให้ประมาณการรายการซื้อ/ขายให้อัตโนมัติ
+        if (Math.abs(delta) > 0.0001) {
+          const estPrice = Number(row.currentPrice) || 0;
+          if (delta > 0) {
+            const buyRecord = { id: uid(), date: today, shares: delta, price: estPrice, amount: delta * estPrice, estimated: true };
+            patch.buys = [buyRecord, ...(existing.buys || [])];
+          } else {
+            const soldShares = Math.abs(delta);
+            const fxUsed = existing.currency === 'USD' ? Number(existing.purchaseFx || 0) : 1;
+            const costBasisSold = soldShares * Number(existing.avgCost || 0) * fxUsed;
+            const amount = soldShares * estPrice * (existing.currency === 'USD' && fx ? fx : fxUsed);
+            const gain = amount - costBasisSold;
+            const sellRecord = { id: uid(), date: today, shares: soldShares, price: estPrice, amount, gain, currency: existing.currency, estimated: true };
+            patch.sells = [sellRecord, ...(existing.sells || [])];
+          }
+        }
+        return patch;
       }
       return { id: uid(), symbol: row.symbol, name: '', shares: row.shares, avgCost: row.avgCost, currency, purchaseFx: currency === 'USD' ? (fx || 36) : 1, currentPrice: row.currentPrice, currentFx: currency === 'USD' ? (fx || 36) : 1, lastUpdated: today, purchaseDate: '', dividends: [], sells: [], buys: [] };
     });
@@ -1468,13 +1500,15 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1 text-xs mt-1" style={{ color: categoryColor }}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {holdings.length} หุ้นในบัญชีนี้</button>
       {expanded && (
         <div className="mt-3">
-          {holdings.map((h) => <HoldingRow key={h.id} accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={h.currency === 'USD'} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} />)}
+          {holdings.map((h) => <HoldingRow key={h.id} accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={true} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} />)}
           <button onClick={() => onAddHolding(a.id)} className="flex items-center gap-1 text-xs mt-1" style={{ color: BRASS }}><PlusCircle size={13} /> เพิ่มหุ้นในบัญชีนี้</button>
         </div>
       )}
     </Card>
   );
-                }function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+}
+
+function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [showDiv, setShowDiv] = useState(false);
   const [divAmount, setDivAmount] = useState(0);
   const [divDate, setDivDate] = useState(new Date().toISOString().slice(0, 10));
@@ -1508,7 +1542,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const [refreshError, setRefreshError] = useState('');
   async function doRefresh() {
     setRefreshing(true); setRefreshError('');
-    const result = await onRefreshPrice(accountId, h.id, h.symbol);
+    const result = await onRefreshPrice(accountId, h.id, h.symbol, h.currency);
     if (result && !result.ok) setRefreshError(result.message);
     setRefreshing(false);
   }
@@ -1609,7 +1643,14 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ปัจจุบัน</label><NumInput value={h.currentFx} onChange={(v) => onUpdate(accountId, h.id, { currentFx: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>}
         <div className="col-span-2"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่มถือ (สำหรับ CAGR)</label><input type="date" value={h.purchaseDate || ''} onChange={(e) => onUpdate(accountId, h.id, { purchaseDate: e.target.value })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7E0CE', background: 'white' }} /></div>
       </div>
-      {canRefresh && <button onClick={doRefresh} disabled={!h.symbol} className="flex items-center gap-1 text-[11px] mb-1" style={{ color: finnhubKey ? BRASS : SLATE }}>{refreshing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {finnhubKey ? 'รีเฟรชราคาล่าสุด' : 'ตั้งค่า API key เพื่อรีเฟรชราคา'}</button>}
+      {canRefresh && (
+        <>
+          <button onClick={doRefresh} disabled={!h.symbol || (h.currency === 'USD' && !finnhubKey)} className="flex items-center gap-1 text-[11px] mb-1" style={{ color: (h.currency === 'USD' && !finnhubKey) ? SLATE : BRASS }}>
+            {refreshing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {h.currency === 'USD' ? (finnhubKey ? 'รีเฟรชราคาล่าสุด' : 'ตั้งค่า API key เพื่อรีเฟรชราคา') : 'รีเฟรชราคาล่าสุด (ดีเลย์ ~15 นาที)'}
+          </button>
+          {h.currency === 'THB' && <p className="text-[9px] mb-1" style={{ color: SLATE }}>ข้อมูลจาก Yahoo Finance (ไม่เป็นทางการ) — ใช้เป็นข้อมูลอ้างอิงคร่าวๆ</p>}
+        </>
+      )}
       {refreshError && <p className="text-[10px] mb-2" style={{ color: BAD }}>{refreshError}</p>}
       {syncDraft ? (
         <div style={{ background: 'white', border: '1px solid #E7E0CE' }} className="rounded-lg p-2 mb-2">
@@ -1683,7 +1724,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       )}
       {showBuys && (h.buys || []).map((b) => (
         <div key={b.id} className="flex justify-between text-xs mt-1">
-          <span>{b.date} · ซื้อ {b.shares} หุ้น @ {b.price}</span>
+          <span>{b.date} · ซื้อ {b.shares} หุ้น @ {b.price}{b.estimated && <span className="text-[9px]" style={{ color: WARN }}> (ประมาณการจากภาพสรุป)</span>}</span>
           <span className="text-[10px] flex items-center gap-2" style={{ color: SLATE }}>฿{fmt(b.amount)} <EditButton onClick={() => setEditingBuy(b)} /></span>
         </div>
       ))}
@@ -1739,7 +1780,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       )}
       {showSells && (h.sells || []).map((s) => (
         <div key={s.id} className="flex justify-between text-xs mt-1">
-          <span>{s.date} · ขาย {s.shares} หุ้น @ {s.price}</span>
+          <span>{s.date} · ขาย {s.shares} หุ้น @ {s.price}{s.estimated && <span className="text-[9px]" style={{ color: WARN }}> (ประมาณการจากภาพสรุป)</span>}</span>
           <span className="flex items-center gap-2" style={{ color: s.gain >= 0 ? GOOD : BAD }}>{s.gain >= 0 ? '+' : ''}฿{fmt(s.gain)} <EditButton onClick={() => setEditingSell(s)} /><button onClick={() => onRemoveSell(accountId, h.id, s.id)}><Trash2 size={11} color={BAD} /></button></span>
         </div>
       ))}
@@ -1863,9 +1904,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
       )}
     </div>
   );
-}
-
-function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
+          }function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   return (
     <div className="px-5 pt-5">
       <Card><p className="text-xs mb-1" style={{ color: SLATE }}>รวมรายรับต่อเดือน</p><p className="text-2xl">฿{fmt(monthlyIncome)}</p></Card>
@@ -1879,7 +1918,9 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-                                                                                                                    }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
+}
+
+function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
   const [note, setNote] = useState('');
@@ -2330,9 +2371,7 @@ function DogOverviewSection({ dog }) {
       </Card>
     </div>
   );
-}
-
-function DogProfileSection({ dog, onUpdateDog }) {
+    }function DogProfileSection({ dog, onUpdateDog }) {
   const field = (label, key, type = 'text') => (
     <div className="mb-3">
       <label className="text-xs" style={{ color: SLATE }}>{label}</label>
@@ -2356,7 +2395,9 @@ function DogProfileSection({ dog, onUpdateDog }) {
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7E0CE' }} rows={2} /></div>
     </Card>
   );
-                                                   }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
+}
+
+function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
   const [weight, setWeight] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [location, setLocation] = useState('');
