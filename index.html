@@ -4,7 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#14213D" />
-    <link rel="manifest" href="/manifest.json" />
+    <link id="app-manifest" rel="manifest" href="/manifest.json" />
+    <script>
+      // ฟีเจอร์ EE: เลือก manifest ให้ตรงกับ path เพื่อให้ติดตั้งเป็นไอคอนแยกบนหน้าโฮมได้จริง
+      (function () {
+        var path = window.location.pathname;
+        var link = document.getElementById('app-manifest');
+        if (path.indexOf('/expense') === 0) {
+          link.setAttribute('href', '/manifest-expense.json');
+        } else if (path.indexOf('/realestate') === 0) {
+          link.setAttribute('href', '/manifest-realestate.json');
+        }
+      })();
+    </script>
     <title>สมุดบัญชีการลงทุน</title>
   </head>
   <body>
