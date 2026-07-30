@@ -845,7 +845,7 @@ function InsightRow({ tone, text }) {
   const Icon = tone === 'warn' ? AlertTriangle : tone === 'good' ? CheckCircle2 : Info;
   const color = tone === 'warn' ? WARN : tone === 'good' ? GOOD : SLATE;
   return <div className="flex items-start gap-2 mb-2"><Icon size={15} color={color} style={{ marginTop: 1, flexShrink: 0 }} /><p className="text-sm">{text}</p></div>;
-                    }function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
+}function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiText, setAiText] = useState('');
@@ -1269,9 +1269,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
     </Card>
   );
-}````jsx
-
-function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+                                                                                                       }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [expanded, setExpanded] = useState(true);
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
@@ -1626,10 +1624,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       })()}
     </Card>
   );
-}
-
-````
-function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+}function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [showDiv, setShowDiv] = useState(false);
   const [divAmount, setDivAmount] = useState(0);
   const [divDate, setDivDate] = useState(new Date().toISOString().slice(0, 10));
@@ -2994,7 +2989,7 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication }) {
       ))}
     </div>
   );
-    }function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
+                                 }function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
   const ft = dog.fleaTick || {};
   const [doseGiven, setDoseGiven] = useState('');
   const [cost, setCost] = useState(0);
@@ -3376,4 +3371,4 @@ function AllDogsReportSection({ dogs }) {
       </Card>
     </div>
   );
-    }
+          }
