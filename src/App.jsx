@@ -277,7 +277,7 @@ function computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredD
 
 export default function App() {
   return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
-      }function Tracker({ user }) {
+  }function Tracker({ user }) {
   const [state, setState] = useState(null);
   const [tab, setTab] = useState(() => {
     if (typeof window === 'undefined') return 'dashboard';
@@ -400,27 +400,49 @@ export default function App() {
         }
       } else { data = EMPTY_STATE; await setDoc(docRef, EMPTY_STATE); }
 
-      // ฟีเจอร์ GG: โหลดเอกสารข้อมูลที่ใช้ร่วมกับภรรยา (ลูกๆ, บ้านเช่า, กองทุน DIME/WealthX)
+      // ฟีเจอร์ GG: โหลดเอกสารข้อมูลที่ใช้ร่วมกับภรรยา (ลูกๆ, บ้านเช่า, สหกรณ์, กองทุน DIME/WealthX)
       const sharedSnap = await getDoc(sharedDocRef);
       let shared = sharedSnap.exists() ? sharedSnap.data() : { dogs: [], properties: [], accounts: [] };
+      let dataChanged = false;
+      let sharedChanged = false;
 
-      // ย้ายข้อมูลเดิมไปยังส่วนที่ใช้ร่วมกัน (ทำครั้งเดียวเท่านั้น)
+      // ย้ายลูกๆ/บ้านเช่าไปยังส่วนที่ใช้ร่วมกัน (ทำครั้งแรกครั้งเดียว)
       if (!data.migratedToShared) {
         const dogsToMove = (data.dogs && data.dogs.length > 0) ? data.dogs : [];
         const propsToMove = (data.properties && data.properties.length > 0) ? data.properties : [];
-        const accountsToMove = (data.accounts || []).filter((a) => a.category === 'mutual_fund' && (a.name === 'DIMEกองทุน' || a.name === 'DIME กองทุน' || (a.platform || '').toLowerCase().includes('wealth')));
-        if (dogsToMove.length || propsToMove.length || accountsToMove.length) {
+        if (dogsToMove.length || propsToMove.length) {
           shared = {
+            ...shared,
             dogs: shared.dogs && shared.dogs.length > 0 ? shared.dogs : dogsToMove,
             properties: shared.properties && shared.properties.length > 0 ? shared.properties : propsToMove,
-            accounts: [...(shared.accounts || []), ...accountsToMove.filter((a) => !(shared.accounts || []).some((sa) => sa.id === a.id))],
           };
-          await setDoc(sharedDocRef, shared);
+          sharedChanged = true;
         }
-        const remainingAccounts = (data.accounts || []).filter((a) => !accountsToMove.some((m) => m.id === a.id));
-        data = { ...data, dogs: [], properties: [], accounts: remainingAccounts, migratedToShared: true };
-        await setDoc(docRef, data);
+        data = { ...data, dogs: [], properties: [], migratedToShared: true };
+        dataChanged = true;
       }
+
+      // ตรวจสอบบัญชีที่ควรแชร์ (สหกรณ์ทั้งหมด + กองทุนรวมที่เป็น DIME/WealthX) — เช็คทุกครั้งที่เปิดแอป เผื่อมีบัญชีใหม่/ตกหล่น
+      const isSharedAccount = (a) => {
+        if (a.category === 'cooperative') return true;
+        if (a.category === 'mutual_fund') {
+          const text = `${a.name || ''} ${a.platform || ''}`.toLowerCase();
+          return text.includes('wealth') || text.includes('ดาม') || text.includes('dime');
+        }
+        return false;
+      };
+      const accountsToMove = (data.accounts || []).filter(isSharedAccount);
+      if (accountsToMove.length) {
+        shared = {
+          ...shared,
+          accounts: [...(shared.accounts || []), ...accountsToMove.filter((a) => !(shared.accounts || []).some((sa) => sa.id === a.id))],
+        };
+        const remainingAccounts = (data.accounts || []).filter((a) => !accountsToMove.some((m) => m.id === a.id));
+        data = { ...data, accounts: remainingAccounts };
+        dataChanged = true; sharedChanged = true;
+      }
+      if (sharedChanged) await setDoc(sharedDocRef, shared);
+      if (dataChanged) await setDoc(docRef, data);
 
       setSharedState(shared);
       setState(data);
@@ -883,7 +905,7 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
 
 function EditButton({ onClick }) {
   return <button onClick={onClick} className="text-[11px] underline mr-2" style={{ color: BRASS }}>แก้ไข</button>;
-        }function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting }) {
+                                                         }function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting }) {
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
@@ -1275,7 +1297,7 @@ function mergePortfolioScans(results) {
     });
   });
   return { bySymbol, orderRows };
-  }function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+        }function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -1471,7 +1493,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
     </Card>
   );
-                                                          }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+                  }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [expanded, setExpanded] = useState(true);
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
@@ -2240,7 +2262,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-        }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
+                            }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
   const [note, setNote] = useState('');
@@ -2674,9 +2696,7 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
       )}
     </div>
   );
-}
-
-function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar, onRefreshShared }) {
+        }function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar, onRefreshShared }) {
   const [section, setSection] = useState('overview');
   const [selectedId, setSelectedId] = useState(properties[0]?.id || '');
   const selected = properties.find((p) => p.id === selectedId) || properties[0];
@@ -2708,7 +2728,9 @@ function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment,
       {section === 'calendar' && <RealEstateCalendarSection properties={properties} googleConnected={googleConnected} />}
     </div>
   );
-      }function RealEstateOverview({ properties, onSelectProperty }) {
+}
+
+function RealEstateOverview({ properties, onSelectProperty }) {
   const totalValue = properties.reduce((s, p) => s + Number(p.purchasePrice || 0), 0);
   const totalRent = properties.reduce((s, p) => s + (p.status === 'occupied' ? Number(p.rent || 0) : 0), 0);
   const ym = thisMonth();
@@ -3113,7 +3135,7 @@ function DogProfileSection({ dog, onUpdateDog }) {
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
     </Card>
   );
-      }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
+                       }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
   const [weight, setWeight] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [location, setLocation] = useState('');
@@ -3638,4 +3660,4 @@ function AllDogsReportSection({ dogs }) {
       </Card>
     </div>
   );
-                           }
+        }
