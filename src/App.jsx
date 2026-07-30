@@ -277,7 +277,7 @@ function computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredD
 
 export default function App() {
   return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
-  }function Tracker({ user }) {
+      }function Tracker({ user }) {
   const [state, setState] = useState(null);
   const [tab, setTab] = useState(() => {
     if (typeof window === 'undefined') return 'dashboard';
@@ -353,37 +353,104 @@ export default function App() {
     } catch (e) { return { ok: false, message: e.message }; }
   }
 
+  // ฟีเจอร์ II: AI Insight สรุปภาพรวมประจำวัน (รันอัตโนมัติวันละ 1 ครั้ง)
+  async function runDailyInsight() {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (state?.aiInsight && state.aiInsight.date === todayStr) return; // คำนวณไปแล้ววันนี้
+    try {
+      const holdingLines = accounts.filter((a) => HOLDING_CATEGORIES.includes(a.category)).flatMap((a) => (a.holdings || []).map((h) => {
+        const mv = holdingMarketValueTHB(h); const cb = holdingCostBasisTHB(h); const gp = cb ? ((mv - cb) / cb) * 100 : 0;
+        return `${h.symbol}: มูลค่า ${fmt(mv)} บาท ${gp >= 0 ? '+' : ''}${gp.toFixed(1)}%`;
+      }));
+      const ym = thisMonth();
+      const rentTotal = properties.reduce((s, p) => s + (p.status === 'occupied' ? Number(p.rent || 0) : 0), 0);
+      const rentCollected = properties.reduce((s, p) => { const pay = (p.payments || {})[ym]; return s + (pay && pay.paid ? Number(pay.amount || p.rent || 0) : 0); }, 0);
+      const pendingProps = properties.filter((p) => { const pay = (p.payments || {})[ym]; return p.status === 'occupied' && !(pay && pay.paid); }).map((p) => p.name);
+      const petExpenseTotal = dogs.reduce((s, d) => s + (d.expenses || []).reduce((s2, e) => s2 + Number(e.amount || 0), 0), 0);
+      const divTotal = accounts.filter((a) => HOLDING_CATEGORIES.includes(a.category)).flatMap((a) => a.holdings || []).reduce((s, h) => s + (h.dividends || []).filter((d) => monthKey(d.date) === ym).reduce((s2, d) => s2 + Number(d.amount || 0), 0), 0);
+      const monthExpense = expenses.filter((e) => monthKey(e.date) === ym).reduce((s, e) => s + Number(e.amount || 0), 0);
+      const prompt = `คุณเป็นผู้ช่วยสรุปภาพรวมการเงินประจำวัน ข้อมูลปัจจุบันของผู้ใช้:
+หุ้น/กองทุนแต่ละตัว: ${holdingLines.join(', ') || 'ไม่มีข้อมูล'}
+ค่าเช่าเดือนนี้: ควรได้ ${fmt(rentTotal)} บาท เก็บแล้ว ${fmt(rentCollected)} บาท ${pendingProps.length ? `ยังค้าง: ${pendingProps.join(', ')}` : 'เก็บครบแล้ว'}
+เงินปันผลเดือนนี้: ${fmt(divTotal)} บาท
+ค่าใช้จ่ายลูก (สัตว์เลี้ยง) สะสม: ${fmt(petExpenseTotal)} บาท
+รายจ่ายส่วนตัวเดือนนี้: ${fmt(monthExpense)} บาท
+ช่วยสรุปเป็นข้อความสั้นๆ ภาษาไทย เลือกเฉพาะ 2-3 ประเด็นที่สำคัญ/น่าสนใจที่สุด (ไม่ต้องพูดทุกเรื่อง) แต่ละประเด็นไม่เกิน 1 บรรทัด ไม่ต้องมีคำนำหรือสรุปปิดท้าย ตอบเป็น bullet 2-3 ข้อเท่านั้น`;
+      const text = await askServer(prompt);
+      persist({ ...state, aiInsight: { date: todayStr, text: text || '' } });
+    } catch (e) { /* เงียบไว้ ถ้าเคยมีข้อความเก่าอยู่แล้วให้ใช้ต่อไป */ }
+  }
+
+  const FAMILY_SHARE_ID = 'krangya-family';
   const docRef = doc(db, 'users', user.uid, 'data', 'portfolio');
+  const sharedDocRef = doc(db, 'shared', FAMILY_SHARE_ID, 'data', 'main');
+  const [sharedState, setSharedState] = useState(null);
 
   useEffect(() => {
     (async () => {
       const snap = await getDoc(docRef);
+      let data;
       if (snap.exists()) {
-        const data = { ...EMPTY_STATE, ...snap.data() };
+        data = { ...EMPTY_STATE, ...snap.data() };
         const cutoff = Date.now() - 90 * 24 * 3600 * 1000;
         const prunedExpenses = (data.expenses || []).filter((e) => new Date(e.date).getTime() >= cutoff);
         if (prunedExpenses.length !== (data.expenses || []).length) {
-          const next = { ...data, expenses: prunedExpenses };
-          setState(next);
-          setDoc(docRef, next).catch((e) => console.error('prune save failed', e));
-        } else {
-          setState(data);
+          data = { ...data, expenses: prunedExpenses };
+          setDoc(docRef, data).catch((e) => console.error('prune save failed', e));
         }
-      } else { await setDoc(docRef, EMPTY_STATE); setState(EMPTY_STATE); }
+      } else { data = EMPTY_STATE; await setDoc(docRef, EMPTY_STATE); }
+
+      // ฟีเจอร์ GG: โหลดเอกสารข้อมูลที่ใช้ร่วมกับภรรยา (ลูกๆ, บ้านเช่า, กองทุน DIME/WealthX)
+      const sharedSnap = await getDoc(sharedDocRef);
+      let shared = sharedSnap.exists() ? sharedSnap.data() : { dogs: [], properties: [], accounts: [] };
+
+      // ย้ายข้อมูลเดิมไปยังส่วนที่ใช้ร่วมกัน (ทำครั้งเดียวเท่านั้น)
+      if (!data.migratedToShared) {
+        const dogsToMove = (data.dogs && data.dogs.length > 0) ? data.dogs : [];
+        const propsToMove = (data.properties && data.properties.length > 0) ? data.properties : [];
+        const accountsToMove = (data.accounts || []).filter((a) => a.category === 'mutual_fund' && (a.name === 'DIMEกองทุน' || a.name === 'DIME กองทุน' || (a.platform || '').toLowerCase().includes('wealth')));
+        if (dogsToMove.length || propsToMove.length || accountsToMove.length) {
+          shared = {
+            dogs: shared.dogs && shared.dogs.length > 0 ? shared.dogs : dogsToMove,
+            properties: shared.properties && shared.properties.length > 0 ? shared.properties : propsToMove,
+            accounts: [...(shared.accounts || []), ...accountsToMove.filter((a) => !(shared.accounts || []).some((sa) => sa.id === a.id))],
+          };
+          await setDoc(sharedDocRef, shared);
+        }
+        const remainingAccounts = (data.accounts || []).filter((a) => !accountsToMove.some((m) => m.id === a.id));
+        data = { ...data, dogs: [], properties: [], accounts: remainingAccounts, migratedToShared: true };
+        await setDoc(docRef, data);
+      }
+
+      setSharedState(shared);
+      setState(data);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.uid]);
 
   function persist(next) { setState(next); setDoc(docRef, next).catch((e) => console.error('save failed', e)); }
+  function persistShared(next) { setSharedState(next); setDoc(sharedDocRef, next).catch((e) => console.error('shared save failed', e)); }
+  function refreshSharedData() { getDoc(sharedDocRef).then((snap) => { if (snap.exists()) setSharedState(snap.data()); }); }
 
-  const accounts = state?.accounts || [];
+  // ฟีเจอร์ GG: บัญชีที่แชร์กับภรรยา (WealthX ทั้งหมด + DIME กองทุน) รวมเข้ากับบัญชีส่วนตัว พร้อมป้าย _shared
+  function persistAccountsFull(nextAccountsFull) {
+    const personalOnes = nextAccountsFull.filter((a) => !a._shared);
+    const sharedOnes = nextAccountsFull.filter((a) => a._shared).map((a) => { const { _shared, ...rest } = a; return rest; });
+    persist({ ...state, accounts: personalOnes });
+    persistShared({ ...sharedState, accounts: sharedOnes });
+  }
+
+  const accounts = useMemo(() => [
+    ...(state?.accounts || []).map((a) => ({ ...a, _shared: false })),
+    ...((sharedState?.accounts) || []).map((a) => ({ ...a, _shared: true })),
+  ], [state, sharedState]);
   const income = state?.income || [];
   const contributions = state?.contributions || [];
   const history = state?.history || [];
   const expenses = state?.expenses || [];
   const expenseCategories = state?.expenseCategories || ['อาหาร', 'เดินทาง', 'ของใช้', 'บันเทิง', 'สุขภาพ', 'อื่นๆ'];
-  const dogs = (state?.dogs && state.dogs.length > 0) ? state.dogs : DEFAULT_DOGS;
-  const properties = (state?.properties && state.properties.length > 0) ? state.properties : DEFAULT_PROPERTIES;
+  const dogs = (sharedState?.dogs && sharedState.dogs.length > 0) ? sharedState.dogs : DEFAULT_DOGS;
+  const properties = (sharedState?.properties && sharedState.properties.length > 0) ? sharedState.properties : DEFAULT_PROPERTIES;
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
   const weigherList = state?.weigherList || ['พ่อ', 'แม่'];
 
@@ -421,6 +488,23 @@ export default function App() {
   }, [contributions]);
   const insights = useMemo(() => (state ? computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredDaily, contributions }) : []), [state, accounts, totalNetWorth, categoryBreakdown, requiredDaily, contributions]);
   const prevSnapshot = useMemo(() => history.find((h) => h.month === prevMonthKey()), [history]);
+  const yearAgoKey = useMemo(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 7); }, []);
+  const yearSnapshot = useMemo(() => {
+    const sorted = [...history].sort((a, b) => a.month.localeCompare(b.month));
+    return sorted.find((h) => h.month >= yearAgoKey) || sorted[0];
+  }, [history, yearAgoKey]);
+  const firstSnapshot = useMemo(() => [...history].sort((a, b) => a.month.localeCompare(b.month))[0], [history]);
+
+  // ฟีเจอร์ JJ: ค่าสำหรับการ์ดหมวดหมู่ 8 ช่องในหน้า Dashboard
+  const catSetValue = useMemo(() => accounts.filter((a) => a.category === 'set_stock').reduce((s, a) => s + accountValueTHB(a), 0), [accounts]);
+  const catUsValue = useMemo(() => accounts.filter((a) => a.category === 'dime').reduce((s, a) => s + accountValueTHB(a), 0), [accounts]);
+  const catFundValue = useMemo(() => accounts.filter((a) => a.category === 'mutual_fund').reduce((s, a) => s + accountValueTHB(a), 0), [accounts]);
+  const catCoopValue = useMemo(() => accounts.filter((a) => a.category === 'cooperative').reduce((s, a) => s + accountValueTHB(a), 0), [accounts]);
+  const catRentThisMonth = useMemo(() => properties.reduce((s, p) => s + (p.status === 'occupied' ? Number(p.rent || 0) : 0), 0), [properties]);
+  const catRentCollected = useMemo(() => { const ym = thisMonth(); return properties.reduce((s, p) => { const pay = (p.payments || {})[ym]; return s + (pay && pay.paid ? Number(pay.amount || p.rent || 0) : 0); }, 0); }, [properties]);
+  const catPetExpenseTotal = useMemo(() => dogs.reduce((s, d) => s + (d.expenses || []).reduce((s2, e) => s2 + Number(e.amount || 0), 0), 0), [dogs]);
+  const catExpenseThisMonth = useMemo(() => { const ym = thisMonth(); return expenses.filter((e) => monthKey(e.date) === ym).reduce((s, e) => s + Number(e.amount || 0), 0); }, [expenses]);
+  const catSavingsThisMonth = useMemo(() => { const ym = thisMonth(); return contributions.filter((c) => monthKey(c.date) === ym).reduce((s, c) => s + Number(c.amount || 0), 0); }, [contributions]);
 
   useEffect(() => {
     if (!state) return;
@@ -434,15 +518,15 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, totalNetWorth, passiveIncome, activeIncome]);
 
-  if (!state) return <div style={{ background: PAPER, minHeight: '100vh' }} className="flex items-center justify-center"><p style={{ fontFamily: 'Sarabun, sans-serif', color: INK }}>กำลังโหลดข้อมูล...</p></div>;
+  if (!state || !sharedState) return <div style={{ background: PAPER, minHeight: '100vh' }} className="flex items-center justify-center"><p style={{ fontFamily: 'Sarabun, sans-serif', color: INK }}>กำลังโหลดข้อมูล...</p></div>;
 
-  const updateAccount = (id, patch) => persist({ ...state, accounts: accounts.map((a) => (a.id === id ? { ...a, ...patch } : a)) });
+  const updateAccount = (id, patch) => persistAccountsFull(accounts.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   const addAccount = (category, name, value) => {
     const base = { id: uid(), category, name: name || 'บัญชีใหม่', value: value || 0 };
     if (HOLDING_CATEGORIES.includes(category)) base.holdings = [];
-    persist({ ...state, accounts: [...accounts, base] });
+    persistAccountsFull([...accounts, base]);
   };
-  const removeAccount = (id) => persist({ ...state, accounts: accounts.filter((a) => a.id !== id) });
+  const removeAccount = (id) => persistAccountsFull(accounts.filter((a) => a.id !== id));
   const updateIncome = (id, patch) => persist({ ...state, income: income.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
   const addIncome = () => persist({ ...state, income: [...income, { id: uid(), name: 'แหล่งรายได้ใหม่', amount: 0, tag: 'other' }] });
   const removeIncome = (id) => persist({ ...state, income: income.filter((i) => i.id !== id) });
@@ -477,7 +561,8 @@ export default function App() {
       const tag = h.currency === 'USD' ? 'us_div' : 'thai_div';
       nextContributions = [{ id: uid(), date: entry.date, amount: entry.amount, source: tag, accountId: entry.reinvestAccountId }, ...contributions];
     }
-    persist({ ...state, accounts: accounts.map((a) => (a.id === accountId ? { ...a, holdings: nextHoldings } : a)), contributions: nextContributions });
+    if (nextContributions !== contributions) persist({ ...state, contributions: nextContributions });
+    persistAccountsFull(accounts.map((a) => (a.id === accountId ? { ...a, holdings: nextHoldings } : a)));
   }
   function removeDividend(accountId, holdingId, divId) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -519,13 +604,13 @@ export default function App() {
   const updateExpense = (id, patch) => persist({ ...state, expenses: expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
   const addExpenseCategory = (name) => { if (name && !expenseCategories.includes(name)) persist({ ...state, expenseCategories: [...expenseCategories, name] }); };
 
-  function updateDog(dogId, patch) { persist({ ...state, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
+  function updateDog(dogId, patch) { persistShared({ ...sharedState, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
   function addHospital(name) { if (name && !hospitalList.includes(name)) persist({ ...state, hospitalList: [...hospitalList, name] }); }
   function addWeigher(name) { if (name && !weigherList.includes(name)) persist({ ...state, weigherList: [...weigherList, name] }); }
 
-  function updateProperty(id, patch) { persist({ ...state, properties: properties.map((p) => (p.id === id ? { ...p, ...patch } : p)) }); }
-  function addProperty(entry) { persist({ ...state, properties: [...properties, { ...makeProperty({ name: entry.name || 'ทรัพย์สินใหม่', rent: 0, purchasePrice: 0 }), ...entry }] }); }
-  function removeProperty(id) { persist({ ...state, properties: properties.filter((p) => p.id !== id) }); }
+  function updateProperty(id, patch) { persistShared({ ...sharedState, properties: properties.map((p) => (p.id === id ? { ...p, ...patch } : p)) }); }
+  function addProperty(entry) { persistShared({ ...sharedState, properties: [...properties, { ...makeProperty({ name: entry.name || 'ทรัพย์สินใหม่', rent: 0, purchasePrice: 0 }), ...entry }] }); }
+  function removeProperty(id) { persistShared({ ...sharedState, properties: properties.filter((p) => p.id !== id) }); }
   function togglePayment(propertyId, ymKey) {
     const p = properties.find((x) => x.id === propertyId);
     const cur = (p.payments || {})[ymKey];
@@ -550,7 +635,7 @@ export default function App() {
   }
   async function addPropertyPhoto(propertyId, file) {
     const p = properties.find((x) => x.id === propertyId);
-    const path = `properties/${user.uid}/${propertyId}/${Date.now()}_${file.name}`;
+    const path = `properties/${FAMILY_SHARE_ID}/${propertyId}/${Date.now()}_${file.name}`;
     const fileRef = storageRef(storage, path);
     await uploadBytes(fileRef, file);
     const url = await getDownloadURL(fileRef);
@@ -658,7 +743,7 @@ export default function App() {
       const rate = data && data.rates && data.rates.THB;
       if (!rate) return null;
       const next = accounts.map((a) => (!a.holdings ? a : { ...a, holdings: a.holdings.map((h) => (h.currency === 'USD' ? { ...h, currentFx: rate, lastUpdated: new Date().toISOString().slice(0, 10) } : h)) }));
-      persist({ ...state, accounts: next });
+      persistAccountsFull(next);
       return rate;
     } catch (e) { return null; }
   }
@@ -718,7 +803,15 @@ export default function App() {
         <Dashboard categoryBreakdown={categoryBreakdown} monthlyIncome={monthlyIncome} passiveIncome={passiveIncome} activeIncome={activeIncome}
           investedThisMonth={investedThisMonth} savingsRate={savingsRate} targetDate={state.targetDate} onChangeTarget={changeTargetDate}
           goalNetWorth={state.goalNetWorth} onChangeGoal={changeGoal} requiredDaily={requiredDaily} avgFx={avgFxFromContributions}
-          totalNetWorth={totalNetWorth} contributions={contributions} daysLeft={daysLeft} onRefreshFx={refreshFxRate} insights={insights} />
+          totalNetWorth={totalNetWorth} contributions={contributions} daysLeft={daysLeft} onRefreshFx={refreshFxRate} insights={insights}
+          dailyInsight={state?.aiInsight} onRunDailyInsight={runDailyInsight} onNavigateTab={setTab}
+          monthChange={prevSnapshot ? totalNetWorth - prevSnapshot.netWorth : null}
+          yearChange={yearSnapshot ? totalNetWorth - yearSnapshot.netWorth : null}
+          sinceStartChange={firstSnapshot ? totalNetWorth - firstSnapshot.netWorth : null}
+          catSetValue={catSetValue} catUsValue={catUsValue} catFundValue={catFundValue} catCoopValue={catCoopValue}
+          catRentThisMonth={catRentThisMonth} catRentCollected={catRentCollected} catPetExpenseTotal={catPetExpenseTotal}
+          catExpenseThisMonth={catExpenseThisMonth} catSavingsThisMonth={catSavingsThisMonth}
+          properties={properties} dogs={dogs} />
       )}
       {tab === 'accounts' && (
         <AccountsTab accounts={accounts} onUpdate={updateAccount} onAdd={addAccount} onRemove={removeAccount} costBasisByAccount={costBasisByAccount}
@@ -735,13 +828,13 @@ export default function App() {
           onAddMedication={addMedication} onUpdateMedication={updateMedication} onLogFleaTick={logFleaTick} onUpdateFleaTickInfo={updateFleaTickInfo}
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
-          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} />
+          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} />
       )}
       {tab === 'realestate' && (
         <RealEstateTab properties={properties} onUpdate={updateProperty} onAdd={addProperty} onRemove={removeProperty}
           onTogglePayment={togglePayment} onAddTransaction={addPropertyTransaction} onRemoveTransaction={removePropertyTransaction}
           onAddRepair={addPropertyRepair} onRemoveRepair={removePropertyRepair} onAddPhoto={addPropertyPhoto} onRemovePhoto={removePropertyPhoto}
-          googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} />
+          googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} onRefreshShared={refreshSharedData} />
       )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
@@ -790,9 +883,7 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
 
 function EditButton({ onClick }) {
   return <button onClick={onClick} className="text-[11px] underline mr-2" style={{ color: BRASS }}>แก้ไข</button>;
-}
-
-function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting }) {
+        }function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting }) {
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
@@ -841,11 +932,34 @@ function ShareView({ totalNetWorth, categoryBreakdown, monthlyIncome, daysLeft, 
 function StatBox({ label, value, color }) {
   return <div style={{ background: PAPER_DIM }} className="rounded-xl p-3"><p className="text-[10px] mb-1" style={{ color: SLATE }}>{label}</p><p className="text-lg font-semibold" style={{ color: color || INK }}>{value}</p></div>;
 }
+function DashCategoryCard({ label, value, sub, tone, icon: Icon, fg, bg, onClick }) {
+  return (
+    <button onClick={onClick} style={{ background: 'white', borderRadius: CARD_RADIUS, boxShadow: '0 2px 12px rgba(15,23,42,0.05)' }} className="p-3.5 text-left">
+      <div style={{ background: bg, color: fg }} className="w-8 h-8 rounded-lg flex items-center justify-center mb-2"><Icon size={15} /></div>
+      <p className="text-[11px] mb-0.5" style={{ color: SLATE }}>{label}</p>
+      <p className="text-base font-bold leading-tight" style={{ color: INK }}>{value}</p>
+      <p className="text-[10px] mt-1" style={{ color: tone === 'good' ? GOOD : tone === 'bad' ? BAD : SLATE }}>{sub}</p>
+    </button>
+  );
+}
+function PassiveIncomeRing({ pct }) {
+  const r = 34, c = 2 * Math.PI * r; const clamped = Math.min(100, Math.max(0, pct));
+  return (
+    <svg width="88" height="88" viewBox="0 0 88 88">
+      <circle cx="44" cy="44" r={r} stroke={PAPER_DIM} strokeWidth="8" fill="none" />
+      <circle cx="44" cy="44" r={r} stroke={GOOD} strokeWidth="8" fill="none"
+        strokeDasharray={c} strokeDashoffset={c - (c * clamped) / 100} strokeLinecap="round" transform="rotate(-90 44 44)" />
+      <text x="44" y="49" textAnchor="middle" fontSize="16" fontWeight="700" fill={INK}>{Math.round(clamped)}%</text>
+    </svg>
+  );
+}
 function InsightRow({ tone, text }) {
   const Icon = tone === 'warn' ? AlertTriangle : tone === 'good' ? CheckCircle2 : Info;
   const color = tone === 'warn' ? WARN : tone === 'good' ? GOOD : SLATE;
   return <div className="flex items-start gap-2 mb-2"><Icon size={15} color={color} style={{ marginTop: 1, flexShrink: 0 }} /><p className="text-sm">{text}</p></div>;
-}function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights }) {
+}
+
+function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights, dailyInsight, onRunDailyInsight, onNavigateTab, monthChange, yearChange, sinceStartChange, catSetValue, catUsValue, catFundValue, catCoopValue, catRentThisMonth, catRentCollected, catPetExpenseTotal, catExpenseThisMonth, catSavingsThisMonth, properties, dogs }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiText, setAiText] = useState('');
@@ -856,6 +970,12 @@ function InsightRow({ tone, text }) {
   const [calcMonthly, setCalcMonthly] = useState(50000);
   const goalPct = goalNetWorth ? Math.min(100, (totalNetWorth / goalNetWorth) * 100) : null;
   const monthsToGoal = goalNetWorth > totalNetWorth && calcMonthly > 0 ? Math.ceil((goalNetWorth - totalNetWorth) / calcMonthly) : 0;
+
+  useEffect(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (!dailyInsight || dailyInsight.date !== todayStr) { onRunDailyInsight(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function runAi() {
     setAiLoading(true); setAiError(''); setAiOpen(true);
@@ -874,9 +994,93 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
   }
   async function runRefreshFx() { setFxLoading(true); const rate = await onRefreshFx(); setFxResult(rate); setFxLoading(false); }
   const pieData = categoryBreakdown.map((c) => ({ name: c.label, value: c.value, color: c.color }));
+  const passiveGoalTarget = 300000; // เป้าหมาย passive income ต่อเดือน (ปรับได้ทีหลังถ้าต้องการ)
+  const passivePctVsGoal = passiveGoalTarget ? (passiveIncome / passiveGoalTarget) * 100 : 0;
+
+  // ปฏิทินเหตุการณ์สำคัญ: รวมวันครบสัญญาบ้านเช่า + นัดหมอถัดไปของลูกๆ
+  const upcomingEvents = useMemo(() => {
+    const events = [];
+    (properties || []).forEach((p) => {
+      if (p.contractEndDate) {
+        const daysLeftP = Math.ceil((new Date(p.contractEndDate) - new Date()) / (1000 * 60 * 60 * 24));
+        if (daysLeftP >= -3 && daysLeftP <= 60) events.push({ date: p.contractEndDate, label: `ครบสัญญาเช่า: ${p.name}`, tone: daysLeftP <= 14 ? 'warn' : 'info' });
+      }
+    });
+    (dogs || []).forEach((d) => {
+      (d.appointments || []).forEach((a) => {
+        const daysLeftA = Math.ceil((new Date(a.date) - new Date()) / (1000 * 60 * 60 * 24));
+        if (daysLeftA >= 0 && daysLeftA <= 30) events.push({ date: a.date, label: `นัดหมอ: ${d.name}${a.purpose ? ' - ' + a.purpose : ''}`, tone: 'info' });
+      });
+    });
+    return events.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 5);
+  }, [properties, dogs]);
 
   return (
     <div className="px-5 pt-5">
+      <Card>
+        <p className="text-xs mb-1" style={{ color: SLATE }}>สินทรัพย์สุทธิ (Net Worth)</p>
+        <p className="text-3xl font-bold mb-3" style={{ color: INK }}>฿{fmt(totalNetWorth)}</p>
+        <div className="grid grid-cols-3 gap-2">
+          <div style={{ background: PAPER_DIM }} className="rounded-xl p-2.5 text-center">
+            <p className="text-[10px] mb-1" style={{ color: SLATE }}>เดือนนี้</p>
+            {monthChange !== null ? <p className="text-xs font-bold" style={{ color: monthChange >= 0 ? GOOD : BAD }}>{monthChange >= 0 ? '+' : ''}฿{fmt(monthChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
+          </div>
+          <div style={{ background: PAPER_DIM }} className="rounded-xl p-2.5 text-center">
+            <p className="text-[10px] mb-1" style={{ color: SLATE }}>ปีนี้</p>
+            {yearChange !== null ? <p className="text-xs font-bold" style={{ color: yearChange >= 0 ? GOOD : BAD }}>{yearChange >= 0 ? '+' : ''}฿{fmt(yearChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
+          </div>
+          <div style={{ background: PAPER_DIM }} className="rounded-xl p-2.5 text-center">
+            <p className="text-[10px] mb-1" style={{ color: SLATE }}>ตั้งแต่เริ่มต้น</p>
+            {sinceStartChange !== null ? <p className="text-xs font-bold" style={{ color: sinceStartChange >= 0 ? GOOD : BAD }}>{sinceStartChange >= 0 ? '+' : ''}฿{fmt(sinceStartChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <DashCategoryCard label="หุ้นไทย" value={`฿${fmt(catSetValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} fg={GOOD} bg="#16A34A14" onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard label="หุ้นสหรัฐฯ" value={`฿${fmt(catUsValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} fg="#2563EB" bg="#2563EB14" onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard label="กองทุนรวม" value={`฿${fmt(catFundValue)}`} sub="ดูรายละเอียด" icon={PiggyBank} fg="#CA8A04" bg="#CA8A0414" onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard label="สหกรณ์ออมทรัพย์" value={`฿${fmt(catCoopValue)}`} sub="ดูรายละเอียด" icon={Landmark} fg="#0891B2" bg="#0891B214" onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard label="บ้านเช่า" value={`฿${fmt(catRentThisMonth)}`} sub={`เก็บแล้ว ฿${fmt(catRentCollected)}`} tone={catRentCollected >= catRentThisMonth ? 'good' : null} icon={Home} fg="#D97706" bg="#D9770614" onClick={() => onNavigateTab('realestate')} />
+        <DashCategoryCard label="ลูกๆ" value={`฿${fmt(catPetExpenseTotal)}`} sub="ค่าใช้จ่ายสะสม" tone="bad" icon={Dog} fg="#7C3AED" bg="#7C3AED14" onClick={() => onNavigateTab('pets')} />
+        <DashCategoryCard label="รายจ่าย" value={`฿${fmt(catExpenseThisMonth)}`} sub="เดือนนี้" tone="bad" icon={Receipt} fg={BAD} bg="#DC262614" onClick={() => onNavigateTab('expenses')} />
+        <DashCategoryCard label="เงินเข้า" value={`฿${fmt(catSavingsThisMonth)}`} sub="เดือนนี้" tone="good" icon={Wallet} fg={GOOD} bg="#16A34A14" onClick={() => onNavigateTab('savings')} />
+      </div>
+
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>Passive Income เทียบเป้าหมาย</p>
+        <div className="flex items-center gap-4">
+          <PassiveIncomeRing pct={passivePctVsGoal} />
+          <div className="flex-1">
+            <p className="text-xl font-bold" style={{ color: INK }}>฿{fmt(passiveIncome)}</p>
+            <p className="text-xs mb-2" style={{ color: SLATE }}>จากเป้าหมาย ฿{fmt(passiveGoalTarget)}/เดือน</p>
+            <div style={{ background: PAPER_DIM }} className="h-2 rounded-full overflow-hidden"><div style={{ width: `${Math.min(100, passivePctVsGoal)}%`, background: GOOD }} className="h-full rounded-full" /></div>
+          </div>
+        </div>
+      </Card>
+
+      <Card style={{ background: PAPER_DIM, boxShadow: 'none' }}>
+        <div className="flex items-center gap-2 mb-2.5"><Sparkles size={15} color={INK} /><p className="text-sm font-semibold" style={{ color: INK }}>สรุปวันนี้โดย AI</p></div>
+        {dailyInsight && dailyInsight.text ? (
+          <p className="text-[13px] whitespace-pre-wrap" style={{ color: INK }}>{dailyInsight.text}</p>
+        ) : (
+          <p className="text-[13px]" style={{ color: SLATE }}>กำลังสรุปข้อมูลวันนี้...</p>
+        )}
+      </Card>
+
+      {upcomingEvents.length > 0 && (
+        <Card>
+          <p className="text-xs mb-3" style={{ color: SLATE }}>ปฏิทินเหตุการณ์สำคัญ</p>
+          {upcomingEvents.map((e, i) => (
+            <div key={i} className="flex items-center gap-3 py-2" style={{ borderTop: i > 0 ? `1px solid #E7EAF0` : 'none' }}>
+              <div style={{ background: e.tone === 'warn' ? WARN : '#2563EB' }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
+              <span className="text-xs w-16 flex-shrink-0" style={{ color: SLATE }}>{e.date}</span>
+              <span className="text-sm flex-1" style={{ color: INK }}>{e.label}</span>
+            </div>
+          ))}
+        </Card>
+      )}
+
       <Card>
         <p className="text-xs mb-3" style={{ color: SLATE }}>สุขภาพการเงินเดือนนี้</p>
         <div className="grid grid-cols-2 gap-2">
@@ -1071,9 +1275,7 @@ function mergePortfolioScans(results) {
     });
   });
   return { bySymbol, orderRows };
-}
-
-function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+  }function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -1269,7 +1471,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
     </Card>
   );
-                                                                                                       }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+                                                          }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [expanded, setExpanded] = useState(true);
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
@@ -1458,7 +1660,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
 
   return (
     <Card>
-      <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} /><button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
+      <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} />{a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}<button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
       {a.category === 'mutual_fund' && (
         <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0', color: SLATE }} />
       )}
@@ -1624,7 +1826,9 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       })()}
     </Card>
   );
-}function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+}
+
+function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [showDiv, setShowDiv] = useState(false);
   const [divAmount, setDivAmount] = useState(0);
   const [divDate, setDivDate] = useState(new Date().toISOString().slice(0, 10));
@@ -2044,6 +2248,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   const [showNewCat, setShowNewCat] = useState(false);
   const [listSearch, setListSearch] = useState('');
   const [editingExpense, setEditingExpense] = useState(null);
+  const [groupPopup, setGroupPopup] = useState(null);
 
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState('');
@@ -2213,14 +2418,60 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       </Card>
 
       <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด</p>
-      {expenses.filter((e) => !listSearch.trim() || (e.category || '').toLowerCase().includes(listSearch.trim().toLowerCase()) || (e.note || '').toLowerCase().includes(listSearch.trim().toLowerCase())).slice(0, 30).map((e) => (
-        <Card key={e.id}>
-          <div className="flex justify-between items-center">
-            <div><p className="text-sm">{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
-            <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => onRemove(e.id)}><Trash2 size={14} color={BAD} /></button></div>
+      {(() => {
+        const searchActive = listSearch.trim().length > 0;
+        const filtered = expenses.filter((e) => !searchActive || (e.category || '').toLowerCase().includes(listSearch.trim().toLowerCase()) || (e.note || '').toLowerCase().includes(listSearch.trim().toLowerCase()));
+        if (searchActive) {
+          // ค้นหาอยู่ -> โชว์แบบแบนเรียงตามปกติ ไม่ต้องจัดกลุ่ม
+          return filtered.slice(0, 30).map((e) => (
+            <Card key={e.id}>
+              <div className="flex justify-between items-center">
+                <div><p className="text-sm">{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
+                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => onRemove(e.id)}><Trash2 size={14} color={BAD} /></button></div>
+              </div>
+            </Card>
+          ));
+        }
+        const curMonth = thisMonth();
+        const dayGroups = {}; // date -> items (only current month)
+        const monthGroups = {}; // ym -> items (past months)
+        filtered.forEach((e) => {
+          if (monthKey(e.date) === curMonth) {
+            (dayGroups[e.date] = dayGroups[e.date] || []).push(e);
+          } else {
+            (monthGroups[monthKey(e.date)] = monthGroups[monthKey(e.date)] || []).push(e);
+          }
+        });
+        const dayKeys = Object.keys(dayGroups).sort().reverse();
+        const monthKeys = Object.keys(monthGroups).sort().reverse();
+        const rows = [];
+        dayKeys.forEach((d) => rows.push({ type: 'day', key: d, items: dayGroups[d], total: dayGroups[d].reduce((s, e) => s + Number(e.amount || 0), 0) }));
+        monthKeys.forEach((m) => rows.push({ type: 'month', key: m, items: monthGroups[m], total: monthGroups[m].reduce((s, e) => s + Number(e.amount || 0), 0) }));
+        return rows.map((r) => (
+          <Card key={r.key}>
+            <button onClick={() => setGroupPopup(r)} className="w-full flex justify-between items-center">
+              <div className="text-left"><p className="text-sm">{r.type === 'day' ? r.key : r.key}</p><p className="text-xs" style={{ color: SLATE }}>{r.items.length} รายการ{r.type === 'month' ? ' (เดือนที่ผ่านมา)' : ''}</p></div>
+              <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(r.total)}</span><ChevronRight size={15} color={SLATE} /></div>
+            </button>
+          </Card>
+        ));
+      })()}
+      {groupPopup && (
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(15,23,42,0.45)' }} onClick={() => setGroupPopup(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', borderTopLeftRadius: CARD_RADIUS, borderTopRightRadius: CARD_RADIUS, maxHeight: '85vh' }} className="w-full overflow-y-auto p-4">
+            <div className="flex justify-between items-center mb-3">
+              <p className="text-base font-bold" style={{ color: INK }}>{groupPopup.key} · รวม ฿{fmt(groupPopup.total)}</p>
+              <button onClick={() => setGroupPopup(null)}><X size={20} color={INK} /></button>
+            </div>
+            {[...groupPopup.items].sort((a, b) => b.date.localeCompare(a.date)).map((e) => (
+              <div key={e.id} className="flex justify-between items-center py-2.5" style={{ borderTop: `1px solid ${BORDER}` }}>
+                <div><p className="text-sm">{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
+                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => { setEditingExpense(e); }} /><button onClick={() => onRemove(e.id)}><Trash2 size={14} color={BAD} /></button></div>
+              </div>
+            ))}
           </div>
-        </Card>
-      ))}
+        </div>
+      )}
       {editingExpense && (
         <EditModal title="แก้ไขรายจ่าย" onClose={() => setEditingExpense(null)}
           initialValues={{ date: editingExpense.date, amount: editingExpense.amount, category: editingExpense.category, note: editingExpense.note || '' }}
@@ -2371,7 +2622,7 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
+function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, weigherList, onAddWeigher, onRefreshShared }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
   const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
@@ -2391,6 +2642,10 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
 
   return (
     <div className="px-5 pt-5">
+      <div className="flex items-center justify-between mb-3">
+        <span style={{ background: '#7C3AED14', color: '#7C3AED' }} className="text-[11px] font-medium px-2.5 py-1 rounded-full">🔗 ใช้ร่วมกับภรรยา</span>
+        {onRefreshShared && <button onClick={onRefreshShared} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><RefreshCw size={12} /> รีเฟรช</button>}
+      </div>
       <div className="flex gap-2 mb-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
         {dogs.map((d) => (
           <button key={d.id} onClick={() => setSelectedId(d.id)} style={{ background: selectedId === d.id ? INK : PAPER_DIM, color: selectedId === d.id ? 'white' : INK, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{d.name}</button>
@@ -2421,13 +2676,17 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
   );
 }
 
-function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar }) {
+function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar, onRefreshShared }) {
   const [section, setSection] = useState('overview');
   const [selectedId, setSelectedId] = useState(properties[0]?.id || '');
   const selected = properties.find((p) => p.id === selectedId) || properties[0];
 
   return (
     <div className="px-5 pt-5">
+      <div className="flex items-center justify-between mb-3">
+        <span style={{ background: '#D9770614', color: '#D97706' }} className="text-[11px] font-medium px-2.5 py-1 rounded-full">🔗 ใช้ร่วมกับภรรยา</span>
+        {onRefreshShared && <button onClick={onRefreshShared} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><RefreshCw size={12} /> รีเฟรช</button>}
+      </div>
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
         {[{ id: 'overview', l: 'ภาพรวม' }, { id: 'properties', l: 'ทรัพย์สิน' }, { id: 'collection', l: 'รับเงิน' }, { id: 'calendar', l: 'ปฏิทิน' }].map((s) => (
           <button key={s.id} onClick={() => setSection(s.id)} style={{ background: section === s.id ? INK : PAPER_DIM, color: section === s.id ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-4 py-2 text-xs font-medium">{s.l}</button>
@@ -2449,9 +2708,7 @@ function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment,
       {section === 'calendar' && <RealEstateCalendarSection properties={properties} googleConnected={googleConnected} />}
     </div>
   );
-}
-
-function RealEstateOverview({ properties, onSelectProperty }) {
+      }function RealEstateOverview({ properties, onSelectProperty }) {
   const totalValue = properties.reduce((s, p) => s + Number(p.purchasePrice || 0), 0);
   const totalRent = properties.reduce((s, p) => s + (p.status === 'occupied' ? Number(p.rent || 0) : 0), 0);
   const ym = thisMonth();
@@ -2502,10 +2759,18 @@ function RealEstateOverview({ properties, onSelectProperty }) {
         {properties.map((p, i) => {
           const pay = (p.payments || {})[ym];
           const paid = pay && pay.paid;
+          const thumb = (p.photos || [])[0];
           return (
             <button key={p.id} onClick={() => onSelectProperty(p.id)} className="w-full flex justify-between items-center py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-              <div className="text-left"><p className="text-sm font-medium" style={{ color: INK }}>{p.name}</p><p className="text-xs" style={{ color: SLATE }}>฿{fmt(p.rent)}/เดือน</p></div>
-              <span style={{ background: p.status !== 'occupied' ? '#D9770614' : (paid ? '#16A34A14' : '#DC262614'), color: p.status !== 'occupied' ? WARN : (paid ? GOOD : BAD) }} className="text-[11px] font-semibold px-2 py-1 rounded-full">{p.status !== 'occupied' ? 'ว่าง' : (paid ? 'เก็บแล้ว' : 'ค้างชำระ')}</span>
+              <div className="flex items-center gap-3 text-left">
+                {thumb ? (
+                  <img src={thumb.url} alt="" className="w-11 h-11 rounded-xl object-cover flex-shrink-0" />
+                ) : (
+                  <div style={{ background: PAPER_DIM, color: SLATE }} className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"><Home size={18} /></div>
+                )}
+                <div><p className="text-sm font-medium" style={{ color: INK }}>{p.name}</p><p className="text-xs" style={{ color: SLATE }}>฿{fmt(p.rent)}/เดือน</p></div>
+              </div>
+              <span style={{ background: p.status !== 'occupied' ? '#D9770614' : (paid ? '#16A34A14' : '#DC262614'), color: p.status !== 'occupied' ? WARN : (paid ? GOOD : BAD) }} className="text-[11px] font-semibold px-2 py-1 rounded-full flex-shrink-0">{p.status !== 'occupied' ? 'ว่าง' : (paid ? 'เก็บแล้ว' : 'ค้างชำระ')}</span>
             </button>
           );
         })}
@@ -2539,7 +2804,9 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
       {sub === 'docs' && <PropertyDocsSection property={p} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} />}
     </Card>
   );
-                  }function PropertyInfoSection({ property: p, onUpdate, googleConnected, onAddToCalendar }) {
+}
+
+function PropertyInfoSection({ property: p, onUpdate, googleConnected, onAddToCalendar }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   async function syncContractReminder() {
@@ -2846,9 +3113,7 @@ function DogProfileSection({ dog, onUpdateDog }) {
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
     </Card>
   );
-}
-
-function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
+      }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
   const [weight, setWeight] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [location, setLocation] = useState('');
@@ -2989,7 +3254,9 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication }) {
       ))}
     </div>
   );
-                                 }function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
+}
+
+function DogFleaTickSection({ dog, onLogFleaTick, onUpdateFleaTickInfo }) {
   const ft = dog.fleaTick || {};
   const [doseGiven, setDoseGiven] = useState('');
   const [cost, setCost] = useState(0);
@@ -3371,4 +3638,4 @@ function AllDogsReportSection({ dogs }) {
       </Card>
     </div>
   );
-          }
+                           }
