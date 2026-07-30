@@ -277,7 +277,7 @@ function computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredD
 
 export default function App() {
   return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
-  }function Tracker({ user }) {
+    }function Tracker({ user }) {
   const [state, setState] = useState(null);
   const [tab, setTab] = useState(() => {
     if (typeof window === 'undefined') return 'dashboard';
@@ -669,6 +669,16 @@ export default function App() {
     if (photo && photo.path) { try { await deleteObject(storageRef(storage, photo.path)); } catch (e) { /* ignore */ } }
     updateProperty(propertyId, { photos: (p.photos || []).filter((ph) => ph.id !== photoId) });
   }
+  // ฟีเจอร์ KK: รูปโปรไฟล์ของลูกๆ แต่ละตัว (ใช้ Storage เดียวกับรูปห้อง)
+  async function setDogPhoto(dogId, file) {
+    const d = dogs.find((x) => x.id === dogId);
+    if (d && d.photoPath) { try { await deleteObject(storageRef(storage, d.photoPath)); } catch (e) { /* ignore */ } }
+    const path = `properties/${FAMILY_SHARE_ID}/pets/${dogId}/${Date.now()}_${file.name}`;
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    updateDog(dogId, { photoUrl: url, photoPath: path });
+  }
   function addWeight(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { weights: [{ id: uid(), ...entry }, ...(d.weights || [])] });
@@ -850,7 +860,7 @@ export default function App() {
           onAddMedication={addMedication} onUpdateMedication={updateMedication} onLogFleaTick={logFleaTick} onUpdateFleaTickInfo={updateFleaTickInfo}
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
-          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} />
+          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} />
       )}
       {tab === 'realestate' && (
         <RealEstateTab properties={properties} onUpdate={updateProperty} onAdd={addProperty} onRemove={removeProperty}
@@ -905,7 +915,7 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
 
 function EditButton({ onClick }) {
   return <button onClick={onClick} className="text-[11px] underline mr-2" style={{ color: BRASS }}>แก้ไข</button>;
-                                                         }function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting }) {
+  }function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting }) {
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
@@ -1297,7 +1307,7 @@ function mergePortfolioScans(results) {
     });
   });
   return { bySymbol, orderRows };
-        }function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+  }function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -1467,7 +1477,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
   }
   return (
     <Card>
-      <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} /><button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
+      <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} />{a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}<button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
       <div className="flex items-center mt-2 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={a.value} onChange={(v) => onUpdate(a.id, { value: v })} className="text-lg font-semibold flex-1 outline-none" style={{ border: 'none' }} /></div>
       {basis > 0 && <p className="text-xs mb-2" style={{ color: gain >= 0 ? GOOD : BAD }}>ต้นทุนสะสม ฿{fmt(basis)} · {gain >= 0 ? '+' : ''}฿{fmt(gain)}</p>}
       {onScanValue && <ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { value: v })} />}
@@ -1493,7 +1503,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
       )}
     </Card>
   );
-                  }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
+              }function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy }) {
   const [expanded, setExpanded] = useState(true);
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
@@ -2262,7 +2272,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-                            }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
+          }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
   const [note, setNote] = useState('');
@@ -2644,10 +2654,20 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, weigherList, onAddWeigher, onRefreshShared }) {
+function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
   const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
+  const photoFileRef = useRef(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  async function handlePhotoFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file || !dog) return;
+    setPhotoUploading(true);
+    try { await onSetDogPhoto(dog.id, file); } catch (err) { /* เงียบไว้ */ }
+    finally { setPhotoUploading(false); if (photoFileRef.current) photoFileRef.current.value = ''; }
+  }
 
   const sections = [
     { id: 'overview', label: 'ภาพรวม' },
@@ -2668,11 +2688,45 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
         <span style={{ background: '#7C3AED14', color: '#7C3AED' }} className="text-[11px] font-medium px-2.5 py-1 rounded-full">🔗 ใช้ร่วมกับภรรยา</span>
         {onRefreshShared && <button onClick={onRefreshShared} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><RefreshCw size={12} /> รีเฟรช</button>}
       </div>
-      <div className="flex gap-2 mb-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+      <div className="flex gap-3 mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
         {dogs.map((d) => (
-          <button key={d.id} onClick={() => setSelectedId(d.id)} style={{ background: selectedId === d.id ? INK : PAPER_DIM, color: selectedId === d.id ? 'white' : INK, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{d.name}</button>
+          <button key={d.id} onClick={() => setSelectedId(d.id)} className="flex flex-col items-center gap-1 flex-shrink-0">
+            <div style={{ boxShadow: d.id === selectedId ? `0 0 0 3px ${INK}` : 'none', borderRadius: '50%' }}>
+              {d.photoUrl ? (
+                <img src={d.photoUrl} alt={d.name} className="w-14 h-14 rounded-full object-cover" />
+              ) : (
+                <div style={{ background: PAPER_DIM, color: SLATE }} className="w-14 h-14 rounded-full flex items-center justify-center"><Dog size={22} /></div>
+              )}
+            </div>
+            <span style={{ color: d.id === selectedId ? INK : SLATE, fontWeight: d.id === selectedId ? 600 : 400 }} className="text-[11px] whitespace-nowrap">{d.name}</span>
+          </button>
         ))}
       </div>
+
+      {dog && (
+        <Card>
+          <input ref={photoFileRef} type="file" accept="image/*" onChange={handlePhotoFile} className="hidden" />
+          <div className="flex items-center gap-4">
+            <button onClick={() => photoFileRef.current && photoFileRef.current.click()} className="relative flex-shrink-0">
+              {dog.photoUrl ? (
+                <img src={dog.photoUrl} alt={dog.name} className="w-18 h-18 rounded-full object-cover" style={{ width: 72, height: 72 }} />
+              ) : (
+                <div style={{ background: PAPER_DIM, color: SLATE }} className="rounded-full flex items-center justify-center" style={{ width: 72, height: 72 }}>
+                  {photoUploading ? <Loader2 size={22} className="animate-spin" /> : <Dog size={28} />}
+                </div>
+              )}
+              <div style={{ background: INK }} className="absolute bottom-0 right-0 w-6 h-6 rounded-full flex items-center justify-center">
+                <Camera size={12} color="white" />
+              </div>
+            </button>
+            <div>
+              <p className="text-lg font-bold" style={{ color: INK }}>{dog.name}</p>
+              <p className="text-xs" style={{ color: SLATE }}>{dog.breed || 'ยังไม่ระบุพันธุ์'}</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
         {sections.map((s) => (
           <button key={s.id} onClick={() => setSection(s.id)} style={{ background: section === s.id ? BRASS : PAPER_DIM, color: section === s.id ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1 text-[11px] whitespace-nowrap">{s.label}</button>
@@ -2696,7 +2750,7 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
       )}
     </div>
   );
-        }function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar, onRefreshShared }) {
+         }function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar, onRefreshShared }) {
   const [section, setSection] = useState('overview');
   const [selectedId, setSelectedId] = useState(properties[0]?.id || '');
   const selected = properties.find((p) => p.id === selectedId) || properties[0];
@@ -3135,7 +3189,7 @@ function DogProfileSection({ dog, onUpdateDog }) {
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
     </Card>
   );
-                       }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
+  }function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, hospitalList, onAddHospital, weigherList, onAddWeigher }) {
   const [weight, setWeight] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [location, setLocation] = useState('');
