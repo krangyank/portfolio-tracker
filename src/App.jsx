@@ -1079,10 +1079,20 @@ function PassiveIncomeRing({ pct }) {
     </svg>
   );
 }
-function InsightRow({ tone, text }) {
+function InsightRow({ tone, text, onClick }) {
   const Icon = tone === 'warn' ? AlertTriangle : tone === 'good' ? CheckCircle2 : Info;
   const color = tone === 'warn' ? WARN : tone === 'good' ? GOOD : SLATE;
-  return <div className="flex items-start gap-2 mb-2"><Icon size={15} color={color} style={{ marginTop: 1, flexShrink: 0 }} /><p className="text-sm">{text}</p></div>;
+  const content = (
+    <>
+      <Icon size={15} color={color} style={{ marginTop: 1, flexShrink: 0 }} />
+      <p className="text-sm flex-1">{text}</p>
+      {onClick && <ChevronRight size={15} color={SLATE} style={{ marginTop: 1, flexShrink: 0 }} />}
+    </>
+  );
+  if (onClick) {
+    return <button onClick={onClick} className="flex items-start gap-2 mb-2 w-full text-left" style={{ background: 'transparent' }}>{content}</button>;
+  }
+  return <div className="flex items-start gap-2 mb-2">{content}</div>;
 }
 
 function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights, dailyInsight, onRunDailyInsight, onNavigateTab, monthChange, yearChange, sinceStartChange, catSetValue, catUsValue, catFundValue, catCoopValue, catRentThisMonth, catRentCollected, catPetExpenseTotal, catExpenseThisMonth, catSavingsThisMonth, properties, dogs }) {
@@ -2773,18 +2783,18 @@ function computeDogInsights(dog) {
   if (ft.lastGivenDate && ft.intervalDays) {
     const due = new Date(ft.lastGivenDate); due.setDate(due.getDate() + Number(ft.intervalDays || 84));
     const d = Math.ceil((due - new Date()) / (1000 * 60 * 60 * 24));
-    if (d <= 7) insights.push({ tone: d < 0 ? 'warn' : 'info', text: d < 0 ? `ยาเห็บหมัดเลยกำหนดมา ${Math.abs(d)} วันแล้ว` : `ยาเห็บหมัดครบกำหนดในอีก ${d} วัน` });
+    if (d <= 7) insights.push({ tone: d < 0 ? 'warn' : 'info', text: d < 0 ? `ยาเห็บหมัดเลยกำหนดมา ${Math.abs(d)} วันแล้ว` : `ยาเห็บหมัดครบกำหนดในอีก ${d} วัน`, section: 'flea' });
   }
   (dog.appointments || []).forEach((a) => {
     const d = daysUntil(a.date);
-    if (d !== null && d >= 0 && d <= 7) insights.push({ tone: 'info', text: `นัดหมายที่ ${a.hospital || '-'} อีก ${d} วัน` });
+    if (d !== null && d >= 0 && d <= 7) insights.push({ tone: 'info', text: `นัดหมายที่ ${a.hospital || '-'} อีก ${d} วัน`, section: 'appt' });
   });
   if (dog.insurance && dog.insurance.endDate) {
     const d = daysUntil(dog.insurance.endDate);
-    if (d !== null && d >= 0 && d <= 30) insights.push({ tone: 'warn', text: `ประกันจะหมดอายุในอีก ${d} วัน` });
+    if (d !== null && d >= 0 && d <= 30) insights.push({ tone: 'warn', text: `ประกันจะหมดอายุในอีก ${d} วัน`, section: 'insurance' });
   }
   const activeMeds = (dog.medications || []).filter((m) => !m.stopDate);
-  if (activeMeds.length > 0) insights.push({ tone: 'info', text: `กำลังใช้ยาอยู่ ${activeMeds.length} รายการ: ${activeMeds.map((m) => m.name).join(', ')}` });
+  if (activeMeds.length > 0) insights.push({ tone: 'info', text: `กำลังใช้ยาอยู่ ${activeMeds.length} รายการ: ${activeMeds.map((m) => m.name).join(', ')}`, section: 'meds' });
   if (insights.length === 0) insights.push({ tone: 'good', text: 'ไม่มีรายการที่ต้องระวังตอนนี้' });
   return insights;
 }
@@ -2879,7 +2889,7 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
         <AllDogsReportSection dogs={dogs} />
       ) : dog && (
         <>
-          {section === 'overview' && <DogOverviewSection dog={dog} />}
+          {section === 'overview' && <DogOverviewSection dog={dog} setSection={setSection} />}
           {section === 'profile' && <DogProfileSection dog={dog} onUpdateDog={onUpdateDog} />}
           {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} onUpdateWeight={onUpdateWeight} hospitalList={hospitalList} onAddHospital={onAddHospital} weigherList={weigherList} onAddWeigher={onAddWeigher} />}
           {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUploadRecordPhoto={onUploadRecordPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} />}
@@ -3239,7 +3249,7 @@ function RealEstateCalendarSection({ properties, googleConnected }) {
   );
 }
 
-function DogOverviewSection({ dog }) {
+function DogOverviewSection({ dog, setSection }) {
   const latestWeight = [...(dog.weights || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
   const thisYear = new Date().getFullYear();
   const expensesThisYear = (dog.expenses || []).filter((e) => e.date.startsWith(String(thisYear))).reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -3266,9 +3276,18 @@ function DogOverviewSection({ dog }) {
         <p className="text-sm mb-1">โรคประจำตัว: {dog.chronicDiseases || 'ไม่มี'}</p>
         <p className="text-sm mb-1">แพ้ยา: {dog.drugAllergies || 'ไม่มี'}</p>
         <p className="text-sm mb-1">ยาที่กำลังกิน: {activeMeds.length > 0 ? activeMeds.map((m) => m.name).join(', ') : 'ไม่มี'}</p>
-        <p className="text-sm mb-1">นัดถัดไป: {nextAppt ? `${nextAppt.date} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</p>
-        <p className="text-sm mb-1">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue || 'ยังไม่ได้ตั้งค่า'}</p>
-        <p className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate || 'ไม่มี'}</p>
+        <button onClick={() => setSection && setSection('appt')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
+          <span className="text-sm">นัดถัดไป: {nextAppt ? `${nextAppt.date} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</span>
+          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+        </button>
+        <button onClick={() => setSection && setSection('flea')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
+          <span className="text-sm">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue || 'ยังไม่ได้ตั้งค่า'}</span>
+          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+        </button>
+        <button onClick={() => setSection && setSection('insurance')} className="flex items-center justify-between w-full text-left" style={{ background: 'transparent' }}>
+          <span className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate || 'ไม่มี'}</span>
+          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+        </button>
       </Card>
       <Card>
         <p className="text-xs mb-3" style={{ color: SLATE }}>ประวัติการตรวจสุขภาพ</p>
@@ -3285,10 +3304,16 @@ function DogOverviewSection({ dog }) {
             { label: 'Ultrasound', item: latestOf(imaging.filter((im) => im.type === 'Ultrasound')) },
           ];
           return rows.map((r) => (
-            <div key={r.label} className="mb-2 pb-2" style={{ borderBottom: '1px solid #E7EAF0' }}>
-              <div className="flex justify-between text-sm"><span className="font-semibold">{r.label}</span><span style={{ color: r.item ? INK : SLATE }}>{r.item ? r.item.date : 'ยังไม่เคยตรวจ'}</span></div>
+            <button key={r.label} onClick={() => setSection && setSection('records')} className="mb-2 pb-2 w-full text-left" style={{ borderBottom: '1px solid #E7EAF0', background: 'transparent' }}>
+              <div className="flex justify-between items-center text-sm">
+                <span className="font-semibold">{r.label}</span>
+                <span className="flex items-center gap-1">
+                  <span style={{ color: r.item ? INK : SLATE }}>{r.item ? r.item.date : 'ยังไม่เคยตรวจ'}</span>
+                  <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+                </span>
+              </div>
               {r.item && r.item.note && <p className="text-xs mt-0.5" style={{ color: SLATE }}>{r.item.note}</p>}
-            </div>
+            </button>
           ));
         })()}
       </Card>
@@ -3301,7 +3326,7 @@ function DogOverviewSection({ dog }) {
       </Card>
       <Card>
         <p className="text-xs mb-3" style={{ color: SLATE }}>ข้อสังเกต/แจ้งเตือน</p>
-        {insights.map((it, i) => <InsightRow key={i} tone={it.tone} text={it.text} />)}
+        {insights.map((it, i) => <InsightRow key={i} tone={it.tone} text={it.text} onClick={it.section ? () => setSection && setSection(it.section) : undefined} />)}
       </Card>
     </div>
   );
