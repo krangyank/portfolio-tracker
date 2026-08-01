@@ -563,7 +563,19 @@ export default function App() {
   }
   // ทุกครั้งที่ persist/persistShared เขียนข้อมูล ให้ ref ตามทันเสมอ
   // ป้องกันงานเบื้องหลังที่ทำงานนาน (เช่น รีเฟรชราคาหุ้นทุกตัว, AI insight) เขียนทับข้อมูลใหม่ที่ผู้ใช้เพิ่งบันทึกไประหว่างที่มันทำงานอยู่
-  function persist(next) {
+  // Firestore (ทั้ง setDoc/updateDoc/arrayUnion) ไม่ยอมรับ field ที่เป็น undefined เลยไม่ว่าจะอยู่ลึกแค่ไหนในอ็อบเจกต์
+  // ต้องตัดออกแบบลงลึกทุกชั้น (deep) ก่อนเขียนเสมอ ไม่งั้นจะ throw ทันที — จุดนี้คือสาเหตุของบั๊ก "คัดลอกไปยังตัวอื่น" ที่พังทุกเมนู
+  function stripUndefined(obj) {
+    if (Array.isArray(obj)) return obj.map(stripUndefined);
+    if (obj && typeof obj === 'object' && !(obj instanceof Date)) {
+      const out = {};
+      Object.keys(obj).forEach((k) => { if (obj[k] !== undefined) out[k] = stripUndefined(obj[k]); });
+      return out;
+    }
+    return obj;
+  }
+  function persist(rawNext) {
+    const next = stripUndefined(rawNext);
     setState(next); stateRef.current = next;
     setPendingWrites((n) => n + 1);
     try {
@@ -579,13 +591,6 @@ export default function App() {
   // สำคัญ: ใช้สำหรับรายการที่ "เพิ่มเข้าไปในลิสต์" บ่อยๆ เช่น เงินเข้า/รายจ่าย — เขียนแบบ arrayUnion ที่ Firestore
   // จะเติมเข้าไปในเอกสารจริงบนเซิร์ฟเวอร์เสมอ ไม่ว่า state ฝั่งเครื่องจะเก่าแค่ไหน (เช่น เปิดแอปค้างไว้นาน สลับแอปไปมา
   // หรือมีงานเบื้องหลังทำงานช้าอยู่) ป้องกันปัญหาข้อมูลหายที่เจอมาก่อนหน้านี้ได้แน่นอนกว่าการเขียนทับทั้งก้อนแบบเดิม
-  // arrayUnion() ของ Firestore ไม่ยอมรับ field ที่เป็น undefined เลย (ต่างจาก setDoc ปกติที่จะข้ามให้เฉยๆ)
-  // ต้องตัดฟิลด์ที่เป็น undefined ออกก่อนเสมอ ไม่งั้นจะ throw ทันทีตอนเรียก (พังทุกครั้งที่ entry มีฟิลด์ undefined ปนมา)
-  function stripUndefined(obj) {
-    const out = {};
-    Object.keys(obj).forEach((k) => { if (obj[k] !== undefined) out[k] = obj[k]; });
-    return out;
-  }
   function persistAppend(fieldName, rawItem) {
     const newItem = stripUndefined(rawItem);
     const base = stateRef.current || state;
@@ -602,7 +607,8 @@ export default function App() {
       setPendingWrites((n) => Math.max(0, n - 1));
     }
   }
-  function persistShared(next) {
+  function persistShared(rawNext) {
+    const next = stripUndefined(rawNext);
     setSharedState(next); sharedStateRef.current = next;
     setPendingWrites((n) => n + 1);
     try {
@@ -1631,9 +1637,11 @@ async function scanSellTransaction(file) {
   return safeParseJson(text);
 }
 
-async function scanReceiptItems(file) {
+async function scanReceiptItems(file, cardNames) {
   const base64 = await readFileAsBase64(file);
-  const prompt = `นี่คือภาพใบเสร็จรับเงิน อ่านรายการสินค้า/บริการทั้งหมดพร้อมราคา แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"item":"ชื่อรายการ","amount":ราคาเป็นตัวเลขไม่มีคอมมา}] ถ้าอ่านราคารวมทั้งบิลได้แต่แยกรายการไม่ได้ ให้ส่งเป็นรายการเดียวชื่อ "รวมบิล"`;
+  const cardHint = (cardNames && cardNames.length > 0) ? `\nถ้าภาพนี้เป็นสลิปรูดบัตรเครดิต/สลิปยืนยันการชำระ ลองดูว่ามีชื่อธนาคาร/บัตรตรงหรือใกล้เคียงกับรายชื่อนี้ไหม: ${cardNames.join(', ')} — ถ้ามีให้ระบุกลับมาด้วย ถ้าไม่มี/ไม่แน่ใจให้ตอบค่าว่าง` : '';
+  const prompt = `นี่คือภาพใบเสร็จรับเงินหรือสลิปการชำระเงิน อ่านรายการสินค้า/บริการทั้งหมดพร้อมราคา ถ้าอ่านราคารวมทั้งบิลได้แต่แยกรายการไม่ได้ ให้ส่งเป็นรายการเดียวชื่อ "รวมบิล"${cardHint}
+ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"items": [{"item":"ชื่อรายการ","amount":ราคาเป็นตัวเลขไม่มีคอมมา}], "cardName": "ชื่อธนาคาร/บัตรที่ใช้จ่ายถ้าระบุในภาพ ไม่งั้นค่าว่าง"}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
@@ -2813,12 +2821,18 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   const [receiptScanning, setReceiptScanning] = useState(false);
   const [receiptError, setReceiptError] = useState('');
   const [receiptDraft, setReceiptDraft] = useState(null); // array of {item, amount, category}
+  const [receiptCardId, setReceiptCardId] = useState('');
+  const [payWithCardId, setPayWithCardId] = useState(''); // '' = เงินสด, ไม่งั้นคือ id ของบัตรเครดิต
 
   const today = new Date().toISOString().slice(0, 10);
 
   function submitManual() {
     if (!amount) return;
-    onAdd({ date: today, amount, category, note });
+    if (payWithCardId) {
+      onAddCreditCardTransaction(payWithCardId, { date: today, amount, category, note });
+    } else {
+      onAdd({ date: today, amount, category, note });
+    }
     setAmount(0); setNote('');
   }
   function confirmNewCategory() {
@@ -2862,16 +2876,24 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
     if (!file) return;
     setReceiptScanning(true); setReceiptError(''); setReceiptDraft(null);
     try {
-      const items = await scanReceiptItems(file);
+      const cardNames = (creditCards || []).map((c) => `${c.bankName || ''} ${c.cardName || ''}`.trim()).filter(Boolean);
+      const result = await scanReceiptItems(file, cardNames);
+      const items = result.items || result; // เผื่อ AI ตอบกลับมาเป็น array ตรงๆ แบบเก่า
       setReceiptDraft(items.map((it) => ({ item: it.item || 'รายการ', amount: Number(it.amount) || 0, category: categories[0] || 'อื่นๆ' })));
+      const matchedCard = onMatchCreditCard ? onMatchCreditCard(result.cardName) : null;
+      setReceiptCardId(matchedCard ? matchedCard.id : '');
     } catch (err) { setReceiptError('อ่านใบเสร็จไม่สำเร็จ: ' + err.message); }
     finally { setReceiptScanning(false); if (receiptFileRef.current) receiptFileRef.current.value = ''; }
   }
   function updateReceiptRow(idx, patch) { setReceiptDraft(receiptDraft.map((r, i) => (i === idx ? { ...r, ...patch } : r))); }
   function removeReceiptRow(idx) { setReceiptDraft(receiptDraft.filter((_, i) => i !== idx)); }
   function confirmReceipt() {
-    receiptDraft.forEach((r) => onAdd({ date: today, amount: r.amount, category: r.category, note: r.item }));
-    setReceiptDraft(null);
+    if (receiptCardId) {
+      receiptDraft.forEach((r) => onAddCreditCardTransaction(receiptCardId, { date: today, amount: r.amount, category: r.category, note: r.item }));
+    } else {
+      receiptDraft.forEach((r) => onAdd({ date: today, amount: r.amount, category: r.category, note: r.item }));
+    }
+    setReceiptDraft(null); setReceiptCardId('');
   }
 
   const todayTotal = useMemo(() => expenses.filter((e) => e.date === today).reduce((s, e) => s + Number(e.amount || 0), 0), [expenses, today]);
@@ -2923,6 +2945,11 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         )}
         <label className="text-xs" style={{ color: SLATE }}>โน้ต (ไม่บังคับ)</label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ค่าข้าวเที่ยง" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+        <label className="text-xs" style={{ color: SLATE }}>จ่ายด้วย</label>
+        <select value={payWithCardId} onChange={(e) => setPayWithCardId(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">
+          <option value="">💵 เงินสด</option>
+          {(creditCards || []).map((c) => <option key={c.id} value={c.id}>💳 {c.bankName} {c.cardName}</option>)}
+        </select>
         <button onClick={submitManual} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm mb-2">บันทึกรายจ่าย</button>
 
         {voiceDraft ? (
@@ -2944,6 +2971,12 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         {receiptDraft ? (
           <div style={{ background: PAPER_DIM }} className="rounded-lg p-2">
             <p className="text-xs mb-2" style={{ color: SLATE }}>พบ {receiptDraft.length} รายการในใบเสร็จ — เลือกหมวดหมู่แล้วยืนยัน</p>
+            <label className="text-[11px]" style={{ color: SLATE }}>จ่ายด้วย</label>
+            <select value={receiptCardId} onChange={(e) => setReceiptCardId(e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }}>
+              <option value="">💵 เงินสด</option>
+              {(creditCards || []).map((c) => <option key={c.id} value={c.id}>💳 {c.bankName} {c.cardName}</option>)}
+            </select>
+            {receiptCardId && <p className="text-[11px] mb-2 font-semibold" style={{ color: BRASS }}>🤖 AI ตรวจพบว่ารูดบัตรนี้จากสลิป — ปรับได้ถ้าไม่ตรง</p>}
             {receiptDraft.map((r, idx) => (
               <div key={idx} style={{ background: 'white' }} className="rounded-lg p-2 mb-2">
                 <div className="flex justify-between items-center mb-1">
