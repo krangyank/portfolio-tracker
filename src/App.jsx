@@ -311,6 +311,7 @@ export default function App() {
   const [calendarError, setCalendarError] = useState('');
   const [reconnecting, setReconnecting] = useState(false);
   const [showAmounts, setShowAmounts] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -447,6 +448,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+     try {
       const snap = await getDoc(docRef);
       let data;
       if (snap.exists()) {
@@ -455,7 +457,7 @@ export default function App() {
         const prunedExpenses = (data.expenses || []).filter((e) => new Date(e.date).getTime() >= cutoff);
         if (prunedExpenses.length !== (data.expenses || []).length) {
           data = { ...data, expenses: prunedExpenses };
-          updateDoc(docRef, { expenses: prunedExpenses }).catch((e) => console.error('prune save failed', e));
+          updateDoc(docRef, { expenses: prunedExpenses }).catch((e) => { console.error('prune save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ตัดรายจ่ายเก่า): ${e.message || e.code || e}`); });
         }
       } else { data = EMPTY_STATE; await setDoc(docRef, EMPTY_STATE); }
 
@@ -509,20 +511,24 @@ export default function App() {
         sharedPatch.accounts = shared.accounts;
         dataChanged = true; sharedChanged = true;
       }
-      if (sharedChanged) await updateDoc(sharedDocRef, sharedPatch).catch((e) => console.error('shared migrate save failed', e));
-      if (dataChanged) await updateDoc(docRef, dataPatch).catch((e) => console.error('migrate save failed', e));
+      if (sharedChanged) await updateDoc(sharedDocRef, sharedPatch).catch((e) => { console.error('shared migrate save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ย้ายข้อมูลแชร์): ${e.message || e.code || e}`); });
+      if (dataChanged) await updateDoc(docRef, dataPatch).catch((e) => { console.error('migrate save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ย้ายบัญชี): ${e.message || e.code || e}`); });
 
       setSharedState(shared);
       setState(data);
       stateRef.current = data;
       sharedStateRef.current = shared;
+     } catch (e) {
+       console.error('initial load failed', e);
+       setSaveError(`โหลดข้อมูลไม่สำเร็จ: ${e.message || e.code || e}`);
+     }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.uid]);
 
   // ทุกครั้งที่ persist/persistShared เขียนข้อมูล ให้ ref ตามทันเสมอ
   // ป้องกันงานเบื้องหลังที่ทำงานนาน (เช่น รีเฟรชราคาหุ้นทุกตัว, AI insight) เขียนทับข้อมูลใหม่ที่ผู้ใช้เพิ่งบันทึกไประหว่างที่มันทำงานอยู่
-  function persist(next) { setState(next); stateRef.current = next; setDoc(docRef, next).catch((e) => console.error('save failed', e)); }
+  function persist(next) { setState(next); stateRef.current = next; setDoc(docRef, next).catch((e) => { console.error('save failed', e); setSaveError(`บันทึกไม่สำเร็จ: ${e.message || e.code || e}`); }); }
   // สำคัญ: ใช้สำหรับรายการที่ "เพิ่มเข้าไปในลิสต์" บ่อยๆ เช่น เงินเข้า/รายจ่าย — เขียนแบบ arrayUnion ที่ Firestore
   // จะเติมเข้าไปในเอกสารจริงบนเซิร์ฟเวอร์เสมอ ไม่ว่า state ฝั่งเครื่องจะเก่าแค่ไหน (เช่น เปิดแอปค้างไว้นาน สลับแอปไปมา
   // หรือมีงานเบื้องหลังทำงานช้าอยู่) ป้องกันปัญหาข้อมูลหายที่เจอมาก่อนหน้านี้ได้แน่นอนกว่าการเขียนทับทั้งก้อนแบบเดิม
@@ -530,9 +536,9 @@ export default function App() {
     const base = stateRef.current || state;
     const next = { ...base, [fieldName]: [newItem, ...((base && base[fieldName]) || [])] };
     setState(next); stateRef.current = next;
-    updateDoc(docRef, { [fieldName]: arrayUnion(newItem) }).catch((e) => console.error('append save failed', e));
+    updateDoc(docRef, { [fieldName]: arrayUnion(newItem) }).catch((e) => { console.error('append save failed', e); setSaveError(`บันทึกไม่สำเร็จ (${fieldName}): ${e.message || e.code || e}`); });
   }
-  function persistShared(next) { setSharedState(next); sharedStateRef.current = next; setDoc(sharedDocRef, next).catch((e) => console.error('shared save failed', e)); }
+  function persistShared(next) { setSharedState(next); sharedStateRef.current = next; setDoc(sharedDocRef, next).catch((e) => { console.error('shared save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ข้อมูลแชร์): ${e.message || e.code || e}`); }); }
   function refreshSharedData() { getDoc(sharedDocRef).then((snap) => { if (snap.exists()) { setSharedState(snap.data()); sharedStateRef.current = snap.data(); } }); }
 
   // ฟีเจอร์ GG: บัญชีที่แชร์กับภรรยา (WealthX ทั้งหมด + DIME กองทุน) รวมเข้ากับบัญชีส่วนตัว พร้อมป้าย _shared
@@ -1001,6 +1007,13 @@ export default function App() {
 
   return (
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK }} className="pb-24">
+      {saveError && (
+        <div style={{ background: BAD, position: 'sticky', top: 0, zIndex: 100 }} className="px-4 py-3 text-white text-xs flex items-start gap-2">
+          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span className="flex-1">⚠️ {saveError}</span>
+          <button onClick={() => setSaveError('')} style={{ flexShrink: 0 }}>✕</button>
+        </div>
+      )}
       <div style={{ background: INK }} className="px-5 pt-8 pb-6 text-white relative overflow-hidden">
         <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid #FFFFFF22`, pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', right: 10, bottom: 10, width: 104, height: 104, borderRadius: '50%', background: (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 54, border: '3px solid #FFFFFF4D', boxShadow: '0 8px 20px rgba(0,0,0,0.3)', pointerEvents: 'none' }}>{(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).emoji}</div>
