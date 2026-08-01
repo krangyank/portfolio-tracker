@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import {
   PlusCircle, Trash2, TrendingUp, Wallet, PiggyBank, Flame, Landmark,
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
@@ -514,6 +514,15 @@ export default function App() {
   // ทุกครั้งที่ persist/persistShared เขียนข้อมูล ให้ ref ตามทันเสมอ
   // ป้องกันงานเบื้องหลังที่ทำงานนาน (เช่น รีเฟรชราคาหุ้นทุกตัว, AI insight) เขียนทับข้อมูลใหม่ที่ผู้ใช้เพิ่งบันทึกไประหว่างที่มันทำงานอยู่
   function persist(next) { setState(next); stateRef.current = next; setDoc(docRef, next).catch((e) => console.error('save failed', e)); }
+  // สำคัญ: ใช้สำหรับรายการที่ "เพิ่มเข้าไปในลิสต์" บ่อยๆ เช่น เงินเข้า/รายจ่าย — เขียนแบบ arrayUnion ที่ Firestore
+  // จะเติมเข้าไปในเอกสารจริงบนเซิร์ฟเวอร์เสมอ ไม่ว่า state ฝั่งเครื่องจะเก่าแค่ไหน (เช่น เปิดแอปค้างไว้นาน สลับแอปไปมา
+  // หรือมีงานเบื้องหลังทำงานช้าอยู่) ป้องกันปัญหาข้อมูลหายที่เจอมาก่อนหน้านี้ได้แน่นอนกว่าการเขียนทับทั้งก้อนแบบเดิม
+  function persistAppend(fieldName, newItem) {
+    const base = stateRef.current || state;
+    const next = { ...base, [fieldName]: [newItem, ...((base && base[fieldName]) || [])] };
+    setState(next); stateRef.current = next;
+    updateDoc(docRef, { [fieldName]: arrayUnion(newItem) }).catch((e) => console.error('append save failed', e));
+  }
   function persistShared(next) { setSharedState(next); sharedStateRef.current = next; setDoc(sharedDocRef, next).catch((e) => console.error('shared save failed', e)); }
   function refreshSharedData() { getDoc(sharedDocRef).then((snap) => { if (snap.exists()) { setSharedState(snap.data()); sharedStateRef.current = snap.data(); } }); }
 
@@ -626,7 +635,7 @@ export default function App() {
   const updateIncome = (id, patch) => persist({ ...state, income: income.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
   const addIncome = () => persist({ ...state, income: [...income, { id: uid(), name: 'แหล่งรายได้ใหม่', amount: 0, tag: 'other' }] });
   const removeIncome = (id) => persist({ ...state, income: income.filter((i) => i.id !== id) });
-  const addContribution = (entry) => persist({ ...state, contributions: [{ id: uid(), ...entry }, ...contributions] });
+  const addContribution = (entry) => persistAppend('contributions', { id: uid(), ...entry });
   const removeContribution = (id) => persist({ ...state, contributions: contributions.filter((c) => c.id !== id) });
   const updateContribution = (id, patch) => persist({ ...state, contributions: contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const changeTargetDate = (d) => persist({ ...state, targetDate: d });
@@ -695,7 +704,7 @@ export default function App() {
     const h = acc.holdings.find((x) => x.id === holdingId);
     updateHolding(accountId, holdingId, { buys: (h.buys || []).map((b) => (b.id === buyId ? { ...b, ...patch } : b)) });
   }
-  const addExpense = (entry) => persist({ ...state, expenses: [{ id: uid(), ...entry }, ...expenses] });
+  const addExpense = (entry) => persistAppend('expenses', { id: uid(), ...entry });
   const removeExpense = (id) => persist({ ...state, expenses: expenses.filter((e) => e.id !== id) });
   const updateExpense = (id, patch) => persist({ ...state, expenses: expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
   const addExpenseCategory = (name) => { if (name && !expenseCategories.includes(name)) persist({ ...state, expenseCategories: [...expenseCategories, name] }); };
