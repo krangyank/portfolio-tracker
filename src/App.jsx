@@ -455,7 +455,7 @@ export default function App() {
         const prunedExpenses = (data.expenses || []).filter((e) => new Date(e.date).getTime() >= cutoff);
         if (prunedExpenses.length !== (data.expenses || []).length) {
           data = { ...data, expenses: prunedExpenses };
-          setDoc(docRef, data).catch((e) => console.error('prune save failed', e));
+          updateDoc(docRef, { expenses: prunedExpenses }).catch((e) => console.error('prune save failed', e));
         }
       } else { data = EMPTY_STATE; await setDoc(docRef, EMPTY_STATE); }
 
@@ -464,6 +464,11 @@ export default function App() {
       let shared = sharedSnap.exists() ? sharedSnap.data() : { dogs: [], properties: [], accounts: [] };
       let dataChanged = false;
       let sharedChanged = false;
+      // เก็บเฉพาะฟิลด์ที่เปลี่ยนจริงๆ ไว้ใน patch แยกต่างหาก แล้วค่อยเขียนแบบ updateDoc (merge เฉพาะฟิลด์นี้)
+      // แทนการ setDoc ทั้งก้อนแบบเดิม — กันไม่ให้ข้อมูลอื่น (เช่น เงินเข้า/รายจ่าย ของ Tommy หรือข้อมูลของภรรยาในฝั่ง shared)
+      // ถูกเขียนทับ ถ้า snapshot ที่อ่านมาตอนนี้ดันเก่ากว่าที่อยู่จริงบนเซิร์ฟเวอร์ (เช่น แคชค้างตอนสลับแอปไปมา)
+      const dataPatch = {};
+      const sharedPatch = {};
 
       // ย้ายลูกๆ/บ้านเช่าไปยังส่วนที่ใช้ร่วมกัน (ทำครั้งแรกครั้งเดียว)
       if (!data.migratedToShared) {
@@ -475,9 +480,11 @@ export default function App() {
             dogs: shared.dogs && shared.dogs.length > 0 ? shared.dogs : dogsToMove,
             properties: shared.properties && shared.properties.length > 0 ? shared.properties : propsToMove,
           };
+          sharedPatch.dogs = shared.dogs; sharedPatch.properties = shared.properties;
           sharedChanged = true;
         }
         data = { ...data, dogs: [], properties: [], migratedToShared: true };
+        dataPatch.dogs = []; dataPatch.properties = []; dataPatch.migratedToShared = true;
         dataChanged = true;
       }
 
@@ -498,10 +505,12 @@ export default function App() {
         };
         const remainingAccounts = (data.accounts || []).filter((a) => !accountsToMove.some((m) => m.id === a.id));
         data = { ...data, accounts: remainingAccounts };
+        dataPatch.accounts = remainingAccounts;
+        sharedPatch.accounts = shared.accounts;
         dataChanged = true; sharedChanged = true;
       }
-      if (sharedChanged) await setDoc(sharedDocRef, shared);
-      if (dataChanged) await setDoc(docRef, data);
+      if (sharedChanged) await updateDoc(sharedDocRef, sharedPatch).catch((e) => console.error('shared migrate save failed', e));
+      if (dataChanged) await updateDoc(docRef, dataPatch).catch((e) => console.error('migrate save failed', e));
 
       setSharedState(shared);
       setState(data);
