@@ -96,7 +96,8 @@ const makeProperty = (p) => ({
   id: uid(), name: p.name, rent: p.rent, purchasePrice: p.purchasePrice,
   status: 'occupied', tenantName: '', tenantPhone: '', tenantLine: '',
   depositAmount: p.rent * 2, contractStartDate: '', contractEndDate: '', reminderDays: [7, 3, 1],
-  photos: [], payments: {}, transactions: [], repairs: [],
+  rentDueDay: 5, rentReminderDays: [3, 1],
+  photos: [], documents: [], payments: {}, transactions: [], repairs: [],
 });
 const DEFAULT_PROPERTIES = PROPERTY_SEED.map((p) => makeProperty(p));
 
@@ -887,6 +888,45 @@ export default function App() {
     if (photo && photo.path) { try { await deleteObject(storageRef(storage, photo.path)); } catch (e) { /* ignore */ } }
     updateProperty(propertyId, { photos: (p.photos || []).filter((ph) => ph.id !== photoId) });
   }
+  // เอกสารสัญญาเช่า/โฉนด (PDF) แยกจากรูปห้อง
+  async function addPropertyDocument(propertyId, file) {
+    const p = properties.find((x) => x.id === propertyId);
+    const path = `properties/${FAMILY_SHARE_ID}/${propertyId}/documents/${Date.now()}_${file.name}`;
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    updateProperty(propertyId, { documents: [{ id: uid(), name: file.name, url, path, uploadedAt: new Date().toISOString().slice(0, 10) }, ...(p.documents || [])] });
+  }
+  async function removePropertyDocument(propertyId, docId) {
+    const p = properties.find((x) => x.id === propertyId);
+    const doc = (p.documents || []).find((d) => d.id === docId);
+    if (doc && doc.path) { try { await deleteObject(storageRef(storage, doc.path)); } catch (e) { /* ignore */ } }
+    updateProperty(propertyId, { documents: (p.documents || []).filter((d) => d.id !== docId) });
+  }
+  // แบ่งจ่ายค่าเช่าหลายงวด: บันทึกแต่ละงวดพร้อมวันที่ + จะเลือกได้ว่าเอาเงินก้อนนี้ไปลงบัญชีไหน (สร้างรายการ "เงินเข้า" ให้อัตโนมัติ)
+  function addRentInstallment(propertyId, ymKey, entry) {
+    const p = properties.find((x) => x.id === propertyId);
+    const cur = (p.payments || {})[ymKey] || {};
+    const installments = [{ id: uid(), amount: entry.amount, date: entry.date, note: entry.note || '', accountId: entry.accountId || '' }, ...(cur.installments || [])];
+    const totalPaid = installments.reduce((s, it) => s + Number(it.amount || 0), 0);
+    const paid = cur.manualConfirm || totalPaid >= Number(p.rent || 0);
+    updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid, date: paid ? (cur.date || entry.date) : cur.date } } });
+    if (entry.accountId) addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId });
+  }
+  function removeRentInstallment(propertyId, ymKey, installmentId) {
+    const p = properties.find((x) => x.id === propertyId);
+    const cur = (p.payments || {})[ymKey] || {};
+    const installments = (cur.installments || []).filter((it) => it.id !== installmentId);
+    const totalPaid = installments.reduce((s, it) => s + Number(it.amount || 0), 0);
+    const paid = cur.manualConfirm || totalPaid >= Number(p.rent || 0);
+    updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid } } });
+  }
+  function setRentManualConfirm(propertyId, ymKey, confirmed) {
+    const p = properties.find((x) => x.id === propertyId);
+    const cur = (p.payments || {})[ymKey] || {};
+    const totalPaid = (cur.installments || []).reduce((s, it) => s + Number(it.amount || 0), 0);
+    updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, manualConfirm: confirmed, paid: confirmed || totalPaid >= Number(p.rent || 0), date: confirmed ? new Date().toISOString().slice(0, 10) : cur.date } } });
+  }
   // ฟีเจอร์ KK: รูปโปรไฟล์ของลูกๆ แต่ละตัว (ใช้ Storage เดียวกับรูปห้อง)
   // ใช้อัพโหลดรูปแล้วแนบเข้ากับ "รายการใหม่" ที่กำลังจะสร้างโดยตรง (กันปัญหาข้อมูลไม่ทันอัพเดทถ้าไปแนบทีหลัง)
   async function uploadDogRecordPhoto(dogId, subfolder, file) {
@@ -1181,6 +1221,9 @@ export default function App() {
         <RealEstateTab properties={properties} onUpdate={updateProperty} onAdd={addProperty} onRemove={removeProperty}
           onTogglePayment={togglePayment} onAddTransaction={addPropertyTransaction} onRemoveTransaction={removePropertyTransaction}
           onAddRepair={addPropertyRepair} onRemoveRepair={removePropertyRepair} onAddPhoto={addPropertyPhoto} onRemovePhoto={removePropertyPhoto}
+          onAddDocument={addPropertyDocument} onRemoveDocument={removePropertyDocument}
+          onAddRentInstallment={addRentInstallment} onRemoveRentInstallment={removeRentInstallment} onSetRentManualConfirm={setRentManualConfirm}
+          accounts={accounts}
           googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} onRefreshShared={refreshSharedData} />
       )}
 
@@ -1400,10 +1443,21 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
   // ปฏิทินเหตุการณ์สำคัญ: รวมวันครบสัญญาบ้านเช่า + นัดหมอถัดไปของลูกๆ
   const upcomingEvents = useMemo(() => {
     const events = [];
+    const ym = thisMonth();
     (properties || []).forEach((p) => {
       if (p.contractEndDate) {
         const daysLeftP = Math.ceil((new Date(p.contractEndDate) - new Date()) / (1000 * 60 * 60 * 24));
         if (daysLeftP >= -3 && daysLeftP <= 60) events.push({ date: p.contractEndDate, label: `ครบสัญญาเช่า: ${p.name}`, tone: daysLeftP <= 14 ? 'warn' : 'info' });
+      }
+      if (p.status === 'occupied' && p.rentDueDay) {
+        const pay = (p.payments || {})[ym] || {};
+        if (!pay.paid) {
+          const dueDate = `${ym}-${String(p.rentDueDay).padStart(2, '0')}`;
+          const daysToDue = Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24));
+          const reminderDays = p.rentReminderDays || [3, 1];
+          if (daysToDue < 0) events.push({ date: dueDate, label: `ค่าเช่าเลยกำหนด: ${p.name} (เลยมา ${Math.abs(daysToDue)} วัน)`, tone: 'warn' });
+          else if (reminderDays.some((d) => daysToDue <= d)) events.push({ date: dueDate, label: `ใกล้ครบกำหนดค่าเช่า: ${p.name}`, tone: 'info' });
+        }
       }
     });
     (dogs || []).forEach((d) => {
@@ -2630,6 +2684,21 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
     return Object.entries(map).map(([src, total]) => ({ src, label: SOURCES.find((s) => s.id === src)?.label || src, total })).sort((a, b) => b.total - a.total);
   }, [contributions, summaryPeriod, summaryPeriodType]);
   const periodGrandTotal = bySourceThisPeriod.reduce((s, r) => s + r.total, 0);
+  const [groupPopup, setGroupPopup] = useState(null); // { label, items: [...] }
+  const groupedList = useMemo(() => {
+    const ym = thisMonth();
+    const thisMonthItems = contributions.filter((c) => c.date.startsWith(ym)).sort((a, b) => b.date.localeCompare(a.date));
+    const older = contributions.filter((c) => !c.date.startsWith(ym));
+    const groups = {};
+    older.forEach((c) => {
+      const key = `${c.source}__${c.accountId}__${monthKey(c.date)}`;
+      if (!groups[key]) groups[key] = { source: c.source, accountId: c.accountId, month: monthKey(c.date), items: [] };
+      groups[key].items.push(c);
+    });
+    const groupRows = Object.values(groups).sort((a, b) => b.month.localeCompare(a.month));
+    return { thisMonthItems, groupRows };
+  }, [contributions]);
+
   return (
     <div className="px-5 pt-5">
       <Card>
@@ -2659,11 +2728,41 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
         ))}
         {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span>฿{fmt(periodGrandTotal)}</span></div>}
       </Card>
-      <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด</p>
-      {contributions.slice(0, 30).map((c) => {
+      <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด (เดือนนี้)</p>
+      {groupedList.thisMonthItems.length === 0 && <p className="text-xs mb-3" style={{ color: SLATE }}>ยังไม่มีรายการเดือนนี้</p>}
+      {groupedList.thisMonthItems.map((c) => {
         const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((s) => s.id === c.source);
         return <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{src?.label || c.source} → {acc?.name || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}</p></div><div className="flex items-center gap-3"><span className="text-sm">฿{fmt(c.amount)}</span><EditButton onClick={() => setEditing(c)} /><button onClick={() => onRemove(c.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>;
       })}
+      {groupedList.groupRows.length > 0 && (
+        <>
+          <p className="text-xs mb-2 mt-4" style={{ color: SLATE }}>ประวัติเดือนก่อนๆ (แตะดูรายละเอียด)</p>
+          {groupedList.groupRows.map((g) => {
+            const acc = accounts.find((a) => a.id === g.accountId); const src = SOURCES.find((s) => s.id === g.source);
+            const total = g.items.reduce((s, it) => s + Number(it.amount || 0), 0);
+            return (
+              <button key={`${g.source}__${g.accountId}__${g.month}`} onClick={() => setGroupPopup({ label: `${src?.label || g.source} → ${acc?.name || 'ไม่ทราบบัญชี'} · ${g.month}`, items: g.items })} className="w-full text-left" style={{ display: 'block' }}>
+                <Card>
+                  <div className="flex justify-between items-center">
+                    <div><p className="text-sm">{src?.label || g.source} → {acc?.name || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{g.month} · {g.items.length} รายการ</p></div>
+                    <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(total)}</span><ChevronRight size={15} color={SLATE} /></div>
+                  </div>
+                </Card>
+              </button>
+            );
+          })}
+        </>
+      )}
+      {groupPopup && (
+        <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
+          <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[75vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">{groupPopup.label}</p><button onClick={() => setGroupPopup(null)}><X size={20} color={INK} /></button></div>
+            {groupPopup.items.sort((a, b) => b.date.localeCompare(a.date)).map((c) => (
+              <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{c.date}</p>{c.usdAmount ? <p className="text-xs" style={{ color: SLATE }}>{c.usdAmount} USD</p> : null}</div><div className="flex items-center gap-3"><span className="text-sm">฿{fmt(c.amount)}</span><EditButton onClick={() => { setEditing(c); setGroupPopup(null); }} /><button onClick={() => { onRemove(c.id); setGroupPopup({ ...groupPopup, items: groupPopup.items.filter((x) => x.id !== c.id) }); }}><Trash2 size={14} color={BAD} /></button></div></div></Card>
+            ))}
+          </div>
+        </div>
+      )}
       {editing && (
         <EditModal title="แก้ไขเงินเข้า" onClose={() => setEditing(null)}
           initialValues={{ date: editing.date, amount: editing.amount, source: editing.source, accountId: editing.accountId }}
@@ -3370,7 +3469,7 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
   );
 }
 
-function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar, onRefreshShared }) {
+function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar, onRefreshShared }) {
   const [section, setSection] = useState('overview');
   const [selectedId, setSelectedId] = useState(properties[0]?.id || '');
   const selected = properties.find((p) => p.id === selectedId) || properties[0];
@@ -3395,7 +3494,7 @@ function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment,
             ))}
             <button onClick={() => onAdd({ name: 'ทรัพย์สินใหม่' })} style={{ color: BRASS, flexShrink: 0 }} className="flex items-center gap-1 text-xs"><PlusCircle size={14} /> เพิ่ม</button>
           </div>
-          {selected && <PropertyDetail property={selected} onUpdate={onUpdate} onRemove={onRemove} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
+          {selected && <PropertyDetail property={selected} onUpdate={onUpdate} onRemove={onRemove} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument} onAddRentInstallment={onAddRentInstallment} onRemoveRentInstallment={onRemoveRentInstallment} onSetRentManualConfirm={onSetRentManualConfirm} accounts={accounts} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
         </>
       )}
       {section === 'collection' && <RentCollectionMatrix properties={properties} onTogglePayment={onTogglePayment} />}
@@ -3480,7 +3579,7 @@ function RealEstateOverview({ properties, onSelectProperty }) {
   );
 }
 
-function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, googleConnected, onAddToCalendar }) {
+function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar }) {
   const [sub, setSub] = useState('info');
   return (
     <Card>
@@ -3489,18 +3588,95 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
         <button onClick={() => onRemove(p.id)}><Trash2 size={16} color={BAD} /></button>
       </div>
       <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
-        {[{ id: 'info', l: 'ข้อมูล' }, { id: 'money', l: 'รายรับจ่าย' }, { id: 'repairs', l: 'ซ่อม' }, { id: 'roi', l: 'ROI' }, { id: 'docs', l: 'เอกสาร' }].map((s) => (
+        {[{ id: 'info', l: 'ข้อมูล' }, { id: 'rent', l: 'รับเงิน' }, { id: 'money', l: 'รายรับจ่าย' }, { id: 'repairs', l: 'ซ่อม' }, { id: 'roi', l: 'ROI' }, { id: 'docs', l: 'เอกสาร' }].map((s) => (
           <button key={s.id} onClick={() => setSub(s.id)} style={{ background: sub === s.id ? BRASS : PAPER_DIM, color: sub === s.id ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1 text-[11px] whitespace-nowrap">{s.l}</button>
         ))}
       </div>
       {sub === 'info' && <PropertyInfoSection property={p} onUpdate={onUpdate} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
+      {sub === 'rent' && <PropertyRentSection property={p} accounts={accounts} onAddInstallment={onAddRentInstallment} onRemoveInstallment={onRemoveRentInstallment} onSetManualConfirm={onSetRentManualConfirm} />}
       {sub === 'money' && <PropertyMoneySection property={p} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} />}
       {sub === 'repairs' && <PropertyRepairsSection property={p} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} />}
       {sub === 'roi' && <PropertyROISection property={p} />}
-      {sub === 'docs' && <PropertyDocsSection property={p} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} />}
+      {sub === 'docs' && <PropertyDocsSection property={p} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument} />}
     </Card>
   );
 }
+
+// หน้ารับเงินค่าเช่าแบบแบ่งจ่ายได้หลายงวด — เลือกเดือน ดูสถานะ จ่ายครบ/ไม่ครบ เพิ่มงวดใหม่พร้อมเลือกบัญชีปลายทาง (สร้างรายการเงินเข้าให้อัตโนมัติ)
+function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemoveInstallment, onSetManualConfirm }) {
+  const [ym, setYm] = useState(thisMonth());
+  const [amount, setAmount] = useState(0);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState('');
+  const [accountId, setAccountId] = useState('');
+  const pay = (p.payments || {})[ym] || {};
+  const installments = pay.installments || [];
+  const totalPaid = installments.reduce((s, it) => s + Number(it.amount || 0), 0);
+  const remaining = Math.max(0, Number(p.rent || 0) - totalPaid);
+  const isFull = pay.paid;
+
+  const dueDay = Number(p.rentDueDay || 5);
+  const dueDate = `${ym}-${String(dueDay).padStart(2, '0')}`;
+  const daysToDue = daysUntilGeneric(dueDate);
+  const isOverdue = !isFull && daysToDue !== null && daysToDue < 0;
+
+  function submit() {
+    if (!amount) return;
+    onAddInstallment(p.id, ym, { amount, date, note, accountId });
+    setAmount(0); setNote('');
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} className="text-sm rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} />
+        <span className="text-xs" style={{ color: SLATE }}>ครบกำหนดจ่าย: วันที่ {dueDay} ของทุกเดือน</span>
+      </div>
+      <div style={{ background: isFull ? '#16A34A14' : (isOverdue ? '#DC262614' : PAPER_DIM) }} className="rounded-full px-3 py-1.5 text-xs font-semibold inline-block mb-2" >
+        {isFull ? '✅ จ่ายครบแล้ว' : isOverdue ? `🔴 เลยกำหนดมา ${Math.abs(daysToDue)} วัน — ขาดอีก ฿${fmt(remaining)}` : `🟠 จ่ายไม่ครบ — ขาดอีก ฿${fmt(remaining)}`}
+      </div>
+      <div style={{ background: PAPER_DIM }} className="h-2.5 rounded-full overflow-hidden mb-1">
+        <div style={{ width: `${p.rent ? Math.min(100, (totalPaid / p.rent) * 100) : 0}%`, background: isFull ? GOOD : BRASS }} className="h-full rounded-full" />
+      </div>
+      <div className="flex justify-between text-xs mb-4" style={{ color: SLATE }}><span>จ่ายแล้ว <b style={{ color: INK }}>฿{fmt(totalPaid)}</b></span><span>เป้าหมาย <b style={{ color: INK }}>฿{fmt(p.rent)}</b></span></div>
+
+      <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>รายการที่จ่ายมาแล้ว (แบ่งจ่าย)</p>
+      {installments.length === 0 && <p className="text-xs mb-2" style={{ color: SLATE }}>ยังไม่มีการจ่ายเดือนนี้</p>}
+      {installments.map((it) => {
+        const acc = accounts.find((a) => a.id === it.accountId);
+        return (
+          <div key={it.id} style={{ border: `1px solid ${BORDER}` }} className="rounded-xl px-3 py-2 mb-2 flex justify-between items-center">
+            <div><p className="text-sm font-semibold">฿{fmt(it.amount)}</p><p className="text-xs" style={{ color: SLATE }}>{it.date}{it.note ? ` · ${it.note}` : ''}</p>{acc ? <p className="text-xs font-semibold mt-0.5" style={{ color: BRASS }}>💰 นำไปลง: {acc.name}</p> : <p className="text-xs mt-0.5" style={{ color: SLATE }}>ยังไม่ได้ระบุว่านำไปลงที่ไหน</p>}</div>
+            <button onClick={() => onRemoveInstallment(p.id, ym, it.id)}><Trash2 size={14} color={BAD} /></button>
+          </div>
+        );
+      })}
+
+      <div style={{ background: PAPER_DIM }} className="rounded-xl p-3 mt-2">
+        <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>+ เพิ่มรายการจ่ายอีกงวด</p>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนเงิน</label><NumInput value={amount} onChange={setAmount} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่โอน/จ่าย</label><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+        </div>
+        <label className="text-[10px]" style={{ color: SLATE }}>โน้ต (ไม่บังคับ)</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น จ่ายงวดสุดท้าย" className="rounded-lg px-2 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>นำเงินนี้ไปฝาก/ลงทุนที่บัญชีไหน (ไม่บังคับ)</label>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }}>
+          <option value="">— ไม่ระบุ (แค่บันทึกว่าเก็บค่าเช่าได้) —</option>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+        <p className="text-[10px] mb-2" style={{ color: SLATE }}>💡 ถ้าระบุบัญชีไว้ ระบบจะสร้างรายการ "เงินเข้า" ให้อัตโนมัติในบัญชีนั้นเลย</p>
+        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">+ บันทึกงวดนี้</button>
+      </div>
+
+      <label className="flex items-center gap-2 mt-3 text-xs p-2.5 rounded-xl" style={{ border: `1px dashed ${BRASS}`, color: INK }}>
+        <input type="checkbox" checked={!!pay.manualConfirm} onChange={(e) => onSetManualConfirm(p.id, ym, e.target.checked)} />
+        ติ๊กยืนยันว่าเดือนนี้ "จ่ายครบแล้ว" ด้วยตัวเอง (เผื่อกรณีพิเศษ)
+      </label>
+    </div>
+  );
+}
+
 
 function PropertyInfoSection({ property: p, onUpdate, googleConnected, onAddToCalendar }) {
   const [syncing, setSyncing] = useState(false);
@@ -3530,6 +3706,7 @@ function PropertyInfoSection({ property: p, onUpdate, googleConnected, onAddToCa
         <div><label className="text-[10px]" style={{ color: SLATE }}>เงินประกัน</label><NumInput value={p.depositAmount} onChange={(v) => onUpdate(p.id, { depositAmount: v })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
         <div><label className="text-[10px]" style={{ color: SLATE }}>วันเริ่มสัญญา</label><input type="date" value={p.contractStartDate || ''} onChange={(e) => onUpdate(p.id, { contractStartDate: e.target.value })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
         <div><label className="text-[10px]" style={{ color: SLATE }}>วันครบสัญญา</label><input type="date" value={p.contractEndDate || ''} onChange={(e) => onUpdate(p.id, { contractEndDate: e.target.value })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+        <div><label className="text-[10px]" style={{ color: SLATE }}>วันครบกำหนดจ่ายค่าเช่า (ทุกวันที่)</label><NumInput value={p.rentDueDay || 5} onChange={(v) => onUpdate(p.id, { rentDueDay: v })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
         <div className="col-span-2"><label className="text-[10px]" style={{ color: SLATE }}>ราคาซื้อ</label><NumInput value={p.purchasePrice} onChange={(v) => onUpdate(p.id, { purchasePrice: v })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
       </div>
       <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>ผู้เช่า</p>
@@ -3645,10 +3822,13 @@ function PropertyROISection({ property: p }) {
   );
 }
 
-function PropertyDocsSection({ property: p, onAddPhoto, onRemovePhoto }) {
+function PropertyDocsSection({ property: p, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const docFileRef = useRef(null);
+  const [docUploading, setDocUploading] = useState(false);
+  const [docError, setDocError] = useState('');
   async function handleFile(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -3656,13 +3836,19 @@ function PropertyDocsSection({ property: p, onAddPhoto, onRemovePhoto }) {
     try { await onAddPhoto(p.id, file); } catch (err) { setError('อัพโหลดไม่สำเร็จ: ' + err.message); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
   }
+  async function handleDocFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file || !onAddDocument) return;
+    setDocUploading(true); setDocError('');
+    try { await onAddDocument(p.id, file); } catch (err) { setDocError('อัพโหลดไม่สำเร็จ: ' + err.message); }
+    finally { setDocUploading(false); if (docFileRef.current) docFileRef.current.value = ''; }
+  }
   return (
     <div>
       <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
       <button onClick={() => fileRef.current && fileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 mb-3">{uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color="#FBBF24" />}{uploading ? 'กำลังอัพโหลด...' : 'ถ่ายรูปห้อง/มิเตอร์'}</button>
       {error && <p className="text-xs mb-3" style={{ color: BAD }}>{error}</p>}
-      <p className="text-[11px] mb-3" style={{ color: SLATE }}>เก็บรูปห้อง/มิเตอร์ได้ครับ ส่วนสัญญาเช่า/โฉนด (PDF) จะเพิ่มในเฟสถัดไป</p>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 mb-4">
         {(p.photos || []).map((ph) => (
           <div key={ph.id} className="relative">
             <img src={ph.url} className="w-full h-24 object-cover rounded-lg" alt="" />
@@ -3670,6 +3856,18 @@ function PropertyDocsSection({ property: p, onAddPhoto, onRemovePhoto }) {
           </div>
         ))}
       </div>
+
+      <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>เอกสารสัญญา/โฉนด (PDF)</p>
+      <input ref={docFileRef} type="file" accept="application/pdf" onChange={handleDocFile} className="hidden" />
+      <button onClick={() => docFileRef.current && docFileRef.current.click()} style={{ border: `1px dashed ${BRASS}`, color: BRASS }} className="w-full rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 mb-3">{docUploading ? <Loader2 size={14} className="animate-spin" /> : <PlusCircle size={14} />}{docUploading ? 'กำลังอัพโหลด...' : 'แนบไฟล์ PDF (สัญญาเช่า/โฉนด)'}</button>
+      {docError && <p className="text-xs mb-3" style={{ color: BAD }}>{docError}</p>}
+      {(p.documents || []).length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีเอกสารแนบไว้</p>}
+      {(p.documents || []).map((doc) => (
+        <a key={doc.id} href={doc.url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ border: `1px solid ${BORDER}` }}>
+          <div className="flex items-center gap-2 flex-1 min-w-0"><ClipboardList size={16} color={BRASS} style={{ flexShrink: 0 }} /><div className="min-w-0"><p className="text-sm truncate" style={{ color: INK }}>{doc.name}</p><p className="text-[11px]" style={{ color: SLATE }}>{doc.uploadedAt}</p></div></div>
+          <button onClick={(e) => { e.preventDefault(); onRemoveDocument(p.id, doc.id); }} style={{ flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
+        </a>
+      ))}
     </div>
   );
 }
@@ -4575,19 +4773,63 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
   }
 
   // ปุ่มแนบรูปเล็กๆ ใช้ร่วมกันได้ทุกหมวดในฟอร์มนี้ — 1 รูปต่อหมวด ผูกเข้ากับทุกรายการที่สร้างในหมวดนั้น
+  // เรียก AI อ่านภาพให้ตรงกับประเภทของหมวดนั้นๆ (ใช้ฟังก์ชัน scan ตัวเดียวกับที่ใช้ใน Tab เฉพาะทุกอัน)
+  async function scanForSection(key, file) {
+    if (key === 'appointment') return scanAppointmentSlip(file);
+    if (key === 'weight') return scanWeightScale(file);
+    if (key === 'medication') return scanMedicationLabel(file);
+    if (key === 'bloodTest') return scanMedicalResult(file, 'bloodTest');
+    if (key === 'imaging') return scanMedicalResult(file, 'imaging');
+    if (key === 'organExam') return scanMedicalResult(file, 'organExam');
+    if (key === 'expense') return scanPetExpenseReceipt(file, PET_EXPENSE_CATEGORIES);
+    return null;
+  }
+  // เอาผลที่ AI อ่านได้ไปกรอกลงฟอร์มของหมวดนั้น — หมวดเดี่ยว (นัดหมาย/น้ำหนัก) กรอกลงฟอร์มเดียว
+  // หมวดที่เพิ่มได้หลายรายการ (ยา/ผลเลือด/Imaging/อวัยวะ/ค่าใช้จ่าย) กรอกลงแถวล่าสุดที่เพิ่งเพิ่ม
+  function applyScanResult(key, result) {
+    if (!result) return;
+    if (key === 'appointment') { updateSingleSection('appointment', { date: result.date || sectionData.appointment?.date, purpose: result.purpose || sectionData.appointment?.purpose }); return; }
+    if (key === 'weight') { const w = Number(result.weight); if (w) updateSingleSection('weight', { weight: w }); return; }
+    const rows = sectionData[key] || [];
+    const idx = rows.length - 1;
+    if (idx < 0) return;
+    if (key === 'medication') updateRowInSection('medication', idx, { name: result.name || rows[idx].name, strength: result.strength || rows[idx].strength, dose: result.dose || rows[idx].dose, usage: result.usage || rows[idx].usage, timing: result.timing || rows[idx].timing });
+    else if (key === 'bloodTest') updateRowInSection('bloodTest', idx, { type: BLOOD_TEST_TYPES.includes(result.type) ? result.type : rows[idx].type, date: result.date || rows[idx].date, note: result.note || rows[idx].note });
+    else if (key === 'imaging') updateRowInSection('imaging', idx, { type: IMAGING_TYPES.includes(result.type) ? result.type : rows[idx].type, date: result.date || rows[idx].date, note: result.note || rows[idx].note });
+    else if (key === 'organExam') updateRowInSection('organExam', idx, { organ: ORGAN_TYPES.includes(result.type) ? result.type : rows[idx].organ, date: result.date || rows[idx].date, note: result.note || rows[idx].note });
+    else if (key === 'expense') updateRowInSection('expense', idx, { amount: Number(result.amount) || rows[idx].amount, category: PET_EXPENSE_CATEGORIES.includes(result.category) ? result.category : rows[idx].category, date: result.date || rows[idx].date });
+  }
+
   function SectionPhotoAttach({ sectionKey }) {
     const fileRef = useRef(null);
     const file = sectionPhotos[sectionKey];
+    const [scanning, setScanning] = useState(false);
+    const [scanError, setScanError] = useState('');
+    async function handleFile(e) {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      setSectionPhotos({ ...sectionPhotos, [sectionKey]: f });
+      setScanning(true); setScanError('');
+      try {
+        const result = await scanForSection(sectionKey, f);
+        applyScanResult(sectionKey, result);
+      } catch (err) { setScanError('AI อ่านภาพไม่สำเร็จ กรอกเองแทนได้ (รูปยังแนบไว้อยู่)'); }
+      finally { setScanning(false); if (fileRef.current) fileRef.current.value = ''; }
+    }
     return (
       <div className="mb-2">
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) setSectionPhotos({ ...sectionPhotos, [sectionKey]: f }); }} className="hidden" />
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
         {file ? (
-          <div className="flex items-center gap-2 text-xs" style={{ color: GOOD }}>
-            <CheckCircle2 size={13} /> แนบรูปแล้ว ({file.name.slice(0, 20)})
-            <button onClick={() => { const next = { ...sectionPhotos }; delete next[sectionKey]; setSectionPhotos(next); }} style={{ color: BAD }}>ลบ</button>
+          <div>
+            <div className="flex items-center gap-2 text-xs" style={{ color: scanning ? BRASS : GOOD }}>
+              {scanning ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+              {scanning ? 'AI กำลังอ่านรูปนี้ให้...' : 'แนบรูปแล้ว + กรอกให้อัตโนมัติ'} ({file.name.slice(0, 18)})
+              <button onClick={() => { const next = { ...sectionPhotos }; delete next[sectionKey]; setSectionPhotos(next); }} style={{ color: BAD }}>ลบ</button>
+            </div>
+            {scanError && <p className="text-[11px] mt-1" style={{ color: BAD }}>{scanError}</p>}
           </div>
         ) : (
-          <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><Camera size={13} /> แนบรูปประกอบ</button>
+          <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><Camera size={13} /> ถ่ายรูป ให้ AI อ่านและกรอกให้</button>
         )}
       </div>
     );
