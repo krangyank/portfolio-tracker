@@ -527,12 +527,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.uid]);
 
+  // กันเผื่อกรณีการเชื่อมต่อ Firestore ค้าง (เช่น เน็ตมีปัญหา) ไม่ให้แถบ "กำลังบันทึก" ค้างวนไม่จบไม่สิ้นโดยไม่บอกอะไรเลย
+  function withTimeout(promise, ms, label) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`หมดเวลารอ (เกิน ${Math.round(ms / 1000)} วิ) — เช็คสัญญาณอินเทอร์เน็ตแล้วลองใหม่: ${label}`)), ms)),
+    ]);
+  }
   // ทุกครั้งที่ persist/persistShared เขียนข้อมูล ให้ ref ตามทันเสมอ
   // ป้องกันงานเบื้องหลังที่ทำงานนาน (เช่น รีเฟรชราคาหุ้นทุกตัว, AI insight) เขียนทับข้อมูลใหม่ที่ผู้ใช้เพิ่งบันทึกไประหว่างที่มันทำงานอยู่
   function persist(next) {
     setState(next); stateRef.current = next;
     setPendingWrites((n) => n + 1);
-    setDoc(docRef, next)
+    withTimeout(setDoc(docRef, next), 15000, 'บันทึกข้อมูล')
       .catch((e) => { console.error('save failed', e); setSaveError(`บันทึกไม่สำเร็จ: ${e.message || e.code || e}`); })
       .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
   }
@@ -544,14 +551,14 @@ export default function App() {
     const next = { ...base, [fieldName]: [newItem, ...((base && base[fieldName]) || [])] };
     setState(next); stateRef.current = next;
     setPendingWrites((n) => n + 1);
-    updateDoc(docRef, { [fieldName]: arrayUnion(newItem) })
+    withTimeout(updateDoc(docRef, { [fieldName]: arrayUnion(newItem) }), 15000, fieldName)
       .catch((e) => { console.error('append save failed', e); setSaveError(`บันทึกไม่สำเร็จ (${fieldName}): ${e.message || e.code || e}`); })
       .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
   }
   function persistShared(next) {
     setSharedState(next); sharedStateRef.current = next;
     setPendingWrites((n) => n + 1);
-    setDoc(sharedDocRef, next)
+    withTimeout(setDoc(sharedDocRef, next), 15000, 'ข้อมูลแชร์')
       .catch((e) => { console.error('shared save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ข้อมูลแชร์): ${e.message || e.code || e}`); })
       .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
   }
