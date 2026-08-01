@@ -13,16 +13,16 @@ import { db, auth, storage } from './firebase.js';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import AuthGate from './Login.jsx';
 
-const INK = '#0F172A';
-const PAPER = '#F5F7FA';
-const PAPER_DIM = '#EEF2F6';
-const BRASS = '#0F172A';
-const SLATE = '#64748B';
-const GOOD = '#16A34A';
-const BAD = '#DC2626';
+const INK = '#2B2118';
+const PAPER = '#FFF8F0';
+const PAPER_DIM = '#FBF3E9';
+const BRASS = '#F2761E';
+const SLATE = '#9A8A78';
+const GOOD = '#2E9E5B';
+const BAD = '#E1483F';
 const WARN = '#D97706';
-const BORDER = '#E7EAF0';
-const CARD_RADIUS = 18;
+const BORDER = '#F1E6D8';
+const CARD_RADIUS = 20;
 
 const CATEGORY_META = {
   cooperative: { label: 'สหกรณ์ออมทรัพย์ครู', color: '#B8874B' },
@@ -39,6 +39,16 @@ const HOLDING_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const RISK_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const INTEREST_CATEGORIES = ['cooperative', 'bank_savings'];
 const PIE_COLORS = ['#0F172A', '#16A34A', '#D97706', '#2563EB', '#7A5230', '#5C6F8A'];
+const TAB_MASCOTS = {
+  dashboard: { emoji: '💰', bg: '#F2761E33' },
+  accounts: { emoji: '🏦', bg: '#2563EB33' },
+  savings: { emoji: '🐷', bg: '#F2761E33' },
+  income: { emoji: '📈', bg: '#2E9E5B33' },
+  expenses: { emoji: '🧾', bg: '#E1483F33' },
+  pets: { emoji: '🐶', bg: '#8B5CF633' },
+  realestate: { emoji: '🏠', bg: '#0FA3A333' },
+  reports: { emoji: '📊', bg: '#2563EB33' },
+};
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -874,6 +884,7 @@ export default function App() {
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK }} className="pb-24">
       <div style={{ background: INK }} className="px-5 pt-8 pb-6 text-white relative overflow-hidden">
         <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid #FFFFFF22`, pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', right: 16, top: 58, width: 46, height: 46, borderRadius: '50%', background: (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>{(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).emoji}</div>
         <div className="flex justify-between items-start">
           <div><p className="text-xs tracking-widest" style={{ color: '#94A3B8' }}>สมุดบัญชีการลงทุน</p><h1 className="text-3xl mt-1 font-semibold">สินทรัพย์สุทธิ</h1></div>
           <div className="flex gap-2">
@@ -907,7 +918,7 @@ export default function App() {
           catSetValue={catSetValue} catUsValue={catUsValue} catFundValue={catFundValue} catCoopValue={catCoopValue}
           catRentThisMonth={catRentThisMonth} catRentCollected={catRentCollected} catPetExpenseTotal={catPetExpenseTotal}
           catExpenseThisMonth={catExpenseThisMonth} catSavingsThisMonth={catSavingsThisMonth}
-          properties={properties} dogs={dogs} />
+          properties={properties} dogs={dogs} showAmounts={showAmounts} />
       )}
       {tab === 'accounts' && (
         <AccountsTab accounts={accounts} onUpdate={updateAccount} onAdd={addAccount} onRemove={removeAccount} costBasisByAccount={costBasisByAccount}
@@ -924,7 +935,7 @@ export default function App() {
           onAddMedication={addMedication} onUpdateMedication={updateMedication} onLogFleaTick={logFleaTick} onUpdateFleaTickInfo={updateFleaTickInfo}
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
-          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} medicationList={medicationList} onAddMedicationPreset={addMedicationPreset} onAddGenericCalendarEvent={addPropertyEventToCalendar} onAddMedicalPhoto={addMedicalPhoto} onRemoveMedicalPhoto={removeMedicalPhoto} onUploadRecordPhoto={uploadDogRecordPhoto} />
+          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} medicationList={medicationList} onAddMedicationPreset={addMedicationPreset} onAddGenericCalendarEvent={addPropertyEventToCalendar} onAddMedicalPhoto={addMedicalPhoto} onRemoveMedicalPhoto={removeMedicalPhoto} onUploadRecordPhoto={uploadDogRecordPhoto} onAddPersonalExpense={addExpense} expenseCategories={expenseCategories} />
       )}
       {tab === 'realestate' && (
         <RealEstateTab properties={properties} onUpdate={updateProperty} onAdd={addProperty} onRemove={removeProperty}
@@ -1095,7 +1106,7 @@ function InsightRow({ tone, text, onClick }) {
   return <div className="flex items-start gap-2 mb-2">{content}</div>;
 }
 
-function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights, dailyInsight, onRunDailyInsight, onNavigateTab, monthChange, yearChange, sinceStartChange, catSetValue, catUsValue, catFundValue, catCoopValue, catRentThisMonth, catRentCollected, catPetExpenseTotal, catExpenseThisMonth, catSavingsThisMonth, properties, dogs }) {
+function Dashboard({ categoryBreakdown, monthlyIncome, passiveIncome, activeIncome, investedThisMonth, savingsRate, targetDate, onChangeTarget, goalNetWorth, onChangeGoal, requiredDaily, avgFx, totalNetWorth, contributions, daysLeft, onRefreshFx, insights, dailyInsight, onRunDailyInsight, onNavigateTab, monthChange, yearChange, sinceStartChange, catSetValue, catUsValue, catFundValue, catCoopValue, catRentThisMonth, catRentCollected, catPetExpenseTotal, catExpenseThisMonth, catSavingsThisMonth, properties, dogs, showAmounts }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiText, setAiText] = useState('');
@@ -1155,19 +1166,19 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
     <div className="px-5 pt-5">
       <Card>
         <p className="text-xs mb-1" style={{ color: SLATE }}>สินทรัพย์สุทธิ (Net Worth)</p>
-        <p className="text-3xl font-bold mb-3" style={{ color: INK }}>฿{fmt(totalNetWorth)}</p>
+        <p className="text-3xl font-bold mb-3" style={{ color: INK }}>{showAmounts ? `฿${fmt(totalNetWorth)}` : '฿xxx,xxx'}</p>
         <div className="grid grid-cols-3 gap-2">
           <div style={{ background: PAPER_DIM }} className="rounded-xl p-2.5 text-center">
             <p className="text-[10px] mb-1" style={{ color: SLATE }}>เดือนนี้</p>
-            {monthChange !== null ? <p className="text-xs font-bold" style={{ color: monthChange >= 0 ? GOOD : BAD }}>{monthChange >= 0 ? '+' : ''}฿{fmt(monthChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
+            {!showAmounts ? <p className="text-xs font-bold" style={{ color: SLATE }}>฿xxx</p> : monthChange !== null ? <p className="text-xs font-bold" style={{ color: monthChange >= 0 ? GOOD : BAD }}>{monthChange >= 0 ? '+' : ''}฿{fmt(monthChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
           </div>
           <div style={{ background: PAPER_DIM }} className="rounded-xl p-2.5 text-center">
             <p className="text-[10px] mb-1" style={{ color: SLATE }}>ปีนี้</p>
-            {yearChange !== null ? <p className="text-xs font-bold" style={{ color: yearChange >= 0 ? GOOD : BAD }}>{yearChange >= 0 ? '+' : ''}฿{fmt(yearChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
+            {!showAmounts ? <p className="text-xs font-bold" style={{ color: SLATE }}>฿xxx</p> : yearChange !== null ? <p className="text-xs font-bold" style={{ color: yearChange >= 0 ? GOOD : BAD }}>{yearChange >= 0 ? '+' : ''}฿{fmt(yearChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
           </div>
           <div style={{ background: PAPER_DIM }} className="rounded-xl p-2.5 text-center">
             <p className="text-[10px] mb-1" style={{ color: SLATE }}>ตั้งแต่เริ่มต้น</p>
-            {sinceStartChange !== null ? <p className="text-xs font-bold" style={{ color: sinceStartChange >= 0 ? GOOD : BAD }}>{sinceStartChange >= 0 ? '+' : ''}฿{fmt(sinceStartChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
+            {!showAmounts ? <p className="text-xs font-bold" style={{ color: SLATE }}>฿xxx</p> : sinceStartChange !== null ? <p className="text-xs font-bold" style={{ color: sinceStartChange >= 0 ? GOOD : BAD }}>{sinceStartChange >= 0 ? '+' : ''}฿{fmt(sinceStartChange)}</p> : <p className="text-xs" style={{ color: SLATE }}>เริ่มเก็บข้อมูล</p>}
           </div>
         </div>
       </Card>
@@ -2799,7 +2810,7 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto }) {
+function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
   const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
@@ -2897,7 +2908,7 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} />}
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} />}
-          {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} />}
+          {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} />}
         </>
       )}
     </div>
@@ -4077,11 +4088,12 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
   );
 }
 
-function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, hospitalList, onAddHospital }) {
+function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, hospitalList, onAddHospital, onAddPersonalExpense, expenseCategories }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(PET_EXPENSE_CATEGORIES[0]);
   const [hospital, setHospital] = useState('');
   const [note, setNote] = useState('');
+  const [alsoPersonal, setAlsoPersonal] = useState(false);
   const [periodType, setPeriodType] = useState('month');
   const [editingExp, setEditingExp] = useState(null);
   const receiptFileRef = useRef(null);
@@ -4096,7 +4108,25 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
   const periodExpenses = expenses.filter((e) => keyFn(e.date) === selPeriod);
   const periodTotal = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 
-  function submit() { if (!amount) return; onAddDogExpense(dog.id, { date: new Date().toISOString().slice(0, 10), amount, category, hospital, note }); setAmount(0); setNote(''); }
+  function mapToPersonalCategory(petCategory) {
+    const cats = expenseCategories || [];
+    if (cats.includes(petCategory)) return petCategory;
+    if (cats.includes('อื่นๆ')) return 'อื่นๆ';
+    return cats[0] || 'อื่นๆ';
+  }
+  function logToPersonalIfChecked(entryDate, entryAmount, entryCategory, entryNote) {
+    if (alsoPersonal && onAddPersonalExpense) {
+      onAddPersonalExpense({ date: entryDate, amount: entryAmount, category: mapToPersonalCategory(entryCategory), note: `${dog.name}${entryNote ? ' · ' + entryNote : ''}` });
+    }
+  }
+
+  function submit() {
+    if (!amount) return;
+    const date = new Date().toISOString().slice(0, 10);
+    onAddDogExpense(dog.id, { date, amount, category, hospital, note });
+    logToPersonalIfChecked(date, amount, category, note);
+    setAmount(0); setNote('');
+  }
 
   async function handleReceiptPhoto(e) {
     const file = e.target.files && e.target.files[0];
@@ -4107,7 +4137,10 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
       const amt = Number(result.amount);
       if (!amt) { setReceiptError('อ่านยอดเงินจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้'); return; }
       const cat = PET_EXPENSE_CATEGORIES.includes(result.category) ? result.category : 'อื่นๆ';
-      onAddDogExpense(dog.id, { date: result.date || new Date().toISOString().slice(0, 10), amount: amt, category: cat, hospital, note: result.note || (result.sourceType === 'transfer_slip' ? 'ถ่ายจากสลิปโอนเงิน' : 'ถ่ายจากใบเสร็จ') });
+      const entryDate = result.date || new Date().toISOString().slice(0, 10);
+      const entryNote = result.note || (result.sourceType === 'transfer_slip' ? 'ถ่ายจากสลิปโอนเงิน' : 'ถ่ายจากใบเสร็จ');
+      onAddDogExpense(dog.id, { date: entryDate, amount: amt, category: cat, hospital, note: entryNote });
+      logToPersonalIfChecked(entryDate, amt, cat, entryNote);
     } catch (err) { setReceiptError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setReceiptScanning(false); if (receiptFileRef.current) receiptFileRef.current.value = ''; }
   }
@@ -4135,7 +4168,11 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
             <button type="button" onClick={() => { if (hospital) onAddHospital(hospital); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
           </div>
         )}
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="โน้ต" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} />
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="โน้ต" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <label className="flex items-center gap-2 mb-3 text-xs" style={{ color: INK }}>
+          <input type="checkbox" checked={alsoPersonal} onChange={(e) => setAlsoPersonal(e.target.checked)} />
+          นับเป็นรายจ่ายประจำวันด้วย
+        </label>
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกค่าใช้จ่าย</button>
       </Card>
       <Card>
