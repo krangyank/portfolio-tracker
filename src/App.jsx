@@ -312,6 +312,7 @@ export default function App() {
   const [reconnecting, setReconnecting] = useState(false);
   const [showAmounts, setShowAmounts] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [pendingWrites, setPendingWrites] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -528,7 +529,13 @@ export default function App() {
 
   // ทุกครั้งที่ persist/persistShared เขียนข้อมูล ให้ ref ตามทันเสมอ
   // ป้องกันงานเบื้องหลังที่ทำงานนาน (เช่น รีเฟรชราคาหุ้นทุกตัว, AI insight) เขียนทับข้อมูลใหม่ที่ผู้ใช้เพิ่งบันทึกไประหว่างที่มันทำงานอยู่
-  function persist(next) { setState(next); stateRef.current = next; setDoc(docRef, next).catch((e) => { console.error('save failed', e); setSaveError(`บันทึกไม่สำเร็จ: ${e.message || e.code || e}`); }); }
+  function persist(next) {
+    setState(next); stateRef.current = next;
+    setPendingWrites((n) => n + 1);
+    setDoc(docRef, next)
+      .catch((e) => { console.error('save failed', e); setSaveError(`บันทึกไม่สำเร็จ: ${e.message || e.code || e}`); })
+      .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
+  }
   // สำคัญ: ใช้สำหรับรายการที่ "เพิ่มเข้าไปในลิสต์" บ่อยๆ เช่น เงินเข้า/รายจ่าย — เขียนแบบ arrayUnion ที่ Firestore
   // จะเติมเข้าไปในเอกสารจริงบนเซิร์ฟเวอร์เสมอ ไม่ว่า state ฝั่งเครื่องจะเก่าแค่ไหน (เช่น เปิดแอปค้างไว้นาน สลับแอปไปมา
   // หรือมีงานเบื้องหลังทำงานช้าอยู่) ป้องกันปัญหาข้อมูลหายที่เจอมาก่อนหน้านี้ได้แน่นอนกว่าการเขียนทับทั้งก้อนแบบเดิม
@@ -536,9 +543,18 @@ export default function App() {
     const base = stateRef.current || state;
     const next = { ...base, [fieldName]: [newItem, ...((base && base[fieldName]) || [])] };
     setState(next); stateRef.current = next;
-    updateDoc(docRef, { [fieldName]: arrayUnion(newItem) }).catch((e) => { console.error('append save failed', e); setSaveError(`บันทึกไม่สำเร็จ (${fieldName}): ${e.message || e.code || e}`); });
+    setPendingWrites((n) => n + 1);
+    updateDoc(docRef, { [fieldName]: arrayUnion(newItem) })
+      .catch((e) => { console.error('append save failed', e); setSaveError(`บันทึกไม่สำเร็จ (${fieldName}): ${e.message || e.code || e}`); })
+      .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
   }
-  function persistShared(next) { setSharedState(next); sharedStateRef.current = next; setDoc(sharedDocRef, next).catch((e) => { console.error('shared save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ข้อมูลแชร์): ${e.message || e.code || e}`); }); }
+  function persistShared(next) {
+    setSharedState(next); sharedStateRef.current = next;
+    setPendingWrites((n) => n + 1);
+    setDoc(sharedDocRef, next)
+      .catch((e) => { console.error('shared save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ข้อมูลแชร์): ${e.message || e.code || e}`); })
+      .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
+  }
   function refreshSharedData() { getDoc(sharedDocRef).then((snap) => { if (snap.exists()) { setSharedState(snap.data()); sharedStateRef.current = snap.data(); } }); }
 
   // ฟีเจอร์ GG: บัญชีที่แชร์กับภรรยา (WealthX ทั้งหมด + DIME กองทุน) รวมเข้ากับบัญชีส่วนตัว พร้อมป้าย _shared
@@ -630,6 +646,13 @@ export default function App() {
   }, [state, totalNetWorth, passiveIncome, activeIncome]);
 
   const dailyPriceRefreshTriggered = useRef(false);
+  useEffect(() => {
+    function handleBeforeUnload(e) {
+      if (pendingWrites > 0) { e.preventDefault(); e.returnValue = ''; return ''; }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [pendingWrites]);
   useEffect(() => {
     if (state && sharedState && !dailyPriceRefreshTriggered.current) {
       dailyPriceRefreshTriggered.current = true;
@@ -1012,6 +1035,12 @@ export default function App() {
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span className="flex-1">⚠️ {saveError}</span>
           <button onClick={() => setSaveError('')} style={{ flexShrink: 0 }}>✕</button>
+        </div>
+      )}
+      {!saveError && pendingWrites > 0 && (
+        <div style={{ background: GOOD, position: 'sticky', top: 0, zIndex: 100 }} className="px-4 py-2 text-white text-xs flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin" style={{ flexShrink: 0 }} />
+          <span>กำลังบันทึกข้อมูล... รอสักครู่ก่อนปิดแอปนะครับ</span>
         </div>
       )}
       <div style={{ background: INK }} className="px-5 pt-8 pb-6 text-white relative overflow-hidden">
