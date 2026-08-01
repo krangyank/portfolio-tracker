@@ -41,13 +41,13 @@ const INTEREST_CATEGORIES = ['cooperative', 'bank_savings'];
 const PIE_COLORS = ['#0F172A', '#16A34A', '#D97706', '#2563EB', '#7A5230', '#5C6F8A'];
 const TAB_MASCOTS = {
   dashboard: { emoji: '💰', bg: '#FDE6D3' },
-  accounts: { emoji: '🏦', bg: '#DCE8FE' },
+  accounts: { emoji: '🪙', bg: '#DCE8FE' },
   savings: { emoji: '🐷', bg: '#FDE6D3' },
-  income: { emoji: '📈', bg: '#DCF3E4' },
-  expenses: { emoji: '🧾', bg: '#FBE3E1' },
+  income: { emoji: '🌱', bg: '#DCF3E4' },
+  expenses: { emoji: '🛍️', bg: '#FBE3E1' },
   pets: { emoji: '🐶', bg: '#EFE7FE' },
-  realestate: { emoji: '🏠', bg: '#DDF4F4' },
-  reports: { emoji: '📊', bg: '#DCE8FE' },
+  realestate: { emoji: '🏡', bg: '#DDF4F4' },
+  reports: { emoji: '🦉', bg: '#DCE8FE' },
 };
 
 const SOURCES = [
@@ -804,7 +804,9 @@ export default function App() {
   }
   function addWeight(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
-    updateDog(dogId, { weights: [{ id: uid(), ...entry }, ...(d.weights || [])] });
+    const id = uid();
+    updateDog(dogId, { weights: [{ id, ...entry }, ...(d.weights || [])] });
+    return id;
   }
   function removeWeight(dogId, wid) {
     const d = dogs.find((x) => x.id === dogId);
@@ -856,7 +858,9 @@ export default function App() {
   }
   function addBloodTest(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
-    updateDog(dogId, { bloodTests: [{ id: uid(), ...entry }, ...(d.bloodTests || [])] });
+    const id = uid();
+    updateDog(dogId, { bloodTests: [{ id, ...entry }, ...(d.bloodTests || [])] });
+    return id;
   }
   function updateBloodTest(dogId, id, patch) {
     const d = dogs.find((x) => x.id === dogId);
@@ -864,7 +868,9 @@ export default function App() {
   }
   function addOrganExam(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
-    updateDog(dogId, { organExams: [{ id: uid(), ...entry }, ...(d.organExams || [])] });
+    const id = uid();
+    updateDog(dogId, { organExams: [{ id, ...entry }, ...(d.organExams || [])] });
+    return id;
   }
   function updateOrganExam(dogId, id, patch) {
     const d = dogs.find((x) => x.id === dogId);
@@ -872,7 +878,9 @@ export default function App() {
   }
   function addImaging(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
-    updateDog(dogId, { imaging: [{ id: uid(), ...entry }, ...(d.imaging || [])] });
+    const id = uid();
+    updateDog(dogId, { imaging: [{ id, ...entry }, ...(d.imaging || [])] });
+    return id;
   }
   function updateImaging(dogId, id, patch) {
     const d = dogs.find((x) => x.id === dogId);
@@ -880,7 +888,9 @@ export default function App() {
   }
   function addDogExpense(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
-    updateDog(dogId, { expenses: [{ id: uid(), ...entry }, ...(d.expenses || [])] });
+    const id = uid();
+    updateDog(dogId, { expenses: [{ id, ...entry }, ...(d.expenses || [])] });
+    return id;
   }
   function removeDogExpense(dogId, expId) {
     const d = dogs.find((x) => x.id === dogId);
@@ -975,7 +985,7 @@ export default function App() {
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK }} className="pb-24">
       <div style={{ background: INK }} className="px-5 pt-8 pb-6 text-white relative overflow-hidden">
         <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid #FFFFFF22`, pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', right: -10, top: 4, width: 92, height: 92, borderRadius: '50%', background: (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 46, border: '3px solid #FFFFFF33', boxShadow: '0 6px 16px rgba(0,0,0,0.25)' }}>{(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).emoji}</div>
+        <div style={{ position: 'absolute', right: 10, bottom: 10, width: 104, height: 104, borderRadius: '50%', background: (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 54, border: '3px solid #FFFFFF4D', boxShadow: '0 8px 20px rgba(0,0,0,0.3)', pointerEvents: 'none' }}>{(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).emoji}</div>
         <div className="flex justify-between items-start">
           <div><p className="text-xs tracking-widest" style={{ color: '#94A3B8' }}>สมุดบัญชีการลงทุน</p><h1 className="text-3xl mt-1 font-semibold">สินทรัพย์สุทธิ</h1></div>
           <div className="flex gap-2">
@@ -3190,7 +3200,7 @@ function PetsTab({ dogs, onUpdateDog, onAddWeight, onRemoveWeight, onUpdateWeigh
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onUpdateFleaTickInfo={onUpdateFleaTickInfo} googleConnected={googleConnected} onAddGenericCalendarEvent={onAddGenericCalendarEvent} />}
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} />}
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
-          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddVetVisit={onAddVetVisit} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} />}
+          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} />}
           {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} />}
         </>
@@ -4270,6 +4280,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
 
 const VET_RECORD_TYPES = [
   { type: 'appointments', label: 'นัดหมาย', getLabel: (r) => `${r.date}${r.hospital ? ' · ' + r.hospital : ''}${r.purpose ? ' · ' + r.purpose : ''}` },
+  { type: 'weights', label: 'น้ำหนัก', getLabel: (r) => `${r.date} · ${r.weight} กก.` },
   { type: 'bloodTests', label: 'ผลเลือด', getLabel: (r) => `${r.date} · ${r.type || 'ผลเลือด'}` },
   { type: 'organExams', label: 'ตรวจอวัยวะ', getLabel: (r) => `${r.date} · ${r.organ || 'อวัยวะ'}` },
   { type: 'imaging', label: 'Imaging', getLabel: (r) => `${r.date} · ${r.type || 'Imaging'}` },
@@ -4277,18 +4288,71 @@ const VET_RECORD_TYPES = [
   { type: 'expenses', label: 'ค่าใช้จ่าย', getLabel: (r) => `${r.date} · ${r.category || ''}${r.hospital ? ' · ' + r.hospital : ''} · ฿${fmt(r.amount)}` },
 ];
 
-function DogVetVisitsSection({ dog, hospitalList, onAddHospital, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit }) {
+const VISIT_SECTION_DEFS = [
+  { key: 'appointment', label: 'นัดหมาย', icon: '📅', field: 'appointments', multi: false },
+  { key: 'weight', label: 'ชั่งน้ำหนัก', icon: '⚖️', field: 'weights', multi: false },
+  { key: 'medication', label: 'ยา/ปรับยา', icon: '💊', field: 'medications', multi: true },
+  { key: 'bloodTest', label: 'ผลเลือด', icon: '🩸', field: 'bloodTests', multi: true },
+  { key: 'imaging', label: 'X-ray/CT/MRI/Ultrasound', icon: '🩻', field: 'imaging', multi: true },
+  { key: 'organExam', label: 'ตรวจอวัยวะ', icon: '🫁', field: 'organExams', multi: true },
+  { key: 'expense', label: 'ค่าใช้จ่าย', icon: '💰', field: 'expenses', multi: true },
+];
+function makeVisitSectionRow(key, form) {
+  const today = form.date;
+  if (key === 'appointment') return { date: today, time: '', hospital: form.hospital, doctor: '', purpose: form.reason || '', reminderDays: [7, 3, 1] };
+  if (key === 'weight') return { date: today, time: '', weight: 0, location: form.hospital, weigher: '', note: '' };
+  if (key === 'medication') return { name: '', strength: '', dose: '', usage: '', timing: '', startDate: today, startReason: form.reason || '', hospital: form.hospital, doctor: '', stopDate: '', stopReason: '' };
+  if (key === 'bloodTest') return { type: BLOOD_TEST_TYPES[0], date: today, note: '' };
+  if (key === 'imaging') return { type: IMAGING_TYPES[0], date: today, note: '' };
+  if (key === 'organExam') return { organ: ORGAN_TYPES[0], date: today, note: '' };
+  if (key === 'expense') return { date: today, amount: 0, category: PET_EXPENSE_CATEGORIES[0], hospital: form.hospital, note: '' };
+  return {};
+}
+
+function DogVetVisitsSection({ dog, hospitalList, onAddHospital, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit }) {
   const [selectedVisitId, setSelectedVisitId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hospital: '', reason: '', cost: 0 });
+  const [activeSections, setActiveSections] = useState([]); // array of VISIT_SECTION_DEFS keys
+  const [sectionData, setSectionData] = useState({}); // key -> object (single) or array of objects (multi)
   const visits = [...(dog.vetVisits || [])].sort((a, b) => b.date.localeCompare(a.date));
   const list = hospitalList || [];
   const selected = (dog.vetVisits || []).find((v) => v.id === selectedVisitId);
 
-  function submitAdd() {
+  function toggleSection(key) {
+    const def = VISIT_SECTION_DEFS.find((s) => s.key === key);
+    if (activeSections.includes(key)) {
+      setActiveSections(activeSections.filter((k) => k !== key));
+      const next = { ...sectionData }; delete next[key]; setSectionData(next);
+    } else {
+      setActiveSections([...activeSections, key]);
+      setSectionData({ ...sectionData, [key]: def.multi ? [makeVisitSectionRow(key, form)] : makeVisitSectionRow(key, form) });
+    }
+  }
+  function updateSingleSection(key, patch) { setSectionData({ ...sectionData, [key]: { ...sectionData[key], ...patch } }); }
+  function updateRowInSection(key, idx, patch) { setSectionData({ ...sectionData, [key]: sectionData[key].map((r, i) => (i === idx ? { ...r, ...patch } : r)) }); }
+  function addRowToSection(key) { setSectionData({ ...sectionData, [key]: [...sectionData[key], makeVisitSectionRow(key, form)] }); }
+  function removeRowFromSection(key, idx) {
+    const rows = sectionData[key].filter((_, i) => i !== idx);
+    if (rows.length === 0) { toggleSection(key); } else { setSectionData({ ...sectionData, [key]: rows }); }
+  }
+
+  function submitAll() {
     if (!form.date) return;
-    onAddVetVisit(dog.id, form);
+    const visitId = uid();
+    const linkedRecords = [];
+    const patch = {};
+    VISIT_SECTION_DEFS.forEach((def) => {
+      if (!activeSections.includes(def.key)) return;
+      const rows = def.multi ? sectionData[def.key] : [sectionData[def.key]];
+      const existing = dog[def.field] || [];
+      const newEntries = rows.map((row) => { const id = uid(); linkedRecords.push({ type: def.field, id }); return { id, ...row }; });
+      patch[def.field] = [...newEntries, ...existing];
+    });
+    patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, reason: form.reason, cost: form.cost, linkedRecords }, ...(dog.vetVisits || [])];
+    onUpdateDog(dog.id, patch);
     setForm({ date: new Date().toISOString().slice(0, 10), hospital: '', reason: '', cost: 0 });
+    setActiveSections([]); setSectionData({});
     setShowAddForm(false);
   }
 
@@ -4302,8 +4366,9 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, onAddVetVisit, 
   return (
     <div>
       {showAddForm ? (
+        <>
         <Card>
-          <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการไปหาหมอครั้งใหม่</p>
+          <p className="text-xs mb-2" style={{ color: SLATE }}>ข้อมูลพื้นฐาน</p>
           <label className="text-[10px]" style={{ color: SLATE }}>วันที่ไป</label>
           <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
           <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label>
@@ -4320,13 +4385,131 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, onAddVetVisit, 
           )}
           <label className="text-[10px]" style={{ color: SLATE }}>เหตุผลที่ไป</label>
           <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="เช่น ตรวจติดตามอาการต่อมไร้ท่อ" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
-          <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่ายครั้งนี้ (ไม่บังคับ)</label>
-          <NumInput value={form.cost} onChange={(v) => setForm({ ...form, cost: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
+          <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่ายรวมครั้งนี้ (ไม่บังคับ)</label>
+          <NumInput value={form.cost} onChange={(v) => setForm({ ...form, cost: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
+        </Card>
+
+        <Card>
+          <p className="text-xs mb-1" style={{ color: SLATE }}>มีอะไรเกิดขึ้นในการไปครั้งนี้บ้าง?</p>
+          <p className="text-[11px] mb-3" style={{ color: SLATE }}>แตะเพื่อเพิ่มรายละเอียด ระบบจะสร้างรายการให้อัตโนมัติในเมนูของมันเอง แล้วผูกกลับมาที่ครั้งนี้ให้เสร็จ ไม่ต้องไปกรอกซ้ำที่อื่น</p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {VISIT_SECTION_DEFS.map((def) => {
+              const active = activeSections.includes(def.key);
+              return (
+                <button key={def.key} onClick={() => toggleSection(def.key)} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : BRASS, border: active ? 'none' : `1.5px dashed ${BRASS}` }} className="rounded-full px-3 py-2 text-xs font-semibold">
+                  {def.icon} {def.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {activeSections.includes('appointment') && (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
+              <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>📅 นัดหมาย</span><button onClick={() => toggleSection('appointment')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-[10px]" style={{ color: SLATE }}>วันนัดครั้งถัดไป</label><input type="date" value={sectionData.appointment?.date || ''} onChange={(e) => updateSingleSection('appointment', { date: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+                <div><label className="text-[10px]" style={{ color: SLATE }}>วัตถุประสงค์</label><input value={sectionData.appointment?.purpose || ''} onChange={(e) => updateSingleSection('appointment', { purpose: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+              </div>
+            </div>
+          )}
+
+          {activeSections.includes('weight') && (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
+              <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>⚖️ น้ำหนักตัว</span><button onClick={() => toggleSection('weight')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-[10px]" style={{ color: SLATE }}>น้ำหนัก (กก.)</label><NumInput value={sectionData.weight?.weight} onChange={(v) => updateSingleSection('weight', { weight: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+                <div><label className="text-[10px]" style={{ color: SLATE }}>ชั่งโดย</label><input value={sectionData.weight?.weigher || ''} onChange={(e) => updateSingleSection('weight', { weigher: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+              </div>
+            </div>
+          )}
+
+          {activeSections.includes('medication') && (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
+              <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>💊 ยา/ปรับยา</span><button onClick={() => toggleSection('medication')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              {(sectionData.medication || []).map((row, idx) => (
+                <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
+                  <div className="flex justify-between items-center mb-1"><p className="text-[11px] font-semibold" style={{ color: SLATE }}>ยาตัวที่ {idx + 1}</p>{(sectionData.medication || []).length > 1 && <button onClick={() => removeRowFromSection('medication', idx)} className="text-[11px]" style={{ color: BAD }}>ลบ</button>}</div>
+                  <input value={row.name} onChange={(e) => updateRowInSection('medication', idx, { name: e.target.value })} placeholder="ชื่อยา" className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={row.dose} onChange={(e) => updateRowInSection('medication', idx, { dose: e.target.value })} placeholder="ขนาดยา/จำนวน" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                    <input value={row.usage} onChange={(e) => updateRowInSection('medication', idx, { usage: e.target.value })} placeholder="วิธีใช้" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                  </div>
+                </div>
+              ))}
+              <button onClick={() => addRowToSection('medication')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มยาอีกตัว</button>
+            </div>
+          )}
+
+          {activeSections.includes('bloodTest') && (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
+              <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>🩸 ผลเลือด</span><button onClick={() => toggleSection('bloodTest')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              {(sectionData.bloodTest || []).map((row, idx) => (
+                <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
+                  <div className="flex justify-between items-center mb-1">{(sectionData.bloodTest || []).length > 1 && <button onClick={() => removeRowFromSection('bloodTest', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
+                  <select value={row.type} onChange={(e) => updateRowInSection('bloodTest', idx, { type: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }}>{BLOOD_TEST_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+                  <textarea value={row.note} onChange={(e) => updateRowInSection('bloodTest', idx, { note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                </div>
+              ))}
+              <button onClick={() => addRowToSection('bloodTest')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มผลเลือดอีกรายการ</button>
+            </div>
+          )}
+
+          {activeSections.includes('imaging') && (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
+              <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>🩻 X-ray/CT/MRI/Ultrasound</span><button onClick={() => toggleSection('imaging')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              {(sectionData.imaging || []).map((row, idx) => (
+                <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
+                  <div className="flex justify-between items-center mb-1">{(sectionData.imaging || []).length > 1 && <button onClick={() => removeRowFromSection('imaging', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
+                  <select value={row.type} onChange={(e) => updateRowInSection('imaging', idx, { type: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }}>{IMAGING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+                  <textarea value={row.note} onChange={(e) => updateRowInSection('imaging', idx, { note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                </div>
+              ))}
+              <button onClick={() => addRowToSection('imaging')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มผล Imaging อีกรายการ</button>
+            </div>
+          )}
+
+          {activeSections.includes('organExam') && (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
+              <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>🫁 ตรวจอวัยวะ</span><button onClick={() => toggleSection('organExam')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              {(sectionData.organExam || []).map((row, idx) => (
+                <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
+                  <div className="flex justify-between items-center mb-1">{(sectionData.organExam || []).length > 1 && <button onClick={() => removeRowFromSection('organExam', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
+                  <select value={row.organ} onChange={(e) => updateRowInSection('organExam', idx, { organ: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }}>{ORGAN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+                  <textarea value={row.note} onChange={(e) => updateRowInSection('organExam', idx, { note: e.target.value })} placeholder="ผลตรวจ/ลักษณะที่พบ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                </div>
+              ))}
+              <button onClick={() => addRowToSection('organExam')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มผลตรวจอวัยวะอีกรายการ</button>
+            </div>
+          )}
+
+          {activeSections.includes('expense') && (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
+              <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>💰 ค่าใช้จ่าย</span><button onClick={() => toggleSection('expense')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              {(sectionData.expense || []).map((row, idx) => (
+                <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
+                  <div className="flex justify-between items-center mb-1">{(sectionData.expense || []).length > 1 && <button onClick={() => removeRowFromSection('expense', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <NumInput value={row.amount} onChange={(v) => updateRowInSection('expense', idx, { amount: v })} placeholder="จำนวนเงิน" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                    <select value={row.category} onChange={(e) => updateRowInSection('expense', idx, { category: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }}>{PET_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+                  </div>
+                </div>
+              ))}
+              <button onClick={() => addRowToSection('expense')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มรายการค่าใช้จ่ายอีกรายการ</button>
+            </div>
+          )}
+
+          {activeSections.length > 0 && (
+            <div style={{ background: PAPER_DIM }} className="rounded-lg p-2.5 mb-3">
+              <p className="text-[11px]" style={{ color: INK }}>กดบันทึกแล้วระบบจะสร้างให้อัตโนมัติ: {activeSections.map((k) => VISIT_SECTION_DEFS.find((d) => d.key === k)).map((def) => `${def.multi ? (sectionData[def.key] || []).length : 1} ${def.label}`).join(' · ')} — ทั้งหมดผูกกับการไปหาหมอครั้งนี้ให้เสร็จ</p>
+            </div>
+          )}
+
           <div className="flex gap-2">
-            <button onClick={submitAdd} style={{ background: INK }} className="text-white text-sm rounded-lg py-2 flex-1">บันทึก</button>
-            <button onClick={() => setShowAddForm(false)} style={{ border: '1px solid #E7EAF0' }} className="text-sm rounded-lg py-2 px-4">ยกเลิก</button>
+            <button onClick={submitAll} style={{ background: INK }} className="text-white text-sm rounded-lg py-2.5 flex-1 font-semibold">บันทึกทั้งหมด</button>
+            <button onClick={() => { setShowAddForm(false); setActiveSections([]); setSectionData({}); }} style={{ border: '1px solid #E7EAF0' }} className="text-sm rounded-lg py-2.5 px-4">ยกเลิก</button>
           </div>
         </Card>
+        </>
       ) : (
         <button onClick={() => setShowAddForm(true)} className="flex items-center justify-center gap-1 text-sm w-full py-2.5 rounded-lg mb-4" style={{ border: `1px dashed ${BRASS}`, color: BRASS }}><PlusCircle size={15} /> บันทึกการไปหาหมอครั้งใหม่</button>
       )}
