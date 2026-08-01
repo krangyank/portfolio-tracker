@@ -292,6 +292,25 @@ function computeInsights({ accounts, totalNetWorth, categoryBreakdown, requiredD
   return insights;
 }
 
+// เก็บ log ล่าสุดไว้ดูในแอปได้เลย โดยไม่ต้องต่อคอมพิวเตอร์ — สำหรับดีบักบนมือถือ
+const DEBUG_LOG_BUFFER = [];
+function pushDebugLog(level, args) {
+  try {
+    const text = args.map((a) => (a instanceof Error ? (a.message || String(a)) : (typeof a === 'object' ? JSON.stringify(a) : String(a)))).join(' ');
+    DEBUG_LOG_BUFFER.push({ t: new Date().toISOString().slice(11, 19), level, text });
+    if (DEBUG_LOG_BUFFER.length > 60) DEBUG_LOG_BUFFER.shift();
+  } catch (e) { /* ignore */ }
+}
+if (typeof window !== 'undefined' && !window.__debugLogPatched) {
+  window.__debugLogPatched = true;
+  const origError = console.error.bind(console);
+  const origWarn = console.warn.bind(console);
+  const origLog = console.log.bind(console);
+  console.error = (...args) => { pushDebugLog('error', args); origError(...args); };
+  console.warn = (...args) => { pushDebugLog('warn', args); origWarn(...args); };
+  console.log = (...args) => { pushDebugLog('log', args); origLog(...args); };
+}
+
 export default function App() {
   return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
 }function Tracker({ user }) {
@@ -313,6 +332,13 @@ export default function App() {
   const [showAmounts, setShowAmounts] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [pendingWrites, setPendingWrites] = useState(0);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugTick, setDebugTick] = useState(0);
+  useEffect(() => {
+    if (!debugOpen) return;
+    const id = setInterval(() => setDebugTick((t) => t + 1), 500);
+    return () => clearInterval(id);
+  }, [debugOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -539,9 +565,15 @@ export default function App() {
   function persist(next) {
     setState(next); stateRef.current = next;
     setPendingWrites((n) => n + 1);
-    withTimeout(setDoc(docRef, next), 15000, 'บันทึกข้อมูล')
-      .catch((e) => { console.error('save failed', e); setSaveError(`บันทึกไม่สำเร็จ: ${e.message || e.code || e}`); })
-      .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
+    try {
+      withTimeout(setDoc(docRef, next), 15000, 'บันทึกข้อมูล')
+        .catch((e) => { console.error('save failed', e); setSaveError(`บันทึกไม่สำเร็จ: ${e.message || e.code || e}`); })
+        .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
+    } catch (e) {
+      console.error('save failed (sync)', e);
+      setSaveError(`บันทึกไม่สำเร็จ (sync): ${e.message || e.code || e}`);
+      setPendingWrites((n) => Math.max(0, n - 1));
+    }
   }
   // สำคัญ: ใช้สำหรับรายการที่ "เพิ่มเข้าไปในลิสต์" บ่อยๆ เช่น เงินเข้า/รายจ่าย — เขียนแบบ arrayUnion ที่ Firestore
   // จะเติมเข้าไปในเอกสารจริงบนเซิร์ฟเวอร์เสมอ ไม่ว่า state ฝั่งเครื่องจะเก่าแค่ไหน (เช่น เปิดแอปค้างไว้นาน สลับแอปไปมา
@@ -551,16 +583,28 @@ export default function App() {
     const next = { ...base, [fieldName]: [newItem, ...((base && base[fieldName]) || [])] };
     setState(next); stateRef.current = next;
     setPendingWrites((n) => n + 1);
-    withTimeout(updateDoc(docRef, { [fieldName]: arrayUnion(newItem) }), 15000, fieldName)
-      .catch((e) => { console.error('append save failed', e); setSaveError(`บันทึกไม่สำเร็จ (${fieldName}): ${e.message || e.code || e}`); })
-      .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
+    try {
+      withTimeout(updateDoc(docRef, { [fieldName]: arrayUnion(newItem) }), 15000, fieldName)
+        .catch((e) => { console.error('append save failed', e); setSaveError(`บันทึกไม่สำเร็จ (${fieldName}): ${e.message || e.code || e}`); })
+        .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
+    } catch (e) {
+      console.error('append save failed (sync)', e);
+      setSaveError(`บันทึกไม่สำเร็จ (${fieldName}, sync): ${e.message || e.code || e}`);
+      setPendingWrites((n) => Math.max(0, n - 1));
+    }
   }
   function persistShared(next) {
     setSharedState(next); sharedStateRef.current = next;
     setPendingWrites((n) => n + 1);
-    withTimeout(setDoc(sharedDocRef, next), 15000, 'ข้อมูลแชร์')
-      .catch((e) => { console.error('shared save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ข้อมูลแชร์): ${e.message || e.code || e}`); })
-      .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
+    try {
+      withTimeout(setDoc(sharedDocRef, next), 15000, 'ข้อมูลแชร์')
+        .catch((e) => { console.error('shared save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ข้อมูลแชร์): ${e.message || e.code || e}`); })
+        .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
+    } catch (e) {
+      console.error('shared save failed (sync)', e);
+      setSaveError(`บันทึกไม่สำเร็จ (ข้อมูลแชร์, sync): ${e.message || e.code || e}`);
+      setPendingWrites((n) => Math.max(0, n - 1));
+    }
   }
   function refreshSharedData() { getDoc(sharedDocRef).then((snap) => { if (snap.exists()) { setSharedState(snap.data()); sharedStateRef.current = snap.data(); } }); }
 
@@ -651,6 +695,23 @@ export default function App() {
     persist({ ...state, history: next });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, totalNetWorth, passiveIncome, activeIncome]);
+
+  useEffect(() => {
+    function handleWindowError(e) {
+      console.error('window error', e.error || e.message);
+      setSaveError(`เกิดข้อผิดพลาดไม่คาดคิด: ${(e.error && e.error.message) || e.message}`);
+    }
+    function handleRejection(e) {
+      console.error('unhandled rejection', e.reason);
+      setSaveError(`เกิดข้อผิดพลาดไม่คาดคิด (promise): ${(e.reason && e.reason.message) || e.reason}`);
+    }
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, []);
 
   const dailyPriceRefreshTriggered = useRef(false);
   useEffect(() => {
@@ -1122,6 +1183,19 @@ export default function App() {
           </button>
         ))}
       </div>
+
+      <button onClick={() => setDebugOpen(!debugOpen)} style={{ position: 'fixed', left: 10, bottom: 74, background: '#7C3AED', zIndex: 200, width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' }}>
+        <span style={{ fontSize: 16 }}>🐞</span>
+      </button>
+      {debugOpen && (
+        <div style={{ position: 'fixed', left: 10, right: 10, bottom: 116, background: '#111', color: '#7CFC7C', zIndex: 200, borderRadius: 12, maxHeight: '50vh', overflowY: 'auto', fontFamily: 'monospace', fontSize: 10, padding: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+          <p style={{ color: 'white', marginBottom: 6 }}>pendingWrites: {pendingWrites} | saveError: {saveError ? 'YES' : 'no'}</p>
+          {[...DEBUG_LOG_BUFFER].reverse().map((l, i) => (
+            <p key={i} style={{ color: l.level === 'error' ? '#FF6B6B' : l.level === 'warn' ? '#FFD166' : '#7CFC7C', margin: '2px 0', wordBreak: 'break-all' }}>[{l.t}] {l.text}</p>
+          ))}
+          {DEBUG_LOG_BUFFER.length === 0 && <p style={{ color: '#888' }}>ยังไม่มี log</p>}
+        </div>
+      )}
     </div>
   );
 }
