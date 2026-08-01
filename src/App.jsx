@@ -578,7 +578,15 @@ export default function App() {
   // สำคัญ: ใช้สำหรับรายการที่ "เพิ่มเข้าไปในลิสต์" บ่อยๆ เช่น เงินเข้า/รายจ่าย — เขียนแบบ arrayUnion ที่ Firestore
   // จะเติมเข้าไปในเอกสารจริงบนเซิร์ฟเวอร์เสมอ ไม่ว่า state ฝั่งเครื่องจะเก่าแค่ไหน (เช่น เปิดแอปค้างไว้นาน สลับแอปไปมา
   // หรือมีงานเบื้องหลังทำงานช้าอยู่) ป้องกันปัญหาข้อมูลหายที่เจอมาก่อนหน้านี้ได้แน่นอนกว่าการเขียนทับทั้งก้อนแบบเดิม
-  function persistAppend(fieldName, newItem) {
+  // arrayUnion() ของ Firestore ไม่ยอมรับ field ที่เป็น undefined เลย (ต่างจาก setDoc ปกติที่จะข้ามให้เฉยๆ)
+  // ต้องตัดฟิลด์ที่เป็น undefined ออกก่อนเสมอ ไม่งั้นจะ throw ทันทีตอนเรียก (พังทุกครั้งที่ entry มีฟิลด์ undefined ปนมา)
+  function stripUndefined(obj) {
+    const out = {};
+    Object.keys(obj).forEach((k) => { if (obj[k] !== undefined) out[k] = obj[k]; });
+    return out;
+  }
+  function persistAppend(fieldName, rawItem) {
+    const newItem = stripUndefined(rawItem);
     const base = stateRef.current || state;
     const next = { ...base, [fieldName]: [newItem, ...((base && base[fieldName]) || [])] };
     setState(next); stateRef.current = next;
@@ -3803,7 +3811,7 @@ function DogProfileSection({ dog, onUpdateDog }) {
       <div className="mb-3"><label className="text-xs" style={{ color: SLATE }}>BCS (Body Condition Score)</label><NumInput value={dog.bcs} onChange={(v) => onUpdateDog(dog.id, { bcs: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
       {field('นิสัย', 'personality')}
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>โรคประจำตัว</label><textarea value={dog.chronicDiseases || ''} onChange={(e) => onUpdateDog(dog.id, { chronicDiseases: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
-      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>การแพ้ยา</label><textarea value={dog.drugAllergies || ''} onChange={(e) => onUpdateDog(dog.id, { drugAllergies: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
+      <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>การแพ้ยา</label><textarea value={dog.drugAllergies || ''} onChange={(e) => onUpdateDog(dog.id, {drugAllergies: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
     </Card>
   );
@@ -4403,8 +4411,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
         );
       })}
       {editingAppt && (
-        <EditModal title="แก้ไขนัดหมาย" onClose={() => setEditingAppt(null)}
-          initialValues={{ date: editingAppt.date, time: editingAppt.time || '', hospital: editingAppt.hospital || '', doctor: editingAppt.doctor || '', purpose: editingAppt.purpose || '' }}
+        <EditModal title="แก้ไขนัดหมาย" onClose={() => setEditingAppt(null)}initialValues={{ date: editingAppt.date, time: editingAppt.time || '', hospital: editingAppt.hospital || '', doctor: editingAppt.doctor || '', purpose: editingAppt.purpose || '' }}
           fields={[
             { key: 'date', label: 'วันที่', type: 'date' },
             { key: 'time', label: 'เวลา', type: 'time' },
@@ -4990,4 +4997,4 @@ function AllDogsReportSection({ dogs }) {
       </Card>
     </div>
   );
-}
+    }
