@@ -979,10 +979,21 @@ export default function App() {
     const nextRecords = records.map((r) => (r.id === recordId ? { ...r, photos: (r.photos || []).filter((p) => p.id !== photoId) } : r));
     updateDog(dogId, { [recordType]: nextRecords });
   }
+  // ถ้าวันที่ของรายการใหม่ตรงกับวันที่มีการไปหาหมอบันทึกไว้อยู่แล้ว ให้เชื่อมโยงอัตโนมัติ
+  // สำคัญ: ต้องรวมเข้ากับ patch เดิมเป็นก้อนเดียว แล้วเขียนทีเดียว ห้ามแยกเรียก updateDog ซ้ำสองครั้ง
+  // (ถ้าแยกเรียก จะเกิดปัญหาเดียวกับที่เจอตอนคัดลอกข้อมูลไปหลายตัว คือครั้งหลังจะเขียนทับครั้งแรก)
+  function withAutoLinkPatch(d, date, recordType, recordId, basePatch) {
+    const visit = (d.vetVisits || []).find((v) => v.date === date);
+    if (!visit) return basePatch;
+    const alreadyLinked = (visit.linkedRecords || []).some((r) => r.type === recordType && r.id === recordId);
+    if (alreadyLinked) return basePatch;
+    const nextVetVisits = d.vetVisits.map((v) => (v.id === visit.id ? { ...v, linkedRecords: [...(v.linkedRecords || []), { type: recordType, id: recordId }] } : v));
+    return { ...basePatch, vetVisits: nextVetVisits };
+  }
   function addWeight(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
-    updateDog(dogId, { weights: [{ id, ...entry }, ...(d.weights || [])] });
+    updateDog(dogId, withAutoLinkPatch(d, entry.date, 'weights', id, { weights: [{ id, ...entry }, ...(d.weights || [])] }));
     return id;
   }
   function removeWeight(dogId, wid) {
@@ -996,7 +1007,7 @@ export default function App() {
   function addMedication(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
-    updateDog(dogId, { medications: [{ id, ...entry }, ...(d.medications || [])] });
+    updateDog(dogId, withAutoLinkPatch(d, entry.startDate, 'medications', id, { medications: [{ id, ...entry }, ...(d.medications || [])] }));
     return id;
   }
   function updateMedication(dogId, medId, patch) {
@@ -1022,7 +1033,7 @@ export default function App() {
   function addAppointment(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
-    updateDog(dogId, { appointments: [{ id, ...entry }, ...(d.appointments || [])] });
+    updateDog(dogId, withAutoLinkPatch(d, entry.date, 'appointments', id, { appointments: [{ id, ...entry }, ...(d.appointments || [])] }));
     return id;
   }
   function removeAppointment(dogId, apptId) {
@@ -1036,7 +1047,7 @@ export default function App() {
   function addBloodTest(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
-    updateDog(dogId, { bloodTests: [{ id, ...entry }, ...(d.bloodTests || [])] });
+    updateDog(dogId, withAutoLinkPatch(d, entry.date, 'bloodTests', id, { bloodTests: [{ id, ...entry }, ...(d.bloodTests || [])] }));
     return id;
   }
   function updateBloodTest(dogId, id, patch) {
@@ -1046,7 +1057,7 @@ export default function App() {
   function addOrganExam(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
-    updateDog(dogId, { organExams: [{ id, ...entry }, ...(d.organExams || [])] });
+    updateDog(dogId, withAutoLinkPatch(d, entry.date, 'organExams', id, { organExams: [{ id, ...entry }, ...(d.organExams || [])] }));
     return id;
   }
   function updateOrganExam(dogId, id, patch) {
@@ -1056,7 +1067,7 @@ export default function App() {
   function addImaging(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
-    updateDog(dogId, { imaging: [{ id, ...entry }, ...(d.imaging || [])] });
+    updateDog(dogId, withAutoLinkPatch(d, entry.date, 'imaging', id, { imaging: [{ id, ...entry }, ...(d.imaging || [])] }));
     return id;
   }
   function updateImaging(dogId, id, patch) {
@@ -1066,7 +1077,7 @@ export default function App() {
   function addDogExpense(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
-    updateDog(dogId, { expenses: [{ id, ...entry }, ...(d.expenses || [])] });
+    updateDog(dogId, withAutoLinkPatch(d, entry.date, 'expenses', id, { expenses: [{ id, ...entry }, ...(d.expenses || [])] }));
     return id;
   }
   function removeDogExpense(dogId, expId) {
@@ -1302,9 +1313,20 @@ function EditButton({ onClick }) {
   return <button onClick={onClick} className="text-[11px] underline mr-2" style={{ color: BRASS }}>แก้ไข</button>;
 }
 
+function Lightbox({ url, onClose }) {
+  if (!url) return null;
+  return (
+    <div onClick={onClose} style={{ background: 'rgba(0,0,0,0.9)', position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,0.15)', borderRadius: '50%', padding: 8 }}><X size={22} color="white" /></button>
+      <img src={url} alt="" style={{ maxWidth: '94vw', maxHeight: '88vh', objectFit: 'contain', borderRadius: 8 }} onClick={(e) => e.stopPropagation()} />
+    </div>
+  );
+}
+
 function MedicalPhotoAttach({ record, onAddPhoto, onRemovePhoto }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
   async function handleFile(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -1322,12 +1344,13 @@ function MedicalPhotoAttach({ record, onAddPhoto, onRemovePhoto }) {
         <div className="grid grid-cols-4 gap-1.5 mt-2">
           {record.photos.map((ph) => (
             <div key={ph.id} className="relative">
-              <img src={ph.url} alt="" className="w-full h-14 object-cover rounded-lg" />
+              <button onClick={() => setLightboxUrl(ph.url)} className="w-full block"><img src={ph.url} alt="" className="w-full h-14 object-cover rounded-lg" /></button>
               <button onClick={() => onRemovePhoto(ph.id)} style={{ background: 'rgba(0,0,0,0.5)' }} className="absolute top-0.5 right-0.5 rounded-full p-0.5"><Trash2 size={10} color="white" /></button>
             </div>
           ))}
         </div>
       )}
+      <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </div>
   );
 }
@@ -3501,7 +3524,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onUpdateFleaTickInfo={onUpdateFleaTickInfo} googleConnected={googleConnected} onAddGenericCalendarEvent={onAddGenericCalendarEvent} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
-          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} weigherList={weigherList} medicationList={medicationList} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} />}
+          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} weigherList={weigherList} medicationList={medicationList} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
           {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} />}
         </>
@@ -3867,6 +3890,7 @@ function PropertyDocsSection({ property: p, onAddPhoto, onRemovePhoto, onAddDocu
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [lightboxUrl, setLightboxUrl] = useState(null);
   const docFileRef = useRef(null);
   const [docUploading, setDocUploading] = useState(false);
   const [docError, setDocError] = useState('');
@@ -3892,11 +3916,12 @@ function PropertyDocsSection({ property: p, onAddPhoto, onRemovePhoto, onAddDocu
       <div className="grid grid-cols-3 gap-2 mb-4">
         {(p.photos || []).map((ph) => (
           <div key={ph.id} className="relative">
-            <img src={ph.url} className="w-full h-24 object-cover rounded-lg" alt="" />
+            <button onClick={() => setLightboxUrl(ph.url)} className="w-full block"><img src={ph.url} className="w-full h-24 object-cover rounded-lg" alt="" /></button>
             <button onClick={() => onRemovePhoto(p.id, ph.id)} style={{ background: 'rgba(0,0,0,0.5)' }} className="absolute top-1 right-1 rounded-full p-1"><Trash2 size={12} color="white" /></button>
           </div>
         ))}
       </div>
+      <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
 
       <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>เอกสารสัญญา/โฉนด (PDF)</p>
       <input ref={docFileRef} type="file" accept="application/pdf" onChange={handleDocFile} className="hidden" />
@@ -4756,7 +4781,7 @@ function makeVisitSectionRow(key, form) {
   return {};
 }
 
-function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, medicationList, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto }) {
+function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, medicationList, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection }) {
   const [selectedVisitId, setSelectedVisitId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hospital: '', reason: '', cost: 0 });
@@ -4885,7 +4910,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
     <VetVisitDetail dog={dog} visit={selected} hospitalList={hospitalList} onAddHospital={onAddHospital}
       onBack={() => setSelectedVisitId(null)} onUpdateVetVisit={onUpdateVetVisit}
       onRemoveVetVisit={(id) => { onRemoveVetVisit(dog.id, id); setSelectedVisitId(null); }}
-      onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} />
+      onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} />
   );
 
   return (
@@ -5076,9 +5101,14 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
   );
 }
 
-function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, onBack, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit }) {
+const VET_RECORD_TAB_MAP = { appointments: 'appt', weights: 'weight', medications: 'meds', bloodTests: 'records', organExams: 'records', imaging: 'records', expenses: 'expenses' };
+
+function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, onBack, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection }) {
   const [showLinker, setShowLinker] = useState(false);
   const [linkType, setLinkType] = useState(VET_RECORD_TYPES[0].type);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
+  const photoFileRef = useRef(null);
   const list = hospitalList || [];
   const linkedRecords = visit.linkedRecords || [];
 
@@ -5086,6 +5116,20 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, onBack, onUpd
   function isLinked(type, id) { return linkedRecords.some((r) => r.type === type && r.id === id); }
   const linkableRecords = recordsOfType(linkType).filter((r) => !isLinked(linkType, r.id));
   const meta = VET_RECORD_TYPES.find((t) => t.type === linkType);
+
+  async function handleSymptomPhoto(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file || !onUploadRecordPhoto) return;
+    setPhotoUploading(true);
+    try {
+      const photo = await onUploadRecordPhoto(dog.id, 'vetVisits', file);
+      onUpdateVetVisit(dog.id, visit.id, { photos: [...(visit.photos || []), photo] });
+    } catch (err) { /* เงียบไว้ */ }
+    finally { setPhotoUploading(false); if (photoFileRef.current) photoFileRef.current.value = ''; }
+  }
+  function removeSymptomPhoto(photoId) {
+    onUpdateVetVisit(dog.id, visit.id, { photos: (visit.photos || []).filter((p) => p.id !== photoId) });
+  }
 
   return (
     <div>
@@ -5106,7 +5150,22 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, onBack, onUpd
         <label className="text-[10px]" style={{ color: SLATE }}>เหตุผลที่ไป</label>
         <input value={visit.reason || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { reason: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่าย</label>
-        <NumInput value={visit.cost} onChange={(v) => onUpdateVetVisit(dog.id, visit.id, { cost: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
+        <NumInput value={visit.cost} onChange={(v) => onUpdateVetVisit(dog.id, visit.id, { cost: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>รูปอาการ (เช่น ถ่ายแผล/จุดที่เป็น)</label>
+        <input ref={photoFileRef} type="file" accept="image/*" capture="environment" onChange={handleSymptomPhoto} className="hidden" />
+        <button onClick={() => photoFileRef.current && photoFileRef.current.click()} className="flex items-center gap-1 text-xs mt-1" style={{ color: BRASS }}>
+          {photoUploading ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />} {photoUploading ? 'กำลังอัพโหลด...' : 'แนบรูปอาการ'}
+        </button>
+        {(visit.photos || []).length > 0 && (
+          <div className="grid grid-cols-4 gap-1.5 mt-2">
+            {visit.photos.map((ph) => (
+              <div key={ph.id} className="relative">
+                <button onClick={() => setLightboxUrl(ph.url)} className="w-full block"><img src={ph.url} alt="" className="w-full h-16 object-cover rounded-lg" /></button>
+                <button onClick={() => removeSymptomPhoto(ph.id)} style={{ background: 'rgba(0,0,0,0.5)' }} className="absolute top-0.5 right-0.5 rounded-full p-0.5"><Trash2 size={10} color="white" /></button>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>รายการที่เชื่อมโยงไว้ ({linkedRecords.length})</p>
@@ -5115,11 +5174,15 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, onBack, onUpd
           const typeMeta = VET_RECORD_TYPES.find((t) => t.type === lr.type);
           const record = recordsOfType(lr.type).find((r) => r.id === lr.id);
           if (!record || !typeMeta) return null;
+          const targetTab = VET_RECORD_TAB_MAP[lr.type];
           return (
-            <div key={`${lr.type}-${lr.id}`} className="flex justify-between items-center py-2" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
+            <button key={`${lr.type}-${lr.id}`} onClick={() => targetTab && setSection && setSection(targetTab)} className="flex justify-between items-center py-2 w-full text-left" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
               <div><p className="text-[10px]" style={{ color: BRASS }}>{typeMeta.label}</p><p className="text-sm">{typeMeta.getLabel(record)}</p></div>
-              <button onClick={() => onUnlinkRecordFromVisit(dog.id, visit.id, lr.type, lr.id)}><Trash2 size={13} color={BAD} /></button>
-            </div>
+              <div className="flex items-center gap-2">
+                {targetTab && <ChevronRight size={14} color={SLATE} />}
+                <button onClick={(e) => { e.stopPropagation(); onUnlinkRecordFromVisit(dog.id, visit.id, lr.type, lr.id); }}><Trash2 size={13} color={BAD} /></button>
+              </div>
+            </button>
           );
         })}
         {showLinker ? (
@@ -5139,6 +5202,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, onBack, onUpd
           <button onClick={() => setShowLinker(true)} className="flex items-center gap-1 text-xs mt-2" style={{ color: BRASS }}><PlusCircle size={13} /> เชื่อมโยงรายการที่มีอยู่แล้ว</button>
         )}
       </Card>
+      <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </div>
   );
 }
