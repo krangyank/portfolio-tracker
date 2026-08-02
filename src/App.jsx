@@ -72,9 +72,9 @@ const prevMonthKey = () => { const d = new Date(); d.setMonth(d.getMonth() - 1);
 
 const DOG_NAMES = ['เป๋าตุง', 'ถุงทอง', 'ตุ้มแต้ม', 'ขวานฟ้า', 'คัตโตะ', 'โยกเยก', 'หนึ่งหนึ่ง', 'หญิงเล็ก'];
 const PET_EXPENSE_CATEGORIES = ['ค่าตรวจ', 'ค่ายา', 'อาหาร', 'อาหารเสริม', 'ของเล่น', 'อาบน้ำ', 'ตัดขน', 'ประกัน', 'เดินทาง', 'ฉุกเฉิน', 'อื่นๆ'];
-const BLOOD_TEST_TYPES = ['CBC', 'ค่าไต', 'ค่าตับ', 'ไขมันในเลือด', 'น้ำตาล', 'SDMA', 'Electrolyte', 'Cortisol', 'ACTH'];
-const ORGAN_TYPES = ['ไต', 'ตับ', 'ถุงน้ำดี', 'ม้าม', 'ต่อมหมวกไต', 'หัวใจ', 'ตา'];
-const IMAGING_TYPES = ['Ultrasound', 'X-ray', 'CT', 'MRI'];
+const BLOOD_TEST_TYPES = ['CBC', 'ค่าไต', 'ค่าตับ', 'ค่าตับอ่อน (Lipase/Amylase/cPLI)', 'ไขมันในเลือด', 'น้ำตาล', 'SDMA', 'Electrolyte', 'Cortisol', 'ACTH', 'T4/Thyroid', 'Coagulation (PT/PTT)', 'Urinalysis'];
+const ORGAN_TYPES = ['ไต', 'ตับ', 'ตับอ่อน', 'ถุงน้ำดี', 'ม้าม', 'ต่อมหมวกไต', 'หัวใจ', 'ตา'];
+const IMAGING_TYPES = ['Ultrasound', 'X-ray', 'CT', 'MRI', 'Echo (Echocardiogram)'];
 const makeDog = (name) => ({
   id: uid(), name, nickname: '', birthdate: '', sex: '', color: '', breed: '', microchip: '', breeder: '', personality: '', notes: '',
   bcs: 0, chronicDiseases: '', drugAllergies: '',
@@ -1305,6 +1305,26 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
         ))}
         <button onClick={() => onSave(values)} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm">บันทึกการแก้ไข</button>
       </div>
+    </div>
+  );
+}
+
+// dropdown ที่เลือกจากลิสต์ได้ หรือกด "อื่นๆ (พิมพ์เอง)" แล้วพิมพ์เองได้เลย — ใช้กับประเภทตรวจเลือด/อวัยวะ/Imaging
+function TypeSelectWithCustom({ options, value, onChange, className, style }) {
+  const [customMode, setCustomMode] = useState(!!value && !options.includes(value));
+  return (
+    <div>
+      <select
+        value={customMode ? '__custom__' : (options.includes(value) ? value : '')}
+        onChange={(e) => { if (e.target.value === '__custom__') setCustomMode(true); else { setCustomMode(false); onChange(e.target.value); } }}
+        className={className} style={style}>
+        <option value="">— เลือก —</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+      </select>
+      {customMode && (
+        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="พิมพ์ชื่อรายการที่ต้องการ" className={className} style={{ ...style, marginTop: 6 }} />
+      )}
     </div>
   );
 }
@@ -4163,7 +4183,7 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, ho
   return (
     <div>
       <Card>
-        <input ref={scaleFileRef} type="file" accept="image/*" capture="environment" onChange={handleScalePhoto} className="hidden" />
+        <input ref={scaleFileRef} type="file" accept="image/*" onChange={handleScalePhoto} className="hidden" />
         <button onClick={() => scaleFileRef.current && scaleFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-3">
           {scaleScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color={BRASS} />}{scaleScanning ? 'กำลังอ่านตาชั่ง...' : 'ถ่ายรูปตาชั่ง (บันทึกทันที)'}
         </button>
@@ -4772,7 +4792,7 @@ function VisitPhotoPicker({ files, onChange }) {
   }
   return (
     <div className="mt-1">
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePick} className="hidden" />
+      <input ref={fileRef} type="file" accept="image/*" onChange={handlePick} className="hidden" />
       <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><Camera size={13} /> แนบรูปอาการ</button>
       {previews.length > 0 && (
         <div className="grid grid-cols-4 gap-1.5 mt-2">
@@ -4926,18 +4946,18 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
     }
     return (
       <div className="mb-2">
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
+        <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
         {file ? (
-          <div>
+          <div style={{ border: `1px solid ${GOOD}`, borderRadius: 10 }} className="px-3 py-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: scanning ? BRASS : GOOD }}>
               {scanning ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-              {scanning ? 'AI กำลังอ่านรูปนี้ให้...' : 'แนบรูปแล้ว + กรอกให้อัตโนมัติ'} ({file.name.slice(0, 18)})
+              {scanning ? 'AI กำลังอ่าน...' : 'แนบรูปแล้ว'} ({file.name.slice(0, 14)})
               <button onClick={() => { const next = { ...sectionPhotos }; delete next[sectionKey]; setSectionPhotos(next); }} style={{ color: BAD }}>ลบ</button>
             </div>
             {scanError && <p className="text-[11px] mt-1" style={{ color: BAD }}>{scanError}</p>}
           </div>
         ) : (
-          <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><Camera size={13} /> ถ่ายรูป ให้ AI อ่านและกรอกให้</button>
+          <button onClick={() => fileRef.current && fileRef.current.click()} style={{ border: `1px solid ${BRASS}`, borderRadius: 10, color: BRASS }} className="flex items-center justify-center gap-1.5 text-xs w-full py-2.5"><Camera size={14} /> ถ่ายรูปให้ AI อ่าน</button>
         )}
       </div>
     );
@@ -5038,8 +5058,10 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
                   </div>
                 </div>
               ))}
-              <button onClick={() => addRowToSection('medication')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มยาอีกตัว</button>
-              <SectionPhotoAttach sectionKey="medication" />
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button onClick={() => addRowToSection('medication')} style={{ border: `1px solid ${BRASS}`, borderRadius: 10, color: BRASS }} className="flex items-center justify-center gap-1.5 text-xs py-2.5"><PlusCircle size={14} /> เพิ่มยาอีกตัว</button>
+                <SectionPhotoAttach sectionKey="medication" />
+              </div>
             </div>
           )}
 
@@ -5049,12 +5071,14 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
               {(sectionData.bloodTest || []).map((row, idx) => (
                 <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                   <div className="flex justify-between items-center mb-1">{(sectionData.bloodTest || []).length > 1 && <button onClick={() => removeRowFromSection('bloodTest', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
-                  <select value={row.type} onChange={(e) => updateRowInSection('bloodTest', idx, { type: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }}>{BLOOD_TEST_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+                  <TypeSelectWithCustom options={BLOOD_TEST_TYPES} value={row.type} onChange={(v) => updateRowInSection('bloodTest', idx, { type: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                   <textarea value={row.note} onChange={(e) => updateRowInSection('bloodTest', idx, { note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
                 </div>
               ))}
-              <button onClick={() => addRowToSection('bloodTest')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มผลเลือดอีกรายการ</button>
-              <SectionPhotoAttach sectionKey="bloodTest" />
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button onClick={() => addRowToSection('bloodTest')} style={{ border: `1px solid ${BRASS}`, borderRadius: 10, color: BRASS }} className="flex items-center justify-center gap-1.5 text-xs py-2.5"><PlusCircle size={14} /> เพิ่มอีกรายการ</button>
+                <SectionPhotoAttach sectionKey="bloodTest" />
+              </div>
             </div>
           )}
 
@@ -5064,12 +5088,14 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
               {(sectionData.imaging || []).map((row, idx) => (
                 <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                   <div className="flex justify-between items-center mb-1">{(sectionData.imaging || []).length > 1 && <button onClick={() => removeRowFromSection('imaging', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
-                  <select value={row.type} onChange={(e) => updateRowInSection('imaging', idx, { type: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }}>{IMAGING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+                  <TypeSelectWithCustom options={IMAGING_TYPES} value={row.type} onChange={(v) => updateRowInSection('imaging', idx, { type: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                   <textarea value={row.note} onChange={(e) => updateRowInSection('imaging', idx, { note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
                 </div>
               ))}
-              <button onClick={() => addRowToSection('imaging')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มผล Imaging อีกรายการ</button>
-              <SectionPhotoAttach sectionKey="imaging" />
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button onClick={() => addRowToSection('imaging')} style={{ border: `1px solid ${BRASS}`, borderRadius: 10, color: BRASS }} className="flex items-center justify-center gap-1.5 text-xs py-2.5"><PlusCircle size={14} /> เพิ่มอีกรายการ</button>
+                <SectionPhotoAttach sectionKey="imaging" />
+              </div>
             </div>
           )}
 
@@ -5079,12 +5105,14 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
               {(sectionData.organExam || []).map((row, idx) => (
                 <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                   <div className="flex justify-between items-center mb-1">{(sectionData.organExam || []).length > 1 && <button onClick={() => removeRowFromSection('organExam', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
-                  <select value={row.organ} onChange={(e) => updateRowInSection('organExam', idx, { organ: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }}>{ORGAN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+                  <TypeSelectWithCustom options={ORGAN_TYPES} value={row.organ} onChange={(v) => updateRowInSection('organExam', idx, { organ: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                   <textarea value={row.note} onChange={(e) => updateRowInSection('organExam', idx, { note: e.target.value })} placeholder="ผลตรวจ/ลักษณะที่พบ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
                 </div>
               ))}
-              <button onClick={() => addRowToSection('organExam')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มผลตรวจอวัยวะอีกรายการ</button>
-              <SectionPhotoAttach sectionKey="organExam" />
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button onClick={() => addRowToSection('organExam')} style={{ border: `1px solid ${BRASS}`, borderRadius: 10, color: BRASS }} className="flex items-center justify-center gap-1.5 text-xs py-2.5"><PlusCircle size={14} /> เพิ่มอีกรายการ</button>
+                <SectionPhotoAttach sectionKey="organExam" />
+              </div>
             </div>
           )}
 
@@ -5100,8 +5128,10 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
                   </div>
                 </div>
               ))}
-              <button onClick={() => addRowToSection('expense')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มรายการค่าใช้จ่ายอีกรายการ</button>
-              <SectionPhotoAttach sectionKey="expense" />
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button onClick={() => addRowToSection('expense')} style={{ border: `1px solid ${BRASS}`, borderRadius: 10, color: BRASS }} className="flex items-center justify-center gap-1.5 text-xs py-2.5"><PlusCircle size={14} /> เพิ่มอีกรายการ</button>
+                <SectionPhotoAttach sectionKey="expense" />
+              </div>
             </div>
           )}
 
@@ -5191,7 +5221,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, onBack, onUpd
         <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่าย</label>
         <NumInput value={visit.cost} onChange={(v) => onUpdateVetVisit(dog.id, visit.id, { cost: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>รูปอาการ (เช่น ถ่ายแผล/จุดที่เป็น)</label>
-        <input ref={photoFileRef} type="file" accept="image/*" capture="environment" onChange={handleSymptomPhoto} className="hidden" />
+        <input ref={photoFileRef} type="file" accept="image/*" onChange={handleSymptomPhoto} className="hidden" />
         <button onClick={() => photoFileRef.current && photoFileRef.current.click()} className="flex items-center gap-1 text-xs mt-1" style={{ color: BRASS }}>
           {photoUploading ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />} {photoUploading ? 'กำลังอัพโหลด...' : 'แนบรูปอาการ'}
         </button>
@@ -5292,7 +5322,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
   function ScanButton({ scan, kind, label, onResult }) {
     return (
       <>
-        <input ref={scan.fileRef} type="file" accept="image/*" capture="environment" onChange={(e) => { const file = e.target.files && e.target.files[0]; if (file) handleScan(kind, file, onResult); }} className="hidden" />
+        <input ref={scan.fileRef} type="file" accept="image/*" onChange={(e) => { const file = e.target.files && e.target.files[0]; if (file) handleScan(kind, file, onResult); }} className="hidden" />
         <button onClick={() => scan.fileRef.current && scan.fileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-2">
           {scan.scanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color="#FBBF24" />} {scan.scanning ? 'กำลังอ่านภาพ...' : label}
         </button>
@@ -5318,7 +5348,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
         <>
           <Card>
             <ScanButton scan={btScan} kind="bloodTests" label="ถ่ายรูปผลตรวจเลือด ให้ AI กรอกให้" onResult={(r) => setBt({ type: BLOOD_TEST_TYPES.includes(r.type) ? r.type : bt.type, date: r.date || bt.date, note: r.note || bt.note })} />
-            <select value={bt.type} onChange={(e) => setBt({ ...bt, type: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }}>{BLOOD_TEST_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <TypeSelectWithCustom options={BLOOD_TEST_TYPES} value={bt.type} onChange={(v) => setBt({ ...bt, type: v })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <input type="date" value={bt.date} onChange={(e) => setBt({ ...bt, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <textarea value={bt.note} onChange={(e) => setBt({ ...bt, note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
             <button onClick={() => submitWithPhoto('bloodTests', bt, btScan, onAddBloodTest, () => setBt({ ...bt, note: '' }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
@@ -5338,7 +5368,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
         <>
           <Card>
             <ScanButton scan={oeScan} kind="organExams" label="ถ่ายรูปผลตรวจอวัยวะ ให้ AI กรอกให้" onResult={(r) => setOe({ organ: ORGAN_TYPES.includes(r.type) ? r.type : oe.organ, date: r.date || oe.date, note: r.note || oe.note })} />
-            <select value={oe.organ} onChange={(e) => setOe({ ...oe, organ: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }}>{ORGAN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <TypeSelectWithCustom options={ORGAN_TYPES} value={oe.organ} onChange={(v) => setOe({ ...oe, organ: v })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <input type="date" value={oe.date} onChange={(e) => setOe({ ...oe, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <textarea value={oe.note} onChange={(e) => setOe({ ...oe, note: e.target.value })} placeholder="ผลตรวจ/ลักษณะที่พบ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
             <button onClick={() => submitWithPhoto('organExams', oe, oeScan, onAddOrganExam, () => setOe({ ...oe, note: '' }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจอวัยวะ</button>
@@ -5358,7 +5388,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
         <>
           <Card>
             <ScanButton scan={imScan} kind="imaging" label="ถ่ายรูปผล Imaging ให้ AI กรอกให้" onResult={(r) => setIm({ type: IMAGING_TYPES.includes(r.type) ? r.type : im.type, date: r.date || im.date, note: r.note || im.note })} />
-            <select value={im.type} onChange={(e) => setIm({ ...im, type: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }}>{IMAGING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+            <TypeSelectWithCustom options={IMAGING_TYPES} value={im.type} onChange={(v) => setIm({ ...im, type: v })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <input type="date" value={im.date} onChange={(e) => setIm({ ...im, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <textarea value={im.note} onChange={(e) => setIm({ ...im, note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
             <button onClick={() => submitWithPhoto('imaging', im, imScan, onAddImaging, () => setIm({ ...im, note: '' }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผล Imaging</button>
@@ -5473,7 +5503,7 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
   return (
     <div>
       <Card>
-        <input ref={receiptFileRef} type="file" accept="image/*" capture="environment" onChange={handleReceiptPhoto} className="hidden" />
+        <input ref={receiptFileRef} type="file" accept="image/*" onChange={handleReceiptPhoto} className="hidden" />
         <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-3">
           {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color={BRASS} />}{receiptScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปใบเสร็จหรือสลิปโอน (บันทึกทันที)'}
         </button>
