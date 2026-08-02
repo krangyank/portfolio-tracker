@@ -40,14 +40,14 @@ const RISK_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const INTEREST_CATEGORIES = ['cooperative', 'bank_savings'];
 const PIE_COLORS = ['#0F172A', '#16A34A', '#D97706', '#2563EB', '#7A5230', '#5C6F8A'];
 const TAB_MASCOTS = {
-  dashboard: { emoji: '💰', bg: '#FDE6D3' },
-  accounts: { emoji: '🪙', bg: '#DCE8FE' },
-  savings: { emoji: '🐷', bg: '#FDE6D3' },
-  income: { emoji: '🌱', bg: '#DCF3E4' },
-  expenses: { emoji: '🛍️', bg: '#FBE3E1' },
+  dashboard: { emoji: '💰', bg: '#FDE6D3', photo: 'https://images.unsplash.com/photo-1580519542036-c47de6196ba5?w=200&h=200&fit=crop' },
+  accounts: { emoji: '🪙', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1621981386829-9b458a2cddde?w=200&h=200&fit=crop' },
+  savings: { emoji: '🐷', bg: '#FDE6D3', photo: 'https://images.unsplash.com/photo-1579621970588-a35d0e7ab9b6?w=200&h=200&fit=crop' },
+  income: { emoji: '🌱', bg: '#DCF3E4', photo: 'https://images.unsplash.com/photo-1579621970795-87facc2f976d?w=200&h=200&fit=crop' },
+  expenses: { emoji: '🛍️', bg: '#FBE3E1', photo: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=200&h=200&fit=crop' },
   pets: { emoji: '🐶', bg: '#EFE7FE' },
   realestate: { emoji: '🏡', bg: '#DDF4F4' },
-  reports: { emoji: '🦉', bg: '#DCE8FE' },
+  reports: { emoji: '🦉', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=200&fit=crop' },
 };
 
 const SOURCES = [
@@ -106,6 +106,7 @@ const EMPTY_STATE = {
   expenseCategories: ['อาหาร', 'เดินทาง', 'ของใช้', 'บันเทิง', 'สุขภาพ', 'อื่นๆ'],
   targetDate: '2029-01-01', goalNetWorth: 0, finnhubKey: '', dogs: [], googleClientId: '', googleRefreshToken: '',
   hospitalList: ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'],
+  doctorList: [],
   weigherList: ['พ่อ', 'แม่'],
   medicationList: [],
   properties: [],
@@ -334,6 +335,8 @@ export default function App() {
   const [saveError, setSaveError] = useState('');
   const [pendingWrites, setPendingWrites] = useState(0);
   const [debugOpen, setDebugOpen] = useState(false);
+  const [headerPhotoOverride, setHeaderPhotoOverride] = useState(null); // รูปจริงของลูก/ทรัพย์สินที่กำลังเลือกดูอยู่ ใช้แทน emoji ใน header
+  useEffect(() => { if (tab !== 'pets' && tab !== 'realestate') setHeaderPhotoOverride(null); }, [tab]);
   const [debugTick, setDebugTick] = useState(0);
   useEffect(() => {
     if (!debugOpen) return;
@@ -401,6 +404,35 @@ export default function App() {
   }
 
   // ฟีเจอร์ II: AI Insight สรุปภาพรวมประจำวัน (รันอัตโนมัติวันละ 1 ครั้ง)
+  // ฟีเจอร์ใหม่: AI วิเคราะห์สุขภาพลูกๆ สรุปให้ในหน้าภาพรวมของแต่ละตัว (อัปเดตวันละครั้งต่อตัว)
+  async function runDogHealthInsight(dogId) {
+    const d = dogs.find((x) => x.id === dogId);
+    if (!d) return;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (d.aiHealthInsight && d.aiHealthInsight.date === todayStr) return; // คำนวณไปแล้ววันนี้
+    try {
+      const sortedWeights = [...(d.weights || [])].sort((a, b) => a.date.localeCompare(b.date));
+      const weightTrend = sortedWeights.slice(-5).map((w) => `${w.date}: ${w.weight}กก.`).join(', ');
+      const activeMeds = (d.medications || []).filter((m) => !m.stopDate).map((m) => m.name).join(', ');
+      const recentBlood = [...(d.bloodTests || [])].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3).map((r) => `${r.date} ${r.type}: ${r.note || 'ไม่มีบันทึกผล'}`).join(' | ');
+      const recentImaging = [...(d.imaging || [])].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3).map((r) => `${r.date} ${r.type}: ${r.note || 'ไม่มีบันทึกผล'}`).join(' | ');
+      const lastVisit = [...(d.vetVisits || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
+      const insuranceEnd = d.insurance?.endDate || 'ไม่มีข้อมูล';
+      const prompt = `คุณเป็นผู้ช่วยสรุปข้อมูลสุขภาพสัตว์เลี้ยงให้เจ้าของ (ไม่ใช่สัตวแพทย์ ไม่ได้วินิจฉัยโรค) ข้อมูลของ "${d.name}" (${d.breed || 'ไม่ระบุพันธุ์'}):
+โรคประจำตัว: ${d.chronicDiseases || 'ไม่มี'}
+แพ้ยา: ${d.drugAllergies || 'ไม่มี'}
+ยาที่กินอยู่ตอนนี้: ${activeMeds || 'ไม่มี'}
+แนวโน้มน้ำหนักล่าสุด: ${weightTrend || 'ไม่มีข้อมูล'}
+ผลเลือดล่าสุด: ${recentBlood || 'ไม่มีข้อมูล'}
+ผล Imaging ล่าสุด: ${recentImaging || 'ไม่มีข้อมูล'}
+ไปหาหมอล่าสุด: ${lastVisit ? `${lastVisit.date} ที่ ${lastVisit.hospital} เหตุผล: ${lastVisit.reason}` : 'ไม่มีข้อมูล'}
+วันหมดอายุประกัน: ${insuranceEnd}
+ช่วยสรุปเป็นภาษาไทยสั้นๆ 2-3 ประเด็นที่ควรระวัง/ติดตาม หรือแนวโน้มที่น่าสนใจ แต่ละข้อไม่เกิน 1 บรรทัด ตอบเป็น bullet เท่านั้น ห้ามวินิจฉัยโรคหรือฟันธง ให้เป็นการสรุปข้อมูลเพื่อช่วยเตือนความจำเจ้าของเท่านั้น`;
+      const text = await askServer(prompt);
+      updateDog(dogId, { aiHealthInsight: { date: todayStr, text: text || '' } });
+    } catch (e) { /* เงียบไว้ ถ้ามีข้อความเก่าอยู่แล้วให้ใช้ต่อไป */ }
+  }
+
   async function runDailyInsight() {
     const todayStr = new Date().toISOString().slice(0, 10);
     if (state?.aiInsight && state.aiInsight.date === todayStr) return; // คำนวณไปแล้ววันนี้
@@ -644,6 +676,7 @@ export default function App() {
   const dogs = (sharedState?.dogs && sharedState.dogs.length > 0) ? sharedState.dogs : DEFAULT_DOGS;
   const properties = (sharedState?.properties && sharedState.properties.length > 0) ? sharedState.properties : DEFAULT_PROPERTIES;
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
+  const doctorList = state?.doctorList || [];
   const weigherList = state?.weigherList || ['พ่อ', 'แม่'];
   const medicationList = state?.medicationList || [];
 
@@ -857,6 +890,7 @@ export default function App() {
     persistShared({ ...sharedState, dogs: next });
   }
   function addHospital(name) { if (name && !hospitalList.includes(name)) persist({ ...state, hospitalList: [...hospitalList, name] }); }
+  function addDoctor(name) { if (name && !doctorList.includes(name)) persist({ ...state, doctorList: [...doctorList, name] }); }
   function addWeigher(name) { if (name && !weigherList.includes(name)) persist({ ...state, weigherList: [...weigherList, name] }); }
   function addMedicationPreset(preset) {
     const exists = medicationList.some((m) => m.name === preset.name && m.strength === preset.strength && m.dose === preset.dose && m.usage === preset.usage);
@@ -949,6 +983,21 @@ export default function App() {
     await uploadBytes(fileRef, file);
     const url = await getDownloadURL(fileRef);
     return { id: uid(), url, path };
+  }
+  // เอกสารกรมธรรม์ประกันของลูกๆ (รูป/PDF)
+  async function addInsuranceDocument(dogId, file) {
+    const d = dogs.find((x) => x.id === dogId);
+    const path = `properties/${FAMILY_SHARE_ID}/pets/${dogId}/insurance/${Date.now()}_${file.name}`;
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    updateDog(dogId, { insurance: { ...d.insurance, documents: [{ id: uid(), name: file.name, url, path, uploadedAt: new Date().toISOString().slice(0, 10) }, ...(d.insurance.documents || [])] } });
+  }
+  async function removeInsuranceDocument(dogId, docId) {
+    const d = dogs.find((x) => x.id === dogId);
+    const doc = (d.insurance.documents || []).find((x) => x.id === docId);
+    if (doc && doc.path) { try { await deleteObject(storageRef(storage, doc.path)); } catch (e) { /* ignore */ } }
+    updateDog(dogId, { insurance: { ...d.insurance, documents: (d.insurance.documents || []).filter((x) => x.id !== docId) } });
   }
   async function setDogPhoto(dogId, file) {
     const d = dogs.find((x) => x.id === dogId);
@@ -1186,7 +1235,13 @@ export default function App() {
       )}
       <div style={{ background: INK }} className="px-5 pt-8 pb-6 text-white relative overflow-hidden">
         <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid #FFFFFF22`, pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', right: 10, bottom: 10, width: 104, height: 104, borderRadius: '50%', background: (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 54, border: '3px solid #FFFFFF4D', boxShadow: '0 8px 20px rgba(0,0,0,0.3)', pointerEvents: 'none' }}>{(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).emoji}</div>
+        <div style={{ position: 'absolute', right: 10, bottom: 10, width: 104, height: 104, borderRadius: '50%', background: (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 54, border: '3px solid #FFFFFF4D', boxShadow: '0 8px 20px rgba(0,0,0,0.3)', pointerEvents: 'none', overflow: 'hidden' }}>
+          {((tab === 'pets' || tab === 'realestate') && headerPhotoOverride) ? (
+            <img src={headerPhotoOverride} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).photo ? (
+            <img src={(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).emoji}
+        </div>
         <div className="flex justify-between items-start">
           <div><p className="text-xs tracking-widest" style={{ color: '#94A3B8' }}>สมุดบัญชีการลงทุน</p><h1 className="text-3xl mt-1 font-semibold">สินทรัพย์สุทธิ</h1></div>
           <div className="flex gap-2">
@@ -1239,8 +1294,8 @@ export default function App() {
           onAddMedication={addMedication} onUpdateMedication={updateMedication} onLogFleaTick={logFleaTick} onUpdateFleaTickInfo={updateFleaTickInfo}
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
-          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} medicationList={medicationList} onAddMedicationPreset={addMedicationPreset} onAddGenericCalendarEvent={addPropertyEventToCalendar} onAddMedicalPhoto={addMedicalPhoto} onRemoveMedicalPhoto={removeMedicalPhoto} onUploadRecordPhoto={uploadDogRecordPhoto} onAddPersonalExpense={addExpense} expenseCategories={expenseCategories}
-          onAddVetVisit={addVetVisit} onUpdateVetVisit={updateVetVisit} onRemoveVetVisit={removeVetVisit} onLinkRecordToVisit={linkRecordToVisit} onUnlinkRecordFromVisit={unlinkRecordFromVisit} />
+          googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} doctorList={doctorList} onAddDoctor={addDoctor} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} medicationList={medicationList} onAddMedicationPreset={addMedicationPreset} onAddGenericCalendarEvent={addPropertyEventToCalendar} onAddMedicalPhoto={addMedicalPhoto} onRemoveMedicalPhoto={removeMedicalPhoto} onUploadRecordPhoto={uploadDogRecordPhoto} onAddPersonalExpense={addExpense} expenseCategories={expenseCategories}
+          onAddVetVisit={addVetVisit} onUpdateVetVisit={updateVetVisit} onRemoveVetVisit={removeVetVisit} onLinkRecordToVisit={linkRecordToVisit} onUnlinkRecordFromVisit={unlinkRecordFromVisit} onAddInsuranceDocument={addInsuranceDocument} onRemoveInsuranceDocument={removeInsuranceDocument} onCurrentPhotoChange={setHeaderPhotoOverride} onRunHealthInsight={runDogHealthInsight} />
       )}
       {tab === 'realestate' && (
         <RealEstateTab properties={properties} onUpdate={updateProperty} onAdd={addProperty} onRemove={removeProperty}
@@ -1249,7 +1304,7 @@ export default function App() {
           onAddDocument={addPropertyDocument} onRemoveDocument={removePropertyDocument}
           onAddRentInstallment={addRentInstallment} onRemoveRentInstallment={removeRentInstallment} onSetRentManualConfirm={setRentManualConfirm}
           accounts={accounts}
-          googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} onRefreshShared={refreshSharedData} />
+          googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} onRefreshShared={refreshSharedData} onCurrentPhotoChange={setHeaderPhotoOverride} />
       )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
@@ -1310,6 +1365,25 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
 }
 
 // dropdown ที่เลือกจากลิสต์ได้ หรือกด "อื่นๆ (พิมพ์เอง)" แล้วพิมพ์เองได้เลย — ใช้กับประเภทตรวจเลือด/อวัยวะ/Imaging
+// ช่องที่จดจำค่าที่เคยพิมพ์ไว้ (เช่น ชื่อสัตวแพทย์) — เลือกจาก dropdown ได้ หรือพิมพ์ใหม่แล้วกด "จำชื่อนี้ไว้" เพื่อบันทึกเข้ารายการ
+function MemoTextField({ list, value, onChange, onAddToList, placeholder, className, style }) {
+  const inList = value && (list || []).includes(value);
+  return (
+    <div>
+      <select value={inList ? value : ''} onChange={(e) => onChange(e.target.value)} className={className} style={{ ...style, marginBottom: 6 }}>
+        <option value="">— เลือกจากที่เคยบันทึกไว้ —</option>
+        {(list || []).map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
+      <div className="flex gap-2">
+        <input value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={className} style={{ ...style, flex: 1 }} />
+        {value && !inList && (
+          <button type="button" onClick={() => onAddToList(value)} className="text-xs rounded-lg px-3 whitespace-nowrap" style={{ border: `1px solid ${BRASS}`, color: BRASS }}>จำชื่อนี้ไว้</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TypeSelectWithCustom({ options, value, onChange, className, style }) {
   const [customMode, setCustomMode] = useState(!!value && !options.includes(value));
   return (
@@ -1421,6 +1495,37 @@ function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChange
 
 function StatBox({ label, value, color }) {
   return <div style={{ background: PAPER_DIM }} className="rounded-xl p-3"><p className="text-[10px] mb-1" style={{ color: SLATE }}>{label}</p><p className="text-lg font-semibold" style={{ color: color || INK }}>{value}</p></div>;
+}
+// กราฟเส้นเล็กๆ แสดงแนวโน้ม (เช่น น้ำหนักย้อนหลัง) ไม่มีแกน ไม่มีตัวเลขกำกับ ดูปุ๊บรู้ทิศทาง
+function Sparkline({ values, color }) {
+  if (!values || values.length < 2) return null;
+  const w = 64, h = 24, pad = 3;
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const pts = values.map((v, i) => {
+    const x = pad + (i * (w - pad * 2)) / (values.length - 1);
+    const y = h - pad - ((v - min) / range) * (h - pad * 2);
+    return `${x},${y}`;
+  });
+  const last = values[values.length - 1];
+  const lastPt = pts[pts.length - 1].split(',').map(Number);
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+      <polyline points={pts.join(' ')} fill="none" stroke={color || BRASS} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={lastPt[0]} cy={lastPt[1]} r="2.5" fill={color || BRASS} />
+    </svg>
+  );
+}
+function WeightStatBox({ label, value, trendValues, trendColor }) {
+  return (
+    <div style={{ background: PAPER_DIM }} className="rounded-xl p-3">
+      <p className="text-[10px] mb-1" style={{ color: SLATE }}>{label}</p>
+      <div className="flex items-center justify-between">
+        <p className="text-lg font-semibold" style={{ color: INK }}>{value}</p>
+        {trendValues && trendValues.length >= 2 && <Sparkline values={trendValues} color={trendColor} />}
+      </div>
+    </div>
+  );
 }
 function DashCategoryCard({ label, value, sub, tone, icon: Icon, fg, bg, onClick }) {
   return (
@@ -3446,10 +3551,11 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit }) {
+function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
   const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
+  useEffect(() => { if (onCurrentPhotoChange) onCurrentPhotoChange(dog?.photoUrl || null); }, [dog?.photoUrl, dog?.id]);
   const photoFileRef = useRef(null);
   const [photoUploading, setPhotoUploading] = useState(false);
 
@@ -3537,14 +3643,14 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
         <AllDogsReportSection dogs={dogs} />
       ) : dog && (
         <>
-          {section === 'overview' && <DogOverviewSection dog={dog} setSection={setSection} />}
+          {section === 'overview' && <DogOverviewSection dog={dog} setSection={setSection} onRunHealthInsight={onRunHealthInsight} />}
           {section === 'profile' && <DogProfileSection dog={dog} onUpdateDog={onUpdateDog} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
           {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} onUpdateWeight={onUpdateWeight} hospitalList={hospitalList} onAddHospital={onAddHospital} weigherList={weigherList} onAddWeigher={onAddWeigher} onUploadRecordPhoto={onUploadRecordPhoto} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} />}
-          {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUploadRecordPhoto={onUploadRecordPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} />}
+          {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUploadRecordPhoto={onUploadRecordPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} doctorList={doctorList} onAddDoctor={onAddDoctor} />}
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onUpdateFleaTickInfo={onUpdateFleaTickInfo} googleConnected={googleConnected} onAddGenericCalendarEvent={onAddGenericCalendarEvent} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
-          {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
-          {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
-          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} weigherList={weigherList} medicationList={medicationList} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} />}
+          {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} onAddInsuranceDocument={onAddInsuranceDocument} onRemoveInsuranceDocument={onRemoveInsuranceDocument} />}
+          {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
+          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
           {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} />}
         </>
@@ -3553,10 +3659,11 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
   );
 }
 
-function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar, onRefreshShared }) {
+function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar, onRefreshShared, onCurrentPhotoChange }) {
   const [section, setSection] = useState('overview');
   const [selectedId, setSelectedId] = useState(properties[0]?.id || '');
   const selected = properties.find((p) => p.id === selectedId) || properties[0];
+  useEffect(() => { if (onCurrentPhotoChange) onCurrentPhotoChange((selected?.photos && selected.photos[0]?.url) || null); }, [selected?.id, selected?.photos]);
 
   return (
     <div className="px-5 pt-5">
@@ -3999,8 +4106,16 @@ function RealEstateCalendarSection({ properties, googleConnected }) {
   );
 }
 
-function DogOverviewSection({ dog, setSection }) {
-  const latestWeight = [...(dog.weights || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
+function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
+  useEffect(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (onRunHealthInsight && (!dog.aiHealthInsight || dog.aiHealthInsight.date !== todayStr)) onRunHealthInsight(dog.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dog.id]);
+  const sortedWeights = [...(dog.weights || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const latestWeight = sortedWeights[sortedWeights.length - 1];
+  const recentWeights = sortedWeights.slice(-8).map((w) => Number(w.weight));
+  const weightDelta = recentWeights.length >= 2 ? recentWeights[recentWeights.length - 1] - recentWeights[recentWeights.length - 2] : 0;
   const thisYear = new Date().getFullYear();
   const expensesThisYear = (dog.expenses || []).filter((e) => e.date.startsWith(String(thisYear))).reduce((s, e) => s + Number(e.amount || 0), 0);
   const expensesLifetime = (dog.expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -4017,11 +4132,20 @@ function DogOverviewSection({ dog, setSection }) {
         <p className="text-lg font-semibold mb-1">{dog.name}{dog.nickname && ` (${dog.nickname})`}</p>
         <div className="grid grid-cols-2 gap-2">
           <StatBox label="อายุ" value={ageString(dog.birthdate)} />
-          <StatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} />
+          <WeightStatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} trendValues={recentWeights.length >= 2 ? recentWeights : null} trendColor={weightDelta < 0 ? BAD : weightDelta > 0 ? GOOD : SLATE} />
           <StatBox label="BCS" value={dog.bcs || '-'} />
           <StatBox label="เพศ/สี" value={`${dog.sex || '-'} / ${dog.color || '-'}`} />
         </div>
       </Card>
+      {dog.aiHealthInsight && dog.aiHealthInsight.text && (
+        <Card>
+          <p className="text-xs font-bold mb-2 flex items-center gap-1.5" style={{ color: BRASS }}>🤖 AI วิเคราะห์สุขภาพ</p>
+          {dog.aiHealthInsight.text.split('\n').filter((line) => line.trim()).map((line, i) => (
+            <p key={i} className="text-sm mb-1" style={{ color: INK }}>{line.replace(/^[•\-*]\s*/, '• ')}</p>
+          ))}
+          <p className="text-[10px] mt-2" style={{ color: SLATE }}>⚠️ เป็นการสรุปเบื้องต้นจากข้อมูลที่บันทึกไว้ ไม่ใช่คำวินิจฉัยทางการแพทย์ ควรปรึกษาสัตวแพทย์เสมอ</p>
+        </Card>
+      )}
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>สรุปสำคัญ</p>
         <p className="text-sm mb-1">โรคประจำตัว: {dog.chronicDiseases || 'ไม่มี'}</p>
@@ -4083,7 +4207,43 @@ function DogOverviewSection({ dog, setSection }) {
         <p className="text-xs mb-3" style={{ color: SLATE }}>ข้อสังเกต/แจ้งเตือน</p>
         {insights.map((it, i) => <InsightRow key={i} tone={it.tone} text={it.text} onClick={it.section ? () => setSection && setSection(it.section) : undefined} />)}
       </Card>
+      <DogHealthTimeline dog={dog} setSection={setSection} />
     </div>
+  );
+}
+
+// Timeline รวมประวัติสุขภาพ — เกิดขึ้นแล้ว (✅) เรียงกับกำลังจะมาถึง (⏰) ในเส้นเดียว แตะแต่ละอันกระโดดไปแท็บที่เกี่ยวข้องได้
+function DogHealthTimeline({ dog, setSection }) {
+  const items = [];
+  (dog.imaging || []).forEach((r) => items.push({ date: r.date, label: r.type || 'Imaging', done: true, section: 'records' }));
+  (dog.bloodTests || []).forEach((r) => items.push({ date: r.date, label: `ตรวจเลือด${r.type ? ' — ' + r.type : ''}`, done: true, section: 'records' }));
+  (dog.organExams || []).forEach((r) => items.push({ date: r.date, label: `ตรวจอวัยวะ — ${r.organ || ''}`, done: true, section: 'records' }));
+  (dog.appointments || []).forEach((a) => {
+    const d = daysUntil(a.date);
+    if (d !== null && d >= 0) items.push({ date: a.date, label: `นัดหมาย${a.purpose ? ' — ' + a.purpose : ''}`, done: false, section: 'appt' });
+  });
+  if (dog.insurance && dog.insurance.endDate) {
+    const d = daysUntil(dog.insurance.endDate);
+    if (d !== null && d >= -3) items.push({ date: dog.insurance.endDate, label: 'ต่อประกัน', done: false, section: 'insurance' });
+  }
+  const sorted = items.sort((a, b) => a.date.localeCompare(b.date)).slice(-10);
+  if (sorted.length === 0) return null;
+  return (
+    <Card>
+      <p className="text-xs mb-3" style={{ color: SLATE }}>Timeline ประวัติสุขภาพ</p>
+      {sorted.map((it, i) => (
+        <button key={i} onClick={() => it.section && setSection && setSection(it.section)} className="w-full text-left flex gap-2.5" style={{ background: 'transparent' }}>
+          <div className="flex flex-col items-center" style={{ flexShrink: 0 }}>
+            <div style={{ width: 22, height: 22, borderRadius: '50%', background: it.done ? '#E1F5E9' : '#FBF3E9', color: it.done ? GOOD : BRASS, fontSize: 11 }} className="flex items-center justify-center">{it.done ? '✅' : '⏰'}</div>
+            {i < sorted.length - 1 && <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 14 }} />}
+          </div>
+          <div className="pb-3.5">
+            <p className="text-[11px]" style={{ color: SLATE }}>{it.date}</p>
+            <p className="text-sm font-semibold" style={{ color: INK }}>{it.label}</p>
+          </div>
+        </button>
+      ))}
+    </Card>
   );
 }
 
@@ -4251,7 +4411,7 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, ho
   );
 }
 
-function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, medicationList, onAddMedicationPreset, onUploadRecordPhoto }) {
+function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, medicationList, onAddMedicationPreset, onUploadRecordPhoto, doctorList, onAddDoctor }) {
   const [form, setForm] = useState({ name: '', strength: '', form: '', dose: '', usage: '', timing: '', startDate: new Date().toISOString().slice(0, 10), startReason: '', hospital: '', doctor: '' });
   const [editingMed, setEditingMed] = useState(null);
   const [selectedPreset, setSelectedPreset] = useState('');
@@ -4287,6 +4447,7 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, medica
         startDate: result.startDate || form.startDate,
         startReason: result.note || form.startReason,
       });
+      if (result.doctor && onAddDoctor) onAddDoctor(result.doctor);
       setSelectedPreset(''); setScannedFile(file); setAttachScannedPhoto(true);
     } catch (err) { setScanLabelError('เกิดข้อผิดพลาด: ' + err.message); }
     finally { setScanningLabel(false); if (labelFileRef.current) labelFileRef.current.value = ''; }
@@ -4332,10 +4493,11 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, medica
             </select>
           </div>
         )}
-        {['name:ชื่อยา', 'strength:ความแรง', 'form:รูปแบบยา', 'dose:ขนาดยา/จำนวน', 'usage:วิธีใช้', 'timing:เวลาใช้ (ก่อน/หลังอาหาร)', 'startReason:เหตุผลที่เริ่ม', 'hospital:โรงพยาบาล', 'doctor:หมอผู้สั่ง'].map((f) => {
+        {['name:ชื่อยา', 'strength:ความแรง', 'form:รูปแบบยา', 'dose:ขนาดยา/จำนวน', 'usage:วิธีใช้', 'timing:เวลาใช้ (ก่อน/หลังอาหาร)', 'startReason:เหตุผลที่เริ่ม', 'hospital:โรงพยาบาล'].map((f) => {
           const [k, l] = f.split(':');
           return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>;
         })}
+        <div className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>หมอผู้สั่ง</label><MemoTextField list={doctorList} value={form.doctor} onChange={(v) => setForm({ ...form, doctor: v })} onAddToList={onAddDoctor} placeholder="ชื่อสัตวแพทย์" className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <div className="mb-3"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่ม</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <button onClick={submit} disabled={saving} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">{saving && <Loader2 size={14} className="animate-spin" />} บันทึกยา</button>
       </Card>
@@ -4514,7 +4676,17 @@ function parseFraction(s) {
   );
 }
 
-function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, dogs, onCopyToMultipleDogs }) {
+function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, dogs, onCopyToMultipleDogs, onAddInsuranceDocument, onRemoveInsuranceDocument }) {
+  const docFileRef = useRef(null);
+  const [docUploading, setDocUploading] = useState(false);
+  const [docError, setDocError] = useState('');
+  async function handleDocFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setDocUploading(true); setDocError('');
+    try { await onAddInsuranceDocument(dog.id, file); } catch (err) { setDocError('อัพโหลดไม่สำเร็จ: ' + err.message); }
+    finally { setDocUploading(false); if (docFileRef.current) docFileRef.current.value = ''; }
+  }
   const ins = dog.insurance || {};
   const [actualCost, setActualCost] = useState(0);
   const [claimReason, setClaimReason] = useState('');
@@ -4600,6 +4772,19 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
         </div>
       </Card>
       <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>เอกสารกรมธรรม์</p>
+        <input ref={docFileRef} type="file" accept="image/*,application/pdf" onChange={handleDocFile} className="hidden" />
+        <button onClick={() => docFileRef.current && docFileRef.current.click()} style={{ border: `1px dashed ${BRASS}`, color: BRASS }} className="w-full rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 mb-2">{docUploading ? <Loader2 size={14} className="animate-spin" /> : <PlusCircle size={14} />}{docUploading ? 'กำลังอัพโหลด...' : 'แนบเอกสารกรมธรรม์ (รูป/PDF)'}</button>
+        {docError && <p className="text-xs mb-2" style={{ color: BAD }}>{docError}</p>}
+        {(ins.documents || []).length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีเอกสารแนบไว้</p>}
+        {(ins.documents || []).map((doc) => (
+          <a key={doc.id} href={doc.url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ border: `1px solid ${BORDER}` }}>
+            <div className="flex items-center gap-2 flex-1 min-w-0"><ClipboardList size={16} color={BRASS} style={{ flexShrink: 0 }} /><div className="min-w-0"><p className="text-sm truncate" style={{ color: INK }}>{doc.name}</p><p className="text-[11px]" style={{ color: SLATE }}>{doc.uploadedAt}</p></div></div>
+            <button onClick={(e) => { e.preventDefault(); onRemoveInsuranceDocument(dog.id, doc.id); }} style={{ flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
+          </a>
+        ))}
+      </Card>
+      <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการเคลม</p>
         <label className="text-[10px]" style={{ color: SLATE }}>ค่ารักษาจริง</label>
         <NumInput value={actualCost} onChange={setActualCost} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
@@ -4632,7 +4817,7 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
   );
 }
 
-function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, onUpdateAppointment, googleConnected, onAddToCalendar, hospitalList, onAddHospital, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto }) {
+function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, onUpdateAppointment, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto }) {
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '', reminderDays: [7, 3, 1] });
   const [syncingId, setSyncingId] = useState(null);
   const [syncResult, setSyncResult] = useState({});
@@ -4677,6 +4862,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
         doctor: result.doctor || form.doctor,
         purpose: result.purpose || result.note || form.purpose,
       });
+      if (result.doctor && onAddDoctor) onAddDoctor(result.doctor);
       setScannedFile(file); setAttachScannedPhoto(true);
     } catch (err) { setScanSlipError('เกิดข้อผิดพลาด: ' + err.message); }
     finally { setScanningSlip(false); if (slipFileRef.current) slipFileRef.current.value = ''; }
@@ -4722,7 +4908,8 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
         )}
         {list.includes(form.hospital) && <div className="mb-2" />}
         <label className="text-[10px]" style={{ color: SLATE }}>สัตวแพทย์</label>
-        <input value={form.doctor} onChange={(e) => setForm({ ...form, doctor: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <MemoTextField list={doctorList} value={form.doctor} onChange={(v) => setForm({ ...form, doctor: v })} onAddToList={onAddDoctor} placeholder="ชื่อสัตวแพทย์" className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
+        <div className="mb-2" />
         <label className="text-[10px]" style={{ color: SLATE }}>วัตถุประสงค์</label>
         <input value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>เตือนล่วงหน้ากี่วัน (เลือกได้หลายอัน)</label>
@@ -4830,7 +5017,7 @@ function makeVisitSectionRow(key, form) {
   return {};
 }
 
-function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, medicationList, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection }) {
+function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, medicationList, onAddMedicationPreset, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection }) {
   const [selectedVisitId, setSelectedVisitId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hospital: '', reason: '', cost: 0 });
@@ -4894,6 +5081,14 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
       });
       patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, reason: form.reason, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
       onUpdateDog(dog.id, patch);
+      // บันทึกยาที่พิมพ์เองใหม่เข้ารายการ "ยาที่เคยใช้" ด้วย เหมือน Tab ยาโดยตรง (แก้บั๊กที่เคยตกหล่นมาก่อน)
+      if (activeSections.includes('medication') && onAddMedicationPreset) {
+        (sectionData.medication || []).forEach((row) => {
+          if (!row.name) return;
+          const alreadyPreset = (medicationList || []).some((p) => p.name === row.name && p.strength === row.strength && p.dose === row.dose && p.usage === row.usage);
+          if (!alreadyPreset) onAddMedicationPreset({ name: row.name, strength: row.strength, dose: row.dose, usage: row.usage, timing: row.timing });
+        });
+      }
       setForm({ date: new Date().toISOString().slice(0, 10), hospital: '', reason: '', cost: 0 });
       setActiveSections([]); setSectionData({}); setSectionPhotos({}); setVisitPhotos([]);
       setShowAddForm(false);
@@ -4916,7 +5111,11 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
   // หมวดที่เพิ่มได้หลายรายการ (ยา/ผลเลือด/Imaging/อวัยวะ/ค่าใช้จ่าย) กรอกลงแถวล่าสุดที่เพิ่งเพิ่ม
   function applyScanResult(key, result) {
     if (!result) return;
-    if (key === 'appointment') { updateSingleSection('appointment', { date: result.date || sectionData.appointment?.date, purpose: result.purpose || sectionData.appointment?.purpose }); return; }
+    if (key === 'appointment') {
+      updateSingleSection('appointment', { date: result.date || sectionData.appointment?.date, purpose: result.purpose || sectionData.appointment?.purpose, hospital: result.hospital || sectionData.appointment?.hospital, doctor: result.doctor || sectionData.appointment?.doctor });
+      if (result.doctor && onAddDoctor) onAddDoctor(result.doctor);
+      return;
+    }
     if (key === 'weight') { const w = Number(result.weight); if (w) updateSingleSection('weight', { weight: w }); return; }
     const rows = sectionData[key] || [];
     const idx = rows.length - 1;
@@ -5015,10 +5214,18 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
           {activeSections.includes('appointment') && (
             <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
               <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>📅 นัดหมาย</span><button onClick={() => toggleSection('appointment')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 mb-2">
                 <div><label className="text-[10px]" style={{ color: SLATE }}>วันนัดครั้งถัดไป</label><input type="date" value={sectionData.appointment?.date || ''} onChange={(e) => updateSingleSection('appointment', { date: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
                 <div><label className="text-[10px]" style={{ color: SLATE }}>วัตถุประสงค์</label><input value={sectionData.appointment?.purpose || ''} onChange={(e) => updateSingleSection('appointment', { purpose: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
               </div>
+              <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาลที่นัด</label>
+              <select value={(hospitalList || []).includes(sectionData.appointment?.hospital) ? sectionData.appointment.hospital : ''} onChange={(e) => updateSingleSection('appointment', { hospital: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
+                <option value="">— เลือกโรงพยาบาล —</option>
+                {(hospitalList || []).map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+              <input value={sectionData.appointment?.hospital || ''} onChange={(e) => updateSingleSection('appointment', { hospital: e.target.value })} placeholder="หรือพิมพ์ชื่อโรงพยาบาลเอง" className="rounded-lg px-2 py-1.5 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+              <label className="text-[10px]" style={{ color: SLATE }}>หมอที่นัด</label>
+              <MemoTextField list={doctorList} value={sectionData.appointment?.doctor || ''} onChange={(v) => updateSingleSection('appointment', { doctor: v })} onAddToList={onAddDoctor} placeholder="ชื่อสัตวแพทย์ (ถ้ามี)" className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
               <SectionPhotoAttach sectionKey="appointment" />
             </div>
           )}
