@@ -4771,19 +4771,21 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
   function toggleSection(key) {
     const def = VISIT_SECTION_DEFS.find((s) => s.key === key);
     if (activeSections.includes(key)) {
-      setActiveSections(activeSections.filter((k) => k !== key));
-      const next = { ...sectionData }; delete next[key]; setSectionData(next);
+      setActiveSections((prev) => prev.filter((k) => k !== key));
+      setSectionData((prev) => { const next = { ...prev }; delete next[key]; return next; });
     } else {
-      setActiveSections([...activeSections, key]);
-      setSectionData({ ...sectionData, [key]: def.multi ? [makeVisitSectionRow(key, form)] : makeVisitSectionRow(key, form) });
+      setActiveSections((prev) => [...prev, key]);
+      setSectionData((prev) => ({ ...prev, [key]: def.multi ? [makeVisitSectionRow(key, form)] : makeVisitSectionRow(key, form) }));
     }
   }
-  function updateSingleSection(key, patch) { setSectionData({ ...sectionData, [key]: { ...sectionData[key], ...patch } }); }
-  function updateRowInSection(key, idx, patch) { setSectionData({ ...sectionData, [key]: sectionData[key].map((r, i) => (i === idx ? { ...r, ...patch } : r)) }); }
-  function addRowToSection(key) { setSectionData({ ...sectionData, [key]: [...sectionData[key], makeVisitSectionRow(key, form)] }); }
+  function updateSingleSection(key, patch) { setSectionData((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } })); }
+  // ใช้ functional setState (prev =>) เสมอในนี้ กัน state เก่าค้าง (เช่น ถ่ายรูปให้ AI อ่านทันทีหลังเพิ่งเปิดหมวด
+  // ก่อนที่แถวแรกจะถูกสร้างเสร็จ) และกัน error ถ้าหมวดนั้นดันยังไม่มีแถวเลยด้วย fallback || []
+  function updateRowInSection(key, idx, patch) { setSectionData((prev) => ({ ...prev, [key]: (prev[key] || []).map((r, i) => (i === idx ? { ...r, ...patch } : r)) })); }
+  function addRowToSection(key) { setSectionData((prev) => ({ ...prev, [key]: [...(prev[key] || []), makeVisitSectionRow(key, form)] })); }
   function removeRowFromSection(key, idx) {
-    const rows = sectionData[key].filter((_, i) => i !== idx);
-    if (rows.length === 0) { toggleSection(key); } else { setSectionData({ ...sectionData, [key]: rows }); }
+    const rows = (sectionData[key] || []).filter((_, i) => i !== idx);
+    if (rows.length === 0) { toggleSection(key); } else { setSectionData((prev) => ({ ...prev, [key]: rows })); }
   }
 
   async function submitAll() {
