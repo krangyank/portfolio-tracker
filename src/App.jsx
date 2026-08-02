@@ -4760,6 +4760,35 @@ const VET_RECORD_TYPES = [
   { type: 'expenses', label: 'ค่าใช้จ่าย', getLabel: (r) => `${r.date} · ${r.category || ''}${r.hospital ? ' · ' + r.hospital : ''} · ฿${fmt(r.amount)}` },
 ];
 
+// เลือกรูปหลายรูปเก็บไว้ในเครื่องก่อน (ยังไม่อัพโหลด เพราะตัว "ครั้งที่ไปหาหมอ" ยังไม่ถูกสร้างจนกว่าจะกดบันทึกทั้งหมด)
+function VisitPhotoPicker({ files, onChange }) {
+  const fileRef = useRef(null);
+  const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
+  function handlePick(e) {
+    const picked = e.target.files && e.target.files[0];
+    if (picked) onChange([...files, picked]);
+    if (fileRef.current) fileRef.current.value = '';
+  }
+  return (
+    <div className="mt-1">
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePick} className="hidden" />
+      <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><Camera size={13} /> แนบรูปอาการ</button>
+      {previews.length > 0 && (
+        <div className="grid grid-cols-4 gap-1.5 mt-2">
+          {previews.map((url, idx) => (
+            <div key={idx} className="relative">
+              <button onClick={() => setLightboxUrl(url)} className="w-full block"><img src={url} alt="" className="w-full h-16 object-cover rounded-lg" /></button>
+              <button onClick={() => onChange(files.filter((_, i) => i !== idx))} style={{ background: 'rgba(0,0,0,0.5)' }} className="absolute top-0.5 right-0.5 rounded-full p-0.5"><Trash2 size={10} color="white" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+      <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+    </div>
+  );
+}
+
 const VISIT_SECTION_DEFS = [
   { key: 'appointment', label: 'นัดหมาย', icon: '📅', field: 'appointments', multi: false },
   { key: 'weight', label: 'ชั่งน้ำหนัก', icon: '⚖️', field: 'weights', multi: false },
@@ -4788,6 +4817,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
   const [activeSections, setActiveSections] = useState([]); // array of VISIT_SECTION_DEFS keys
   const [sectionData, setSectionData] = useState({}); // key -> object (single) or array of objects (multi)
   const [sectionPhotos, setSectionPhotos] = useState({}); // key -> File (แนบรูปเดียวต่อหมวด ผูกเข้ากับทุกรายการที่สร้างในหมวดนั้น)
+  const [visitPhotos, setVisitPhotos] = useState([]); // File[] — รูปอาการที่ผูกกับ "ครั้งที่ไปหาหมอ" นี้โดยตรง ไม่ใช่ของหมวดย่อยใดหมวดหนึ่ง
   const [submitting, setSubmitting] = useState(false);
   const visits = [...(dog.vetVisits || [])].sort((a, b) => b.date.localeCompare(a.date));
   const list = hospitalList || [];
@@ -4824,6 +4854,13 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
           try { uploadedPhotos[def.key] = await onUploadRecordPhoto(dog.id, def.field, sectionPhotos[def.key]); } catch (e) { /* ข้ามรูปที่อัพโหลดไม่สำเร็จ ยังบันทึกข้อมูลต่อได้ */ }
         }
       }
+      // อัพโหลดรูปอาการที่ผูกกับตัวครั้งไปหาหมอเองโดยตรง
+      const uploadedVisitPhotos = [];
+      if (onUploadRecordPhoto) {
+        for (const file of visitPhotos) {
+          try { uploadedVisitPhotos.push(await onUploadRecordPhoto(dog.id, 'vetVisits', file)); } catch (e) { /* ข้ามรูปที่อัพโหลดไม่สำเร็จ */ }
+        }
+      }
       const visitId = uid();
       const linkedRecords = [];
       const patch = {};
@@ -4835,10 +4872,10 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
         const newEntries = rows.map((row) => { const id = uid(); linkedRecords.push({ type: def.field, id }); return { id, ...row, ...(photo ? { photos: [photo] } : {}) }; });
         patch[def.field] = [...newEntries, ...existing];
       });
-      patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, reason: form.reason, cost: form.cost, linkedRecords }, ...(dog.vetVisits || [])];
+      patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, reason: form.reason, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
       onUpdateDog(dog.id, patch);
       setForm({ date: new Date().toISOString().slice(0, 10), hospital: '', reason: '', cost: 0 });
-      setActiveSections([]); setSectionData({}); setSectionPhotos({});
+      setActiveSections([]); setSectionData({}); setSectionPhotos({}); setVisitPhotos([]);
       setShowAddForm(false);
     } finally { setSubmitting(false); }
   }
@@ -4936,7 +4973,9 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
           <label className="text-[10px]" style={{ color: SLATE }}>เหตุผลที่ไป</label>
           <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="เช่น ตรวจติดตามอาการต่อมไร้ท่อ" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
           <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่ายรวมครั้งนี้ (ไม่บังคับ)</label>
-          <NumInput value={form.cost} onChange={(v) => setForm({ ...form, cost: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
+          <NumInput value={form.cost} onChange={(v) => setForm({ ...form, cost: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
+          <label className="text-[10px]" style={{ color: SLATE }}>รูปอาการ (เช่น ถ่ายแผล/จุดที่เป็น)</label>
+          <VisitPhotoPicker files={visitPhotos} onChange={setVisitPhotos} />
         </Card>
 
         <Card>
@@ -5074,7 +5113,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, weigherList, me
 
           <div className="flex gap-2">
             <button onClick={submitAll} disabled={submitting} style={{ background: INK }} className="text-white text-sm rounded-lg py-2.5 flex-1 font-semibold flex items-center justify-center gap-2">{submitting && <Loader2 size={14} className="animate-spin" />}{submitting ? 'กำลังบันทึก...' : 'บันทึกทั้งหมด'}</button>
-            <button onClick={() => { setShowAddForm(false); setActiveSections([]); setSectionData({}); }} style={{ border: '1px solid #E7EAF0' }} className="text-sm rounded-lg py-2.5 px-4">ยกเลิก</button>
+            <button onClick={() => { setShowAddForm(false); setActiveSections([]); setSectionData({}); setVisitPhotos([]); }} style={{ border: '1px solid #E7EAF0' }} className="text-sm rounded-lg py-2.5 px-4">ยกเลิก</button>
           </div>
         </Card>
         </>
