@@ -1505,27 +1505,54 @@ function buildAppointmentShareText(dog, appt) {
 }
 // แชร์ข้อความ+รูปผ่านเมนูแชร์ของเครื่อง (รองรับ LINE/Messenger/อีเมล ฯลฯ) ถ้าเครื่องไม่รองรับ fallback ไปเปิด LINE ด้วยข้อความอย่างเดียว
 async function shareContent(text, photoUrls) {
+  const result = { ok: false, sharedWithPhotos: false, error: null, requestedPhotoCount: (photoUrls || []).length, attachedPhotoCount: 0 };
   try {
     if (navigator.share) {
       let files = [];
-      if (photoUrls && photoUrls.length && navigator.canShare) {
+      if (photoUrls && photoUrls.length) {
         for (const url of photoUrls.slice(0, 8)) {
           try {
             const res = await fetch(url);
+            if (!res.ok) throw new Error(`โหลดรูปไม่สำเร็จ (${res.status})`);
             const blob = await res.blob();
             files.push(new File([blob], `photo_${files.length + 1}.jpg`, { type: blob.type || 'image/jpeg' }));
-          } catch (e) { /* ข้ามรูปที่โหลดไม่ได้ */ }
+          } catch (e) { console.error('share: photo fetch failed', url, e); }
         }
       }
-      if (files.length && navigator.canShare({ files })) {
+      result.attachedPhotoCount = files.length;
+      const canShareFiles = files.length > 0 && navigator.canShare && navigator.canShare({ files });
+      if (canShareFiles) {
         await navigator.share({ text, files });
+        result.ok = true; result.sharedWithPhotos = true;
       } else {
+        if (files.length === 0 && (photoUrls || []).length > 0) console.error('share: no photos could be attached, device/browser may not support file sharing');
         await navigator.share({ text });
+        result.ok = true; result.sharedWithPhotos = false;
       }
     } else {
       window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`, '_blank');
+      result.ok = true; result.sharedWithPhotos = false;
+      if ((photoUrls || []).length > 0) console.error('share: device has no Web Share API, opened LINE text-only — photos need manual download');
     }
-  } catch (e) { /* ผู้ใช้กดยกเลิก หรือแชร์ไม่สำเร็จ — เงียบไว้ */ }
+  } catch (e) {
+    if (e && e.name === 'AbortError') { result.ok = true; /* ผู้ใช้กดยกเลิกเอง ไม่ถือเป็น error */ }
+    else { console.error('share failed', e); result.error = e.message || String(e); }
+  }
+  return result;
+}
+// ดาวน์โหลดรูปทีละใบไว้ในเครื่อง เผื่อกรณีอุปกรณ์ไม่รองรับการแชร์ไฟล์รูปโดยตรง จะได้เอาไปแนบเองใน LINE ได้
+async function downloadPhotos(photoUrls) {
+  for (let i = 0; i < (photoUrls || []).length; i++) {
+    try {
+      const res = await fetch(photoUrls[i]);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl; a.download = `photo_${i + 1}.jpg`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) { console.error('download photo failed', photoUrls[i], e); }
+  }
 }
 
 function Lightbox({ url, onClose }) {
@@ -5012,6 +5039,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
   const [syncingId, setSyncingId] = useState(null);
   const [syncResult, setSyncResult] = useState({});
   const [editingAppt, setEditingAppt] = useState(null);
+  const [shareStatus, setShareStatus] = useState({}); // { [apptId]: { loading, message, failedPhotoUrls, isError } }
   const slipFileRef = useRef(null);
   const [scanningSlip, setScanningSlip] = useState(false);
   const [scanSlipError, setScanSlipError] = useState('');
@@ -5119,10 +5147,32 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
             <div className="flex justify-between items-center">
               <div><p className="text-sm">{a.hospital} · {a.purpose}</p><p className="text-xs" style={{ color: d < 0 ? SLATE : GOOD }}>{a.date} {a.time} {d >= 0 && `(อีก ${d} วัน)`}</p></div>
               <div className="flex items-center gap-2">
-                <button onClick={() => shareContent(buildAppointmentShareText(dog, a), a.photos ? a.photos.map((p) => p.url) : [])}><Share2 size={14} color={BRASS} /></button>
+                <button onClick={async () => {
+                  const photoUrls = a.photos ? a.photos.map((p) => p.url) : [];
+                  setShareStatus((prev) => ({ ...prev, [a.id]: { loading: true } }));
+                  const res = await shareContent(buildAppointmentShareText(dog, a), photoUrls);
+                  if (res.error) setShareStatus((prev) => ({ ...prev, [a.id]: { loading: false, message: `แชร์ไม่สำเร็จ: ${res.error}`, failedPhotoUrls: photoUrls, isError: true } }));
+                  else if (photoUrls.length > 0 && !res.sharedWithPhotos) setShareStatus((prev) => ({ ...prev, [a.id]: { loading: false, message: `ส่งได้แค่ข้อความ อุปกรณ์นี้แนบรูปไม่ได้ — กดดาวน์โหลดรูปไว้แนบเองได้`, failedPhotoUrls: photoUrls, isError: false } }));
+                  else setShareStatus((prev) => ({ ...prev, [a.id]: null }));
+                }}><Share2 size={14} color={BRASS} /></button>
                 <EditButton onClick={() => setEditingAppt(a)} /><button onClick={() => onRemoveAppointment(dog.id, a.id)}><Trash2 size={14} color={BAD} /></button>
               </div>
             </div>
+            {shareStatus[a.id] && (
+              <div style={{ background: shareStatus[a.id].isError ? '#FBE3E1' : PAPER_DIM, borderRadius: 10 }} className="p-2 mt-2">
+                {shareStatus[a.id].loading ? (
+                  <p className="text-xs flex items-center gap-1.5" style={{ color: SLATE }}><Loader2 size={12} className="animate-spin" /> กำลังแชร์...</p>
+                ) : (
+                  <>
+                    <p className="text-xs mb-1.5" style={{ color: shareStatus[a.id].isError ? BAD : INK }}>{shareStatus[a.id].message}</p>
+                    <div className="flex items-center gap-3">
+                      {shareStatus[a.id].failedPhotoUrls && <button onClick={() => downloadPhotos(shareStatus[a.id].failedPhotoUrls)} className="text-xs font-semibold" style={{ color: BRASS }}>ดาวน์โหลดรูป</button>}
+                      <button onClick={() => setShareStatus((prev) => ({ ...prev, [a.id]: null }))} className="text-xs" style={{ color: SLATE }}>ปิด</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             {googleConnected && (
               <button onClick={() => syncToCalendar(a)} disabled={syncingId === a.id} className="flex items-center gap-1 text-[11px] mt-2" style={{ color: BRASS }}>
                 {syncingId === a.id ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />} เพิ่มลง Google Calendar
@@ -5610,6 +5660,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
   const [linkType, setLinkType] = useState(VET_RECORD_TYPES[0].type);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState(null);
+  const [shareStatus, setShareStatus] = useState(null); // { loading, message, failedPhotoUrls }
   const photoFileRef = useRef(null);
   const list = hospitalList || [];
   const linkedRecords = visit.linkedRecords || [];
@@ -5680,17 +5731,36 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
         <div className="flex justify-between items-center mb-2">
           <p className="text-base font-bold" style={{ color: INK }}>{visit.date}</p>
           <div className="flex items-center gap-3">
-            <button onClick={() => {
+            <button onClick={async () => {
               const allPhotoUrls = [...(visit.photos || []).map((p) => p.url)];
               (visit.linkedRecords || []).forEach((lr) => {
                 const record = (dog[lr.type] || []).find((r) => r.id === lr.id);
                 if (record && record.photos) allPhotoUrls.push(...record.photos.map((p) => p.url));
               });
-              shareContent(buildVetVisitShareText(dog, visit), allPhotoUrls);
+              setShareStatus({ loading: true });
+              const res = await shareContent(buildVetVisitShareText(dog, visit), allPhotoUrls);
+              if (res.error) setShareStatus({ loading: false, message: `แชร์ไม่สำเร็จ: ${res.error}`, failedPhotoUrls: allPhotoUrls, isError: true });
+              else if (allPhotoUrls.length > 0 && !res.sharedWithPhotos) setShareStatus({ loading: false, message: `ส่งได้แค่ข้อความ อุปกรณ์นี้แนบรูปพร้อมกัน ${allPhotoUrls.length} รูปไม่ได้ — กดดาวน์โหลดรูปไว้แนบเองได้`, failedPhotoUrls: allPhotoUrls, isError: false });
+              else setShareStatus(null);
             }}><Share2 size={16} color={BRASS} /></button>
             <button onClick={() => onRemoveVetVisit(visit.id)}><Trash2 size={16} color={BAD} /></button>
           </div>
         </div>
+        {shareStatus && (
+          <div style={{ background: shareStatus.isError ? '#FBE3E1' : PAPER_DIM, borderRadius: 10 }} className="p-2.5 mb-2">
+            {shareStatus.loading ? (
+              <p className="text-xs flex items-center gap-1.5" style={{ color: SLATE }}><Loader2 size={12} className="animate-spin" /> กำลังแชร์...</p>
+            ) : (
+              <>
+                <p className="text-xs mb-1.5" style={{ color: shareStatus.isError ? BAD : INK }}>{shareStatus.message}</p>
+                <div className="flex items-center gap-3">
+                  {shareStatus.failedPhotoUrls && <button onClick={() => downloadPhotos(shareStatus.failedPhotoUrls)} className="text-xs font-semibold" style={{ color: BRASS }}>ดาวน์โหลดรูปทั้งหมด</button>}
+                  <button onClick={() => setShareStatus(null)} className="text-xs" style={{ color: SLATE }}>ปิด</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <label className="text-[10px]" style={{ color: SLATE }}>วันที่ไป</label>
         <input type="date" value={visit.date} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { date: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label>
