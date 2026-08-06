@@ -1505,7 +1505,10 @@ function buildAppointmentShareText(dog, appt) {
 }
 // แชร์ข้อความ+รูปผ่านเมนูแชร์ของเครื่อง (รองรับ LINE/Messenger/อีเมล ฯลฯ) ถ้าเครื่องไม่รองรับ fallback ไปเปิด LINE ด้วยข้อความอย่างเดียว
 async function shareContent(text, photoUrls) {
-  const result = { ok: false, sharedWithPhotos: false, error: null, requestedPhotoCount: (photoUrls || []).length, attachedPhotoCount: 0 };
+  const result = { ok: false, sharedWithPhotos: false, error: null, requestedPhotoCount: (photoUrls || []).length, attachedPhotoCount: 0, textCopiedToClipboard: false };
+  // คัดลอกข้อความไว้ในคลิปบอร์ดเสมอ เผื่อไว้ก่อน — บางแอปปลายทาง (เช่น LINE) เวลาส่งรูป+ข้อความพร้อมกัน
+  // จะรับแค่รูปแล้วตัดข้อความทิ้งไปเงียบๆ (ข้อจำกัดของแอปปลายทางเอง แก้จากฝั่งเว็บเราไม่ได้ 100%)
+  try { await navigator.clipboard.writeText(text); result.textCopiedToClipboard = true; } catch (e) { console.error('clipboard copy failed', e); }
   try {
     if (navigator.share) {
       let files = [];
@@ -5157,6 +5160,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
                   const res = await shareContent(buildAppointmentShareText(dog, a), photoUrls);
                   if (res.error) setShareStatus((prev) => ({ ...prev, [a.id]: { loading: false, message: `แชร์ไม่สำเร็จ: ${res.error}`, failedPhotoUrls: photoUrls, isError: true } }));
                   else if (photoUrls.length > 0 && !res.sharedWithPhotos) setShareStatus((prev) => ({ ...prev, [a.id]: { loading: false, message: `ส่งได้แค่ข้อความ อุปกรณ์นี้แนบรูปไม่ได้ — กดดาวน์โหลดรูปไว้แนบเองได้`, failedPhotoUrls: photoUrls, isError: false } }));
+                  else if (res.sharedWithPhotos) setShareStatus((prev) => ({ ...prev, [a.id]: { loading: false, message: `ส่งรูปแล้ว — บางแอป (เช่น LINE) อาจไม่แปะข้อความสรุปมาด้วยตอนส่งพร้อมรูป ${res.textCopiedToClipboard ? 'ผมคัดลอกข้อความไว้ในคลิปบอร์ดให้แล้ว วางเพิ่มในแชทได้เลย' : ''}`, isError: false } }));
                   else setShareStatus((prev) => ({ ...prev, [a.id]: null }));
                 }}><Share2 size={14} color={BRASS} /></button>
                 <EditButton onClick={() => setEditingAppt(a)} /><button onClick={() => onRemoveAppointment(dog.id, a.id)}><Trash2 size={14} color={BAD} /></button>
@@ -5745,6 +5749,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
               const res = await shareContent(buildVetVisitShareText(dog, visit), allPhotoUrls);
               if (res.error) setShareStatus({ loading: false, message: `แชร์ไม่สำเร็จ: ${res.error}`, failedPhotoUrls: allPhotoUrls, isError: true });
               else if (allPhotoUrls.length > 0 && !res.sharedWithPhotos) setShareStatus({ loading: false, message: `ส่งได้แค่ข้อความ อุปกรณ์นี้แนบรูปพร้อมกัน ${allPhotoUrls.length} รูปไม่ได้ — กดดาวน์โหลดรูปไว้แนบเองได้`, failedPhotoUrls: allPhotoUrls, isError: false });
+              else if (res.sharedWithPhotos) setShareStatus({ loading: false, message: `ส่งรูปแล้ว — บางแอป (เช่น LINE) อาจไม่แปะข้อความสรุปมาด้วยตอนส่งพร้อมรูป ${res.textCopiedToClipboard ? 'ผมคัดลอกข้อความไว้ในคลิปบอร์ดให้แล้ว วางเพิ่มในแชทได้เลย' : ''}`, isError: false });
               else setShareStatus(null);
             }}><Share2 size={16} color={BRASS} /></button>
             <button onClick={() => onRemoveVetVisit(visit.id)}><Trash2 size={16} color={BAD} /></button>
