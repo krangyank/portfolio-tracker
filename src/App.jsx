@@ -1019,6 +1019,21 @@ export default function App() {
     if (doc && doc.path) { try { await deleteObject(storageRef(storage, doc.path)); } catch (e) { /* ignore */ } }
     updateDog(dogId, { insurance: { ...d.insurance, documents: (d.insurance.documents || []).filter((x) => x.id !== docId) } });
   }
+  // อัลบั้มรูปสำคัญของลูกๆ — ไม่ผูกกับบันทึกไหนเป็นพิเศษ เก็บได้เรื่อยๆ (Firebase Storage แบบจ่ายตามใช้จริง ไม่มีเพดานตายตัว)
+  async function addAlbumPhoto(dogId, file) {
+    const d = dogs.find((x) => x.id === dogId);
+    const path = `properties/${FAMILY_SHARE_ID}/pets/${dogId}/album/${Date.now()}_${file.name}`;
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    updateDog(dogId, { albumPhotos: [{ id: uid(), url, path, uploadedAt: new Date().toISOString().slice(0, 10) }, ...(d.albumPhotos || [])] });
+  }
+  async function removeAlbumPhoto(dogId, photoId) {
+    const d = dogs.find((x) => x.id === dogId);
+    const photo = (d.albumPhotos || []).find((x) => x.id === photoId);
+    if (photo && photo.path) { try { await deleteObject(storageRef(storage, photo.path)); } catch (e) { /* ignore */ } }
+    updateDog(dogId, { albumPhotos: (d.albumPhotos || []).filter((x) => x.id !== photoId) });
+  }
   async function setDogPhoto(dogId, file) {
     const d = dogs.find((x) => x.id === dogId);
     if (d && d.photoPath) { try { await deleteObject(storageRef(storage, d.photoPath)); } catch (e) { /* ignore */ } }
@@ -1338,7 +1353,7 @@ export default function App() {
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
           googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} doctorList={doctorList} onAddDoctor={addDoctor} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} medicationList={medicationList} onAddMedicationPreset={addMedicationPreset} onAddGenericCalendarEvent={addPropertyEventToCalendar} onAddMedicalPhoto={addMedicalPhoto} onRemoveMedicalPhoto={removeMedicalPhoto} onUploadRecordPhoto={uploadDogRecordPhoto} onAddPersonalExpense={addExpense} expenseCategories={expenseCategories}
-          onAddVetVisit={addVetVisit} onUpdateVetVisit={updateVetVisit} onRemoveVetVisit={removeVetVisit} onLinkRecordToVisit={linkRecordToVisit} onUnlinkRecordFromVisit={unlinkRecordFromVisit} onAddInsuranceDocument={addInsuranceDocument} onRemoveInsuranceDocument={removeInsuranceDocument} onCurrentPhotoChange={setHeaderPhotoOverride} onRunHealthInsight={runDogHealthInsight} departmentList={departmentList} onAddDepartment={addDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={setDoctorDepartment} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={addBloodTestType} organTypeList={organTypeList} onAddOrganType={addOrganType} imagingTypeList={imagingTypeList} onAddImagingType={addImagingType} onAddImagingWithOrgans={addImagingWithOrgans} />
+          onAddVetVisit={addVetVisit} onUpdateVetVisit={updateVetVisit} onRemoveVetVisit={removeVetVisit} onLinkRecordToVisit={linkRecordToVisit} onUnlinkRecordFromVisit={unlinkRecordFromVisit} onAddInsuranceDocument={addInsuranceDocument} onRemoveInsuranceDocument={removeInsuranceDocument} onCurrentPhotoChange={setHeaderPhotoOverride} onRunHealthInsight={runDogHealthInsight} departmentList={departmentList} onAddDepartment={addDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={setDoctorDepartment} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={addBloodTestType} organTypeList={organTypeList} onAddOrganType={addOrganType} imagingTypeList={imagingTypeList} onAddImagingType={addImagingType} onAddImagingWithOrgans={addImagingWithOrgans} onAddAlbumPhoto={addAlbumPhoto} onRemoveAlbumPhoto={removeAlbumPhoto} />
       )}
       {tab === 'realestate' && (
         <RealEstateTab properties={properties} onUpdate={updateProperty} onAdd={addProperty} onRemove={removeProperty}
@@ -1453,6 +1468,64 @@ function TypeSelectWithCustom({ options, value, onChange, onAddToList, className
 
 function EditButton({ onClick }) {
   return <button onClick={onClick} className="text-[11px] underline mr-2" style={{ color: BRASS }}>แก้ไข</button>;
+}
+
+// สรุปข้อมูล "ไปหาหมอ" ครั้งหนึ่งเป็นข้อความเต็ม รวมทุกรายการที่เชื่อมโยงไว้ (ผลเลือด/อวัยวะ/Imaging/น้ำหนัก/ยา/ค่าใช้จ่าย)
+function buildVetVisitShareText(dog, visit) {
+  const lines = [];
+  lines.push(`🐶 ${dog.name} — ไปหาหมอ`);
+  lines.push(`📅 วันที่: ${visit.date}`);
+  if (visit.hospital) lines.push(`🏥 โรงพยาบาล: ${visit.hospital}`);
+  if (visit.department) lines.push(`🚪 แผนก: ${visit.department}`);
+  if (visit.doctor) lines.push(`👨‍⚕️ สัตวแพทย์: ${visit.doctor}`);
+  if (visit.reason) lines.push(`📝 เหตุผลที่ไป: ${visit.reason}`);
+  if (visit.diagnosis) lines.push(`💬 ผลวินิจฉัย/การรักษา: ${visit.diagnosis}`);
+  if (visit.cost) lines.push(`💰 ค่าใช้จ่าย: ฿${fmt(visit.cost)}`);
+  const linked = visit.linkedRecords || [];
+  linked.forEach((lr) => {
+    const record = (dog[lr.type] || []).find((r) => r.id === lr.id);
+    if (!record) return;
+    if (lr.type === 'bloodTests') lines.push(`🩸 ตรวจเลือด (${record.type || ''}): ${record.note || '-'}`);
+    else if (lr.type === 'organExams') lines.push(`🫁 อวัยวะ (${record.organ || ''}): ${record.note || '-'}`);
+    else if (lr.type === 'imaging') lines.push(`🩻 ${record.type || 'Imaging'}: ${record.note || '-'}`);
+    else if (lr.type === 'weights') lines.push(`⚖️ น้ำหนัก: ${record.weight} กก.`);
+    else if (lr.type === 'medications') lines.push(`💊 ยา: ${record.name}${record.dose ? ' ' + record.dose : ''}`);
+    else if (lr.type === 'expenses') lines.push(`🧾 ค่าใช้จ่าย: ฿${fmt(record.amount)} (${record.category || ''})`);
+  });
+  return lines.join('\n');
+}
+function buildAppointmentShareText(dog, appt) {
+  const lines = [];
+  lines.push(`🐶 ${dog.name} — นัดหมาย`);
+  lines.push(`📅 วันนัด: ${appt.date}`);
+  if (appt.hospital) lines.push(`🏥 โรงพยาบาล: ${appt.hospital}`);
+  if (appt.doctor) lines.push(`👨‍⚕️ สัตวแพทย์: ${appt.doctor}`);
+  if (appt.purpose) lines.push(`📝 วัตถุประสงค์: ${appt.purpose}`);
+  return lines.join('\n');
+}
+// แชร์ข้อความ+รูปผ่านเมนูแชร์ของเครื่อง (รองรับ LINE/Messenger/อีเมล ฯลฯ) ถ้าเครื่องไม่รองรับ fallback ไปเปิด LINE ด้วยข้อความอย่างเดียว
+async function shareContent(text, photoUrls) {
+  try {
+    if (navigator.share) {
+      let files = [];
+      if (photoUrls && photoUrls.length && navigator.canShare) {
+        for (const url of photoUrls.slice(0, 8)) {
+          try {
+            const res = await fetch(url);
+            const blob = await res.blob();
+            files.push(new File([blob], `photo_${files.length + 1}.jpg`, { type: blob.type || 'image/jpeg' }));
+          } catch (e) { /* ข้ามรูปที่โหลดไม่ได้ */ }
+        }
+      }
+      if (files.length && navigator.canShare({ files })) {
+        await navigator.share({ text, files });
+      } else {
+        await navigator.share({ text });
+      }
+    } else {
+      window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`, '_blank');
+    }
+  } catch (e) { /* ผู้ใช้กดยกเลิก หรือแชร์ไม่สำเร็จ — เงียบไว้ */ }
 }
 
 function Lightbox({ url, onClose }) {
@@ -3599,7 +3672,7 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans }) {
+function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
   const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
@@ -3626,6 +3699,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
     { id: 'vetvisits', label: 'ไปหาหมอ', icon: Stethoscope },
     { id: 'records', label: 'ผลตรวจ', icon: ClipboardList },
     { id: 'expenses', label: 'ค่าใช้จ่าย', icon: Receipt },
+    { id: 'album', label: 'อัลบั้ม', icon: Camera },
     { id: 'allreport', label: 'รายงานรวม', icon: BarChart3 },
   ];
 
@@ -3701,6 +3775,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddImagingWithOrgans={onAddImagingWithOrgans} />}
           {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} />}
+          {section === 'album' && <DogAlbumSection dog={dog} onAddAlbumPhoto={onAddAlbumPhoto} onRemoveAlbumPhoto={onRemoveAlbumPhoto} />}
         </>
       )}
     </div>
@@ -5043,7 +5118,10 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
           <Card key={a.id}>
             <div className="flex justify-between items-center">
               <div><p className="text-sm">{a.hospital} · {a.purpose}</p><p className="text-xs" style={{ color: d < 0 ? SLATE : GOOD }}>{a.date} {a.time} {d >= 0 && `(อีก ${d} วัน)`}</p></div>
-              <div className="flex items-center gap-2"><EditButton onClick={() => setEditingAppt(a)} /><button onClick={() => onRemoveAppointment(dog.id, a.id)}><Trash2 size={14} color={BAD} /></button></div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => shareContent(buildAppointmentShareText(dog, a), a.photos ? a.photos.map((p) => p.url) : [])}><Share2 size={14} color={BRASS} /></button>
+                <EditButton onClick={() => setEditingAppt(a)} /><button onClick={() => onRemoveAppointment(dog.id, a.id)}><Trash2 size={14} color={BAD} /></button>
+              </div>
             </div>
             {googleConnected && (
               <button onClick={() => syncToCalendar(a)} disabled={syncingId === a.id} className="flex items-center gap-1 text-[11px] mt-2" style={{ color: BRASS }}>
@@ -5601,7 +5679,17 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
       <Card>
         <div className="flex justify-between items-center mb-2">
           <p className="text-base font-bold" style={{ color: INK }}>{visit.date}</p>
-          <button onClick={() => onRemoveVetVisit(visit.id)}><Trash2 size={16} color={BAD} /></button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => {
+              const allPhotoUrls = [...(visit.photos || []).map((p) => p.url)];
+              (visit.linkedRecords || []).forEach((lr) => {
+                const record = (dog[lr.type] || []).find((r) => r.id === lr.id);
+                if (record && record.photos) allPhotoUrls.push(...record.photos.map((p) => p.url));
+              });
+              shareContent(buildVetVisitShareText(dog, visit), allPhotoUrls);
+            }}><Share2 size={16} color={BRASS} /></button>
+            <button onClick={() => onRemoveVetVisit(visit.id)}><Trash2 size={16} color={BAD} /></button>
+          </div>
         </div>
         <label className="text-[10px]" style={{ color: SLATE }}>วันที่ไป</label>
         <input type="date" value={visit.date} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { date: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
@@ -5956,6 +6044,42 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
           onSave={(v) => { onUpdateImaging(dog.id, editingIm.id, v); setEditingIm(null); }}
         />
       )}
+    </div>
+  );
+}
+
+// อัลบั้มรูปสำคัญของลูกๆ — ไม่ผูกกับบันทึกไหนเป็นพิเศษ ถ่าย/เลือกได้หลายรูป
+function DogAlbumSection({ dog, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
+  async function handleFile(e) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try { for (const file of files) await onAddAlbumPhoto(dog.id, file); } catch (err) { /* เงียบไว้ */ }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
+  }
+  const photos = dog.albumPhotos || [];
+  return (
+    <div>
+      <Card>
+        <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFile} className="hidden" />
+        <button onClick={() => fileRef.current && fileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 mb-3">{uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color="#FBBF24" />}{uploading ? 'กำลังอัพโหลด...' : 'เพิ่มรูป (เลือกได้หลายรูป)'}</button>
+        {photos.length === 0 ? (
+          <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีรูปในอัลบั้ม</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {photos.map((ph) => (
+              <div key={ph.id} className="relative">
+                <button onClick={() => setLightboxUrl(ph.url)} className="w-full block"><img src={ph.url} alt="" className="w-full h-24 object-cover rounded-lg" /></button>
+                <button onClick={() => onRemoveAlbumPhoto(dog.id, ph.id)} style={{ background: 'rgba(0,0,0,0.5)' }} className="absolute top-1 right-1 rounded-full p-1"><Trash2 size={12} color="white" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </div>
   );
 }
