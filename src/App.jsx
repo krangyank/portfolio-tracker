@@ -1542,17 +1542,21 @@ async function shareContent(text, photoUrls) {
 }
 // ดาวน์โหลดรูปทีละใบไว้ในเครื่อง เผื่อกรณีอุปกรณ์ไม่รองรับการแชร์ไฟล์รูปโดยตรง จะได้เอาไปแนบเองใน LINE ได้
 async function downloadPhotos(photoUrls) {
+  let success = 0; let failed = 0;
   for (let i = 0; i < (photoUrls || []).length; i++) {
     try {
       const res = await fetch(photoUrls[i]);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl; a.download = `photo_${i + 1}.jpg`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
-    } catch (e) { console.error('download photo failed', photoUrls[i], e); }
+      success++;
+    } catch (e) { console.error('download photo failed', photoUrls[i], e); failed++; }
   }
+  return { success, failed };
 }
 
 function Lightbox({ url, onClose }) {
@@ -5166,7 +5170,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
                   <>
                     <p className="text-xs mb-1.5" style={{ color: shareStatus[a.id].isError ? BAD : INK }}>{shareStatus[a.id].message}</p>
                     <div className="flex items-center gap-3">
-                      {shareStatus[a.id].failedPhotoUrls && <button onClick={() => downloadPhotos(shareStatus[a.id].failedPhotoUrls)} className="text-xs font-semibold" style={{ color: BRASS }}>ดาวน์โหลดรูป</button>}
+                      {shareStatus[a.id].failedPhotoUrls && <button onClick={async () => { const r = await downloadPhotos(shareStatus[a.id].failedPhotoUrls); setShareStatus((prev) => ({ ...prev, [a.id]: { loading: false, message: r.success > 0 ? `ดาวน์โหลดสำเร็จ ${r.success} รูป` : `ดาวน์โหลดไม่สำเร็จเลยสักรูป — น่าจะเป็นปัญหาการตั้งค่าเซิร์ฟเวอร์รูปภาพ (CORS)`, isError: r.success === 0 } })); }} className="text-xs font-semibold" style={{ color: BRASS }}>ดาวน์โหลดรูป</button>}
                       <button onClick={() => setShareStatus((prev) => ({ ...prev, [a.id]: null }))} className="text-xs" style={{ color: SLATE }}>ปิด</button>
                     </div>
                   </>
@@ -5754,7 +5758,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
               <>
                 <p className="text-xs mb-1.5" style={{ color: shareStatus.isError ? BAD : INK }}>{shareStatus.message}</p>
                 <div className="flex items-center gap-3">
-                  {shareStatus.failedPhotoUrls && <button onClick={() => downloadPhotos(shareStatus.failedPhotoUrls)} className="text-xs font-semibold" style={{ color: BRASS }}>ดาวน์โหลดรูปทั้งหมด</button>}
+                  {shareStatus.failedPhotoUrls && <button onClick={async () => { const r = await downloadPhotos(shareStatus.failedPhotoUrls); setShareStatus({ loading: false, message: r.success > 0 ? `ดาวน์โหลดสำเร็จ ${r.success} รูป` : `ดาวน์โหลดไม่สำเร็จเลยสักรูป — น่าจะเป็นปัญหาการตั้งค่าเซิร์ฟเวอร์รูปภาพ (CORS) ต้องแก้ที่ตั้งค่า Firebase Storage`, isError: r.success === 0 }); }} className="text-xs font-semibold" style={{ color: BRASS }}>ดาวน์โหลดรูปทั้งหมด</button>}
                   <button onClick={() => setShareStatus(null)} className="text-xs" style={{ color: SLATE }}>ปิด</button>
                 </div>
               </>
