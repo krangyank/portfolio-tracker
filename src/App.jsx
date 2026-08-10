@@ -1176,6 +1176,10 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { medications: (d.medications || []).map((m) => (m.id === medId ? { ...m, ...patch } : m)) });
   }
+  function removeMedication(dogId, medId) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { medications: (d.medications || []).filter((m) => m.id !== medId) });
+  }
   function logFleaTick(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { fleaTickHistory: [{ id: uid(), ...entry }, ...(d.fleaTickHistory || [])], fleaTick: { ...d.fleaTick, lastGivenDate: entry.date } });
@@ -1419,7 +1423,7 @@ export default function App() {
           onAddCreditCardTransaction={addCreditCardTransaction} onRemoveCreditCardTransaction={removeCreditCardTransaction} onUpdateCreditCardTransaction={updateCreditCardTransaction} onMatchCreditCard={matchCreditCard} />}
       {tab === 'pets' && (
         <PetsTab dogs={dogs} onUpdateDog={updateDog} onCopyToMultipleDogs={copyToMultipleDogs} onAddWeight={addWeight} onRemoveWeight={removeWeight} onUpdateWeight={updateWeight}
-          onAddMedication={addMedication} onUpdateMedication={updateMedication} onLogFleaTick={logFleaTick} onRemoveFleaTickHistory={removeFleaTickHistory} onUpdateFleaTickHistory={updateFleaTickHistory} onUpdateFleaTickInfo={updateFleaTickInfo}
+          onAddMedication={addMedication} onUpdateMedication={updateMedication} onRemoveMedication={removeMedication} onLogFleaTick={logFleaTick} onRemoveFleaTickHistory={removeFleaTickHistory} onUpdateFleaTickHistory={updateFleaTickHistory} onUpdateFleaTickInfo={updateFleaTickInfo}
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
           googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} doctorList={doctorList} onAddDoctor={addDoctor} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} medicationList={medicationList} onAddMedicationPreset={addMedicationPreset} onAddGenericCalendarEvent={addPropertyEventToCalendar} onAddMedicalPhoto={addMedicalPhoto} onRemoveMedicalPhoto={removeMedicalPhoto} onUploadRecordPhoto={uploadDogRecordPhoto} onAddPersonalExpense={addExpense} expenseCategories={expenseCategories}
@@ -3844,7 +3848,7 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
+function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onRemoveMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
   const [showAllAppointments, setShowAllAppointments] = useState(false);
@@ -3942,7 +3946,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'overview' && <DogOverviewSection dog={dog} setSection={setSection} onRunHealthInsight={onRunHealthInsight} />}
           {section === 'profile' && <DogProfileSection dog={dog} onUpdateDog={onUpdateDog} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
           {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} onUpdateWeight={onUpdateWeight} hospitalList={hospitalList} onAddHospital={onAddHospital} weigherList={weigherList} onAddWeigher={onAddWeigher} onUploadRecordPhoto={onUploadRecordPhoto} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} />}
-          {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUploadRecordPhoto={onUploadRecordPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} doctorList={doctorList} onAddDoctor={onAddDoctor} />}
+          {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} onRemoveMedication={onRemoveMedication} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUploadRecordPhoto={onUploadRecordPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} doctorList={doctorList} onAddDoctor={onAddDoctor} hospitalList={hospitalList} onAddHospital={onAddHospital} />}
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onRemoveFleaTickHistory={onRemoveFleaTickHistory} onUpdateFleaTickHistory={onUpdateFleaTickHistory} onUpdateFleaTickInfo={onUpdateFleaTickInfo} googleConnected={googleConnected} onAddGenericCalendarEvent={onAddGenericCalendarEvent} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} onAddInsuranceDocument={onAddInsuranceDocument} onRemoveInsuranceDocument={onRemoveInsuranceDocument} />}
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
@@ -4828,7 +4832,7 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, ho
   );
 }
 
-function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, medicationList, onAddMedicationPreset, onUploadRecordPhoto, doctorList, onAddDoctor }) {
+function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemoveMedication, medicationList, onAddMedicationPreset, onUploadRecordPhoto, doctorList, onAddDoctor, hospitalList, onAddHospital }) {
   const [form, setForm] = useState({ name: '', strength: '', form: '', dose: '', usage: '', timing: '', startDate: new Date().toISOString().slice(0, 10), startReason: '', hospital: '', doctor: '' });
   const [editingMed, setEditingMed] = useState(null);
   const [selectedPreset, setSelectedPreset] = useState('');
@@ -4910,10 +4914,11 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, medica
             </select>
           </div>
         )}
-        {['name:ชื่อยา', 'strength:ความแรง', 'form:รูปแบบยา', 'dose:ขนาดยา/จำนวน', 'usage:วิธีใช้', 'timing:เวลาใช้ (ก่อน/หลังอาหาร)', 'startReason:เหตุผลที่เริ่ม', 'hospital:โรงพยาบาล'].map((f) => {
+        {['name:ชื่อยา', 'strength:ความแรง', 'form:รูปแบบยา', 'dose:ขนาดยา/จำนวน', 'usage:วิธีใช้', 'timing:เวลาใช้ (ก่อน/หลังอาหาร)', 'startReason:เหตุผลที่เริ่ม'].map((f) => {
           const [k, l] = f.split(':');
           return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>;
         })}
+        <div className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label><MemoTextField list={hospitalList} value={form.hospital} onChange={(v) => setForm({ ...form, hospital: v })} onAddToList={onAddHospital} placeholder="ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <div className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>หมอผู้สั่ง</label><MemoTextField list={doctorList} value={form.doctor} onChange={(v) => setForm({ ...form, doctor: v })} onAddToList={onAddDoctor} placeholder="ชื่อสัตวแพทย์" className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <div className="mb-3"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่ม</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <button onClick={submit} disabled={saving} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">{saving && <Loader2 size={14} className="animate-spin" />} บันทึกยา</button>
@@ -4931,6 +4936,7 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, medica
             <div className="flex items-center gap-2">
               {!m.stopDate && <span className="text-[10px] rounded-full px-2 py-1" style={{ background: PAPER_DIM, color: GOOD }}>กำลังใช้</span>}
               <EditButton onClick={() => setEditingMed(m)} />
+              <button onClick={() => onRemoveMedication(dog.id, m.id)}><Trash2 size={14} color={BAD} /></button>
             </div>
           </div>
           {!m.stopDate && (
