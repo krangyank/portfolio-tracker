@@ -1915,7 +1915,7 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
           {upcomingEvents.map((e, i) => (
             <div key={i} className="flex items-center gap-3 py-2" style={{ borderTop: i > 0 ? `1px solid #E7EAF0` : 'none' }}>
               <div style={{ background: e.tone === 'warn' ? WARN : '#2563EB' }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
-              <span className="text-xs w-16 flex-shrink-0" style={{ color: SLATE }}>{e.date}</span>
+              <span className="text-xs w-16 flex-shrink-0" style={{ color: SLATE }}>{formatDateDMY(e.date)}</span>
               <span className="text-sm flex-1" style={{ color: INK }}>{e.label}</span>
             </div>
           ))}
@@ -3847,6 +3847,7 @@ function computeDogInsights(dog) {
 function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
   const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
   const [section, setSection] = useState('overview');
+  const [showAllAppointments, setShowAllAppointments] = useState(false);
   const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
   useEffect(() => { if (onCurrentPhotoChange) onCurrentPhotoChange(dog?.photoUrl || null); }, [dog?.photoUrl, dog?.id]);
   const photoFileRef = useRef(null);
@@ -3895,6 +3896,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           </button>
         ))}
       </div>
+      <button onClick={() => setShowAllAppointments(true)} className="flex items-center gap-1.5 text-xs font-semibold mb-4" style={{ color: BRASS }}><Calendar size={14} /> นัดหมายรวมทุกตัว</button>
 
       {dog && (
         <Card>
@@ -3950,6 +3952,59 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'album' && <DogAlbumSection dog={dog} onAddAlbumPhoto={onAddAlbumPhoto} onRemoveAlbumPhoto={onRemoveAlbumPhoto} />}
         </>
       )}
+      {showAllAppointments && (
+        <AllDogsAppointmentsOverlay dogs={dogs} onClose={() => setShowAllAppointments(false)} onJumpTo={(dogId) => { setSelectedId(dogId); setSection('appt'); setShowAllAppointments(false); }} />
+      )}
+    </div>
+  );
+}
+
+// นัดหมายรวมทุกตัว — ไม่ต้องเปิดทีละตัวเพื่อดู เรียงตามวันที่ใกล้สุด ไม่จำกัดจำนวน/ไม่จำกัดช่วงเวลา
+function AllDogsAppointmentsOverlay({ dogs, onClose, onJumpTo }) {
+  const items = [];
+  (dogs || []).forEach((d) => {
+    (d.appointments || []).forEach((a) => {
+      const d_ = daysUntil(a.date);
+      items.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: a.date, time: a.time, purpose: a.purpose, hospital: a.hospital, isPast: d_ !== null && d_ < 0 });
+    });
+  });
+  items.sort((a, b) => a.date.localeCompare(b.date));
+  const upcoming = items.filter((it) => !it.isPast);
+  const past = items.filter((it) => it.isPast);
+  return (
+    <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
+      <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">นัดหมายรวมทุกตัว</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
+        {items.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีนัดหมายบันทึกไว้เลย</p>}
+        {upcoming.length > 0 && <p className="text-[11px] font-bold mb-2" style={{ color: SLATE }}>กำลังจะถึง</p>}
+        {upcoming.map((it, i) => {
+          const d_ = daysUntil(it.date);
+          return (
+            <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
+              {it.dogPhoto ? <img src={it.dogPhoto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" /> : <div style={{ background: PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"><Dog size={16} color={SLATE} /></div>}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold" style={{ color: INK }}>{it.dogName}{it.purpose ? ` — ${it.purpose}` : ''}</p>
+                <p className="text-xs" style={{ color: d_ <= 3 ? BAD : GOOD }}>{formatDateDMY(it.date)} {it.time} {d_ >= 0 && `(อีก ${d_} วัน)`}{it.hospital ? ` · ${it.hospital}` : ''}</p>
+              </div>
+              <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+            </button>
+          );
+        })}
+        {past.length > 0 && (
+          <>
+            <p className="text-[11px] font-bold mb-2 mt-4" style={{ color: SLATE }}>ผ่านมาแล้ว</p>
+            {[...past].reverse().map((it, i) => (
+              <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', opacity: 0.6 }}>
+                {it.dogPhoto ? <img src={it.dogPhoto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" /> : <div style={{ background: PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"><Dog size={16} color={SLATE} /></div>}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold" style={{ color: INK }}>{it.dogName}{it.purpose ? ` — ${it.purpose}` : ''}</p>
+                  <p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(it.date)} {it.time}{it.hospital ? ` · ${it.hospital}` : ''}</p>
+                </div>
+              </button>
+            ))}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -4963,6 +5018,7 @@ function parseFraction(s) {
     setSyncingReminder(true);
     const r = await onAddGenericCalendarEvent(`ถึงรอบให้ยา ${ft.productName || 'เห็บหมัด/พยาธิ'}: ${dog.name}`, `ให้ยาครั้งถัดไปของ ${dog.name}`, nextDue, reminderDays);
     setReminderSyncMsg(r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}`);
+    if (r.ok) onUpdateFleaTickInfo(dog.id, { lastReminderSyncedDate: nextDue });
     setSyncingReminder(false);
   }
 
@@ -5019,7 +5075,7 @@ function parseFraction(s) {
         {googleConnected && nextDue && (
           <button onClick={syncReminderToCalendar} disabled={syncingReminder} className="flex items-center gap-1 text-xs mb-1" style={{ color: BRASS }}>{syncingReminder ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />} เพิ่มเตือนรอบถัดไปลง Google Calendar</button>
         )}
-        {reminderSyncMsg && <p className="text-[11px] mb-2" style={{ color: reminderSyncMsg.includes('สำเร็จ') ? GOOD : BAD }}>{reminderSyncMsg}</p>}
+        {reminderSyncMsg ? <p className="text-[11px] mb-2" style={{ color: reminderSyncMsg.includes('สำเร็จ') ? GOOD : BAD }}>{reminderSyncMsg}</p> : (ft.lastReminderSyncedDate === nextDue && nextDue && <p className="text-[11px] mb-2" style={{ color: GOOD }}>เพิ่มลงปฏิทินไว้แล้ว ✓</p>)}
         <CopyToOthersButton dogs={dogs} currentDogId={dog.id} label="ข้อมูลเห็บหมัด/พยาธิ" onCopy={(ids) => onCopyToMultipleDogs(ids, (targetDog) => ({ fleaTick: { ...targetDog.fleaTick, ...ft } }))} />
         <p className="text-[10px]" style={{ color: WARN }}>⚠️ หากแบ่งเม็ดยาเอง ควรเป็นไปตามคำแนะนำของสัตวแพทย์และข้อมูลผู้ผลิตเท่านั้น ยาบางชนิดไม่เหมาะกับการแบ่งเม็ด ระบบนี้ไม่ได้คำนวณขนาดยาที่ถูกต้องให้ กรุณาให้ตามที่สัตวแพทย์สั่งเท่านั้น</p>
       </Card>
@@ -5261,6 +5317,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
     setSyncingId(a.id);
     const result = await onAddToCalendar(dog.name, a);
     setSyncResult({ ...syncResult, [a.id]: result });
+    if (result.ok) onUpdateAppointment(dog.id, a.id, { calendarSynced: true });
     setSyncingId(null);
   }
   const appts = [...(dog.appointments || [])].sort((a, b) => a.date.localeCompare(b.date));
@@ -5317,7 +5374,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
         return (
           <Card key={a.id}>
             <div className="flex justify-between items-center">
-              <div><p className="text-sm">{a.hospital} · {a.purpose}</p><p className="text-xs" style={{ color: d < 0 ? SLATE : GOOD }}>{a.date} {a.time} {d >= 0 && `(อีก ${d} วัน)`}</p></div>
+              <div><p className="text-sm">{a.hospital} · {a.purpose}</p><p className="text-xs" style={{ color: d < 0 ? SLATE : GOOD }}>{formatDateDMY(a.date)} {a.time} {d >= 0 && `(อีก ${d} วัน)`}</p></div>
               <div className="flex items-center gap-2">
                 <button onClick={async () => {
                   const photoUrls = a.photos ? a.photos.map((p) => p.url) : [];
@@ -5348,10 +5405,10 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
             )}
             {googleConnected && (
               <button onClick={() => syncToCalendar(a)} disabled={syncingId === a.id} className="flex items-center gap-1 text-[11px] mt-2" style={{ color: BRASS }}>
-                {syncingId === a.id ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />} เพิ่มลง Google Calendar
+                {syncingId === a.id ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />} {a.calendarSynced ? 'เพิ่มลง Google Calendar อีกครั้ง' : 'เพิ่มลง Google Calendar'}
               </button>
             )}
-            {result && (result.ok ? <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินสำเร็จ ✓</p> : <p className="text-[11px] mt-1" style={{ color: BAD }}>ไม่สำเร็จ: {result.message}</p>)}
+            {result ? (result.ok ? <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินสำเร็จ ✓</p> : <p className="text-[11px] mt-1" style={{ color: BAD }}>ไม่สำเร็จ: {result.message}</p>) : (a.calendarSynced && <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินไว้แล้ว ✓</p>)}
             {onAddMedicalPhoto && <MedicalPhotoAttach record={a} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'appointments', a.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'appointments', a.id, pid)} />}
           </Card>
         );
