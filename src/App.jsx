@@ -922,6 +922,43 @@ export default function App() {
     updateAccount(accountId, { holdings: nextHoldings });
     contributionsToAdd.forEach((c) => addContribution(c));
   }
+  // แปะรูปประวัติคำสั่งซื้อ-ขายที่มีหลายกองทุนปนกันในภาพเดียว — บันทึกซื้อเพิ่ม/ขายให้ทุกกองทุนที่จับคู่ไว้พร้อมกันในการเขียนครั้งเดียว
+  function recordBuySellBatch(accountId, entries) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const nextHoldings = acc.holdings.map((h) => {
+      const matches = entries.filter((e) => e.holdingId === h.id);
+      if (matches.length === 0) return h;
+      let shares = Number(h.shares || 0);
+      let avgCost = Number(h.avgCost || 0);
+      let purchaseFx = h.purchaseFx;
+      let buys = h.buys || [];
+      let sells = h.sells || [];
+      matches.forEach((e) => {
+        const price = e.price ? Number(e.price) : (Number(h.currentPrice || h.avgCost || 0));
+        const eShares = e.shares ? Number(e.shares) : (price > 0 ? Number(e.amount) / price : 0);
+        if (e.type === 'sell') {
+          if (eShares > 0) {
+            const costBasisSold = eShares * avgCost;
+            sells = [{ id: uid(), date: e.date, shares: eShares, price, amount: Number(e.amount), gain: Number(e.amount) - costBasisSold, currency: h.currency }, ...sells];
+            shares = Math.max(0, shares - eShares);
+          }
+        } else {
+          const newShares = shares + eShares;
+          const newAvgCost = newShares > 0 ? (shares * avgCost + eShares * price) / newShares : avgCost;
+          if (h.currency === 'USD') {
+            const oldTotalTHB = shares * avgCost * Number(purchaseFx || 1);
+            const newTotalTHB = oldTotalTHB + Number(e.amount);
+            const newTotalForeignCost = newShares * newAvgCost;
+            purchaseFx = newTotalForeignCost > 0 ? newTotalTHB / newTotalForeignCost : purchaseFx;
+          }
+          buys = [{ id: uid(), date: e.date, shares: eShares, price, amount: Number(e.amount) }, ...buys];
+          shares = newShares; avgCost = newAvgCost;
+        }
+      });
+      return { ...h, shares, avgCost, purchaseFx, buys, sells, lastUpdated: new Date().toISOString().slice(0, 10) };
+    });
+    updateAccount(accountId, { holdings: nextHoldings });
+  }
   function recordYieldTechWithdrawal(accountId, holdingId, { amount, date, reinvestAccountId, sharesOverride }) {
     const acc = accounts.find((a) => a.id === accountId);
     const h = acc.holdings.find((x) => x.id === holdingId);
@@ -1434,7 +1471,7 @@ export default function App() {
         <AccountsTab accounts={accounts} onUpdate={updateAccount} onAdd={addAccount} onRemove={removeAccount} costBasisByAccount={costBasisByAccount}
           onAddHolding={addHolding} onUpdateHolding={updateHolding} onRemoveHolding={removeHolding} onAddDividend={addDividend}
           onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
-          onSellHolding={sellHolding} onRemoveSell={removeSell} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} />
+          onSellHolding={sellHolding} onRemoveSell={removeSell} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} />
       )}
       {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} />}
       {tab === 'income' && <IncomeTab income={income} onUpdate={updateIncome} onAdd={addIncome} onRemove={removeIncome} monthlyIncome={monthlyIncome} />}
@@ -2052,6 +2089,16 @@ async function scanYieldTechHistory(file, symbols) {
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
+// อ่านรูปประวัติคำสั่งซื้อ-ขาย ที่อาจมีหลายกองทุนปนกันในภาพเดียว แยกซื้อ/ขายแต่ละแถวให้อัตโนมัติ (ไม่เอารายการ YieldTech)
+async function scanBuySellHistory(file, symbols) {
+  const base64 = await readFileAsBase64(file);
+  const symbolHint = (symbols && symbols.length > 0) ? `\nชื่อกองทุน/หุ้นที่มีอยู่ในพอร์ต: ${symbols.join(', ')} — จับคู่ชื่อที่อ่านได้กับรายการนี้ให้ใกล้เคียงที่สุด` : '';
+  const prompt = `นี่คือภาพประวัติรายการคำสั่งซื้อ-ขายกองทุน/หุ้น จากแอปการลงทุน อาจมีหลายกองทุนปนกันในภาพเดียว อ่านเฉพาะรายการที่เป็น "ซื้อ" หรือ "ขาย" ปกติเท่านั้น (ไม่เอารายการ YIELDTECH)${symbolHint}
+ถ้าภาพมีจำนวนหน่วย/ราคาต่อหน่วยระบุไว้ ให้อ่านมาด้วย ถ้าไม่มีให้เว้นว่าง (null) ห้ามเดา
+ตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"symbol":"ชื่อกองทุน/หุ้น","type":"buy หรือ sell","amount":จำนวนเงินเป็นตัวเลขบวกไม่มีคอมมา,"shares":จำนวนหน่วยถ้ามีระบุไม่งั้นเป็น null,"price":ราคาต่อหน่วยถ้ามีระบุไม่งั้นเป็น null,"date":"YYYY-MM-DD"}]`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  return safeParseJson(text);
+}
 
 async function scanReceiptItems(file, cardNames) {
   const base64 = await readFileAsBase64(file);
@@ -2188,7 +2235,7 @@ function mergePortfolioScans(results) {
   return { bySymbol, orderRows };
 }
 
-function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch }) {
+function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -2299,7 +2346,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
           </div>
           {catAccounts.map((a) => (
             HOLDING_CATEGORIES.includes(key)
-              ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onAddContribution={onAddContribution} onRecordYieldTech={onRecordYieldTech} onRecordYieldTechBatch={onRecordYieldTechBatch} />
+              ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onAddContribution={onAddContribution} onRecordYieldTech={onRecordYieldTech} onRecordYieldTechBatch={onRecordYieldTechBatch} onRecordBuySellBatch={onRecordBuySellBatch} />
               : <SimpleAccountCard key={a.id} account={a} basis={costBasisByAccount[a.id] || 0} onUpdate={onUpdate} onRemove={onRemove} onScanValue={scanSingleValue} />
           ))}
           {(!grouped[key] || grouped[key].length === 0) && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีบัญชีในหมวดนี้</p>}
@@ -2405,7 +2452,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
   );
 }
 
-function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch }) {
+function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch }) {
   const [expanded, setExpanded] = useState(true);
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
@@ -2429,6 +2476,11 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const [ytScanning, setYtScanning] = useState(false);
   const [ytScanError, setYtScanError] = useState('');
   const [ytDraft, setYtDraft] = useState(null); // [{ symbol, amount, date, holdingId, reinvestAccountId }]
+
+  const bsFileRef = useRef(null);
+  const [bsScanning, setBsScanning] = useState(false);
+  const [bsScanError, setBsScanError] = useState('');
+  const [bsDraft, setBsDraft] = useState(null); // [{ symbol, type, amount, shares, price, date, holdingId }]
 
   async function handlePortfolioFile(e) {
     const file = e.target.files && e.target.files[0];
@@ -2603,6 +2655,29 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     onRecordYieldTechBatch(a.id, valid);
     setYtDraft(null);
   }
+  async function handleBuySellPhoto(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setBsScanning(true); setBsScanError(''); setBsDraft(null);
+    try {
+      const symbols = holdings.map((h) => h.symbol).filter(Boolean);
+      const rows = await scanBuySellHistory(file, symbols);
+      if (!rows || rows.length === 0) { setBsScanError('อ่านรายการไม่พบ ลองภาพที่ชัดกว่านี้'); return; }
+      const matched = rows.map((r) => {
+        const found = holdings.find((h) => h.symbol && r.symbol && (h.symbol.toUpperCase() === r.symbol.toUpperCase() || h.symbol.toUpperCase().includes(r.symbol.toUpperCase()) || r.symbol.toUpperCase().includes(h.symbol.toUpperCase())));
+        return { symbol: r.symbol, type: r.type === 'sell' ? 'sell' : 'buy', amount: Number(r.amount) || 0, shares: r.shares ? Number(r.shares) : null, price: r.price ? Number(r.price) : null, date: r.date || new Date().toISOString().slice(0, 10), holdingId: found ? found.id : '' };
+      });
+      setBsDraft(matched);
+    } catch (err) { setBsScanError('เกิดข้อผิดพลาด: ' + err.message); }
+    finally { setBsScanning(false); if (bsFileRef.current) bsFileRef.current.value = ''; }
+  }
+  function updateBsDraftRow(idx, patch) { setBsDraft(bsDraft.map((r, i) => (i === idx ? { ...r, ...patch } : r))); }
+  function confirmBsDraft() {
+    const valid = bsDraft.filter((r) => r.holdingId && r.amount > 0);
+    if (valid.length === 0) return;
+    onRecordBuySellBatch(a.id, valid);
+    setBsDraft(null);
+  }
   const today_ = new Date();
 
   return (
@@ -2637,6 +2712,39 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
               <div className="flex gap-2 mt-1">
                 <button onClick={confirmYtDraft} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันบันทึกทั้งหมด</button>
                 <button onClick={() => setYtDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {holdings.length > 0 && (
+        <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
+          <p className="text-[11px] font-semibold mb-1.5" style={{ color: SLATE }}>แปะรูปประวัติคำสั่งซื้อ-ขาย</p>
+          <p className="text-[10px] mb-2" style={{ color: SLATE }}>ถ่ายรูปที่มีหลายกองทุน/หุ้นปนกันได้เลย ระบบแยกซื้อ/ขายและจับคู่ให้อัตโนมัติ</p>
+          <input ref={bsFileRef} type="file" accept="image/*" onChange={handleBuySellPhoto} className="hidden" />
+          <button onClick={() => bsFileRef.current && bsFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-2">{bsScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />}{bsScanning ? 'กำลังอ่านรูป...' : 'แปะรูปประวัติคำสั่งซื้อ-ขาย'}</button>
+          {bsScanError && <p className="text-[11px] mt-1.5" style={{ color: BAD }}>{bsScanError}</p>}
+          {bsDraft && (
+            <div className="mt-2">
+              <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>พบ {bsDraft.length} รายการ — เช็คประเภท/จับคู่กองทุนให้ถูกต้องก่อนยืนยัน</p>
+              {bsDraft.map((row, idx) => (
+                <div key={idx} style={{ background: 'white', border: `1px solid ${BORDER}` }} className="rounded-lg p-2 mb-1.5">
+                  <p className="text-[11px] font-semibold mb-1">{row.symbol} · {row.date} · ฿{fmt(row.amount)}{row.shares ? ` · ${fmt2(row.shares)} หน่วย` : ''}</p>
+                  <div className="grid grid-cols-2 gap-1.5 mb-1">
+                    <select value={row.type} onChange={(e) => updateBsDraftRow(idx, { type: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: `1px solid ${row.type === 'sell' ? BAD : GOOD}`, color: row.type === 'sell' ? BAD : GOOD }}>
+                      <option value="buy">🟢 ซื้อ</option>
+                      <option value="sell">🔴 ขาย</option>
+                    </select>
+                    <select value={row.holdingId} onChange={(e) => updateBsDraftRow(idx, { holdingId: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }}>
+                      <option value="">— ไม่จับคู่ (ข้าม) —</option>
+                      {holdings.map((h) => <option key={h.id} value={h.id}>{h.symbol}</option>)}
+                    </select>
+                  </div>
+                </div>
+              ))}
+              <div className="flex gap-2 mt-1">
+                <button onClick={confirmBsDraft} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันบันทึกทั้งหมด</button>
+                <button onClick={() => setBsDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
               </div>
             </div>
           )}
