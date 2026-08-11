@@ -326,8 +326,29 @@ if (typeof window !== 'undefined' && !window.__debugLogPatched) {
   console.log = (...args) => { pushDebugLog('log', args); origLog(...args); };
 }
 
+// ถ้าโค้ดตรงไหนพังตอน render ปกติ React จะถอดทั้งแอปออกไปเฉยๆ กลายเป็นหน้าขาวโล่ง (ปุ่ม 🐞 ก็หายไปด้วยเพราะเป็นส่วนหนึ่งของแอปที่พัง)
+// ตัวจับ error นี้จะดักไว้ก่อน แสดงข้อความ error จริงๆ ให้เห็นบนจอแทน จะได้รู้ทันทีว่าโค้ดพังตรงไหน ไม่ต้องเดาอีก
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error('App crashed (caught by ErrorBoundary)', error, info && info.componentStack); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, fontFamily: 'Sarabun, sans-serif', background: '#FFF8F0', minHeight: '100vh' }}>
+          <p style={{ color: '#E1483F', fontWeight: 700, marginBottom: 10, fontSize: 15 }}>⚠️ เกิดข้อผิดพลาดในแอป</p>
+          <p style={{ fontSize: 13, color: '#2B2118', marginBottom: 16, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{String((this.state.error && this.state.error.message) || this.state.error)}</p>
+          <p style={{ fontSize: 11, color: '#9A8A78', marginBottom: 16 }}>ช่วยแคปหน้าจอนี้ทั้งหมดส่งมาให้ดูได้เลยครับ จะช่วยแก้ได้ตรงจุด</p>
+          <button onClick={() => this.setState({ error: null })} style={{ background: '#2B2118', color: 'white', padding: '10px 18px', borderRadius: 10, border: 'none', fontFamily: 'Sarabun, sans-serif' }}>ลองใหม่</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
-  return <AuthGate>{(user) => <Tracker user={user} />}</AuthGate>;
+  return <ErrorBoundary><AuthGate>{(user) => <Tracker user={user} />}</AuthGate></ErrorBoundary>;
 }function Tracker({ user }) {
   const [state, setState] = useState(null);
   const stateRef = useRef(null);
