@@ -1,3 +1,4 @@
+````jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { doc, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import {
@@ -1029,7 +1030,9 @@ export default function App() {
   function addDepartment(name) { if (name && !departmentList.includes(name)) persist({ ...state, departmentList: [...departmentList, name] }); }
   // จำคู่ "หมอ-แผนก" ไว้ พอเลือกชื่อหมอที่เคยบันทึกไว้แล้ว จะเติมแผนกให้อัตโนมัติ (เพราะปกติพบหมอคนเดิมประจำแผนกเดิม)
   function setDoctorDepartment(doctorName, department) {
-    if (!doctorName || !d````jsx
+    if (!doctorName || !d
+````
+````jsx
 epartment) return;
     if (doctorDepartments[doctorName] === department) return;
     persist({ ...state, doctorDepartments: { ...doctorDepartments, [doctorName]: department } });
@@ -3573,7 +3576,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         {receiptDraft ? (
           <div style={{ background: PAPER_DIM }} className="rounded-lg
 ````
-            ````jsx
+````jsx
  p-2">
             <p className="text-xs mb-2" style={{ color: SLATE }}>พบ {receiptDraft.length} รายการในใบเสร็จ — เลือกหมวดหมู่แล้วยืนยัน</p>
             <label className="text-[11px]" style={{ color: SLATE }}>จ่ายด้วย</label>
@@ -6825,4 +6828,3 @@ function AllDogsReportSection({ dogs }) {
 }
 
 ````
-
