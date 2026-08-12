@@ -5,7 +5,7 @@ import {
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
   Dog, Scale, Syringe, Shield, Bug, Stethoscope, Eye, EyeOff, Search, Upload,
-  ClipboardList, Bell, ChevronRight, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User,
+  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
@@ -1029,7 +1029,8 @@ export default function App() {
   function addDepartment(name) { if (name && !departmentList.includes(name)) persist({ ...state, departmentList: [...departmentList, name] }); }
   // จำคู่ "หมอ-แผนก" ไว้ พอเลือกชื่อหมอที่เคยบันทึกไว้แล้ว จะเติมแผนกให้อัตโนมัติ (เพราะปกติพบหมอคนเดิมประจำแผนกเดิม)
   function setDoctorDepartment(doctorName, department) {
-    if (!doctorName || !department) return;
+    if (!doctorName || !d````jsx
+epartment) return;
     if (doctorDepartments[doctorName] === department) return;
     persist({ ...state, doctorDepartments: { ...doctorDepartments, [doctorName]: department } });
   }
@@ -1953,7 +1954,10 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
 
       <div className="grid grid-cols-2 gap-3 mb-4">
         <DashCategoryCard label="หุ้นไทย" value={`฿${fmt(catSetValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} fg={GOOD} bg="#16A34A14" onClick={() => onNavigateTab('accounts')} />
-        <DashCategoryCard label="หุ้นสหรัฐฯ" value={`฿${fmt(catUsValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} fg="#2563EB" bg="#2563EB14" onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard 
+````
+````jsx
+label="หุ้นสหรัฐฯ" value={`฿${fmt(catUsValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} fg="#2563EB" bg="#2563EB14" onClick={() => onNavigateTab('accounts')} />
         <DashCategoryCard label="กองทุนรวม" value={`฿${fmt(catFundValue)}`} sub="ดูรายละเอียด" icon={PiggyBank} fg="#CA8A04" bg="#CA8A0414" onClick={() => onNavigateTab('accounts')} />
         <DashCategoryCard label="สหกรณ์ออมทรัพย์" value={`฿${fmt(catCoopValue)}`} sub="ดูรายละเอียด" icon={Landmark} fg="#0891B2" bg="#0891B214" onClick={() => onNavigateTab('accounts')} />
         <DashCategoryCard label="บ้านเช่า" value={`฿${fmt(catRentThisMonth)}`} sub={`เก็บแล้ว ฿${fmt(catRentCollected)}`} tone={catRentCollected >= catRentThisMonth ? 'good' : null} icon={Home} fg="#D97706" bg="#D9770614" onClick={() => onNavigateTab('realestate')} />
@@ -2787,7 +2791,10 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
                 <div className="grid grid-cols-3 gap-1 mb-1">
                   <div><label className="text-[9px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={row.shares} onChange={(v) => updateDraftRow(idx, { shares: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
                   <div><label className="text-[9px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย ({row.currency})</label><NumInput value={row.avgCost} onChange={(v) => updateDraftRow(idx, { avgCost: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
-                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด ({row.currency})</label><NumInput value={row.currentPrice} onChange={(v) => updateDraftRow(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+                  <div><label className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด ({row.currency})</label><NumInput value={row.currentPrice} onChange={(v) => updateDraftRow(idx, { currentPrice: v })} className="text-xs w-full outline-none rounded px-1 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+````
+````jsx
+</div>
                 </div>
                 {row.currency === 'USD' && (
                   <div className="flex items-center gap-2 mb-1">
@@ -3564,7 +3571,10 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         {voiceError && <p className="text-xs mb-2" style={{ color: BAD }}>{voiceError}</p>}
 
         {receiptDraft ? (
-          <div style={{ background: PAPER_DIM }} className="rounded-lg p-2">
+          <div style={{ background: PAPER_DIM }} className="rounded-lg
+````
+            ````jsx
+ p-2">
             <p className="text-xs mb-2" style={{ color: SLATE }}>พบ {receiptDraft.length} รายการในใบเสร็จ — เลือกหมวดหมู่แล้วยืนยัน</p>
             <label className="text-[11px]" style={{ color: SLATE }}>จ่ายด้วย</label>
             <select value={receiptCardId} onChange={(e) => setReceiptCardId(e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }}>
@@ -4326,7 +4336,10 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
           <div style={{ background: PAPER_DIM, borderRadius: 14 }} className="p-3">
             <div className="flex justify-between items-center mb-1"><p className="text-xs font-bold" style={{ color: SLATE }}>ประวัติการซ่อมบำรุง</p>{(p.repairs || []).length > 3 && <button onClick={() => setSub('repairs')} className="text-[11px] font-semibold" style={{ color: BRASS }}>ดูทั้งหมด ›</button>}</div>
             {recentRepairs.length === 0 ? <p className="text-xs py-2" style={{ color: SLATE }}>ยังไม่มีประวัติซ่อม</p> : recentRepairs.map((r, i) => (
-              <div key={r.id} className="flex justify-between text-xs py-1.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}><span style={{ color: SLATE }}>{formatDateDMY(r.date)}</span><span style={{ color: INK, flex: 1, marginLeft: 10 }}>{r.item}</span><span style={{ color: INK, fontWeight: 600 }}>฿{fmt(r.amount)}</span></div>
+              <div key={r.id} className="flex justify-between text-xs py-1.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}><span style={{ color: SLATE }}>{formatDateDMY(r.date)}</span><span style={{ color: INK, flex: 1, marginL
+````
+````jsx
+eft: 10 }}>{r.item}</span><span style={{ color: INK, fontWeight: 600 }}>฿{fmt(r.amount)}</span></div>
             ))}
           </div>
         </div>
@@ -5193,7 +5206,10 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
         <div className="mb-3"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่ม</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <button onClick={submit} disabled={saving} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">{saving && <Loader2 size={14} className="animate-spin" />} บันทึกยา</button>
       </Card>
-      <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติยาทั้งหมด</p>
+      <p className="
+````
+````jsx
+text-xs mb-2" style={{ color: SLATE }}>ประวัติยาทั้งหมด</p>
       {meds.map((m) => (
         <Card key={m.id}>
           <div className="flex justify-between items-start">
@@ -5998,7 +6014,10 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
               </select>
               <input value={sectionData.appointment?.hospital || ''} onChange={(e) => updateSingleSection('appointment', { hospital: e.target.value })} placeholder="หรือพิมพ์ชื่อโรงพยาบาลเอง" className="rounded-lg px-2 py-1.5 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
               <label className="text-[10px]" style={{ color: SLATE }}>หมอที่นัด</label>
-              <MemoTextField list={doctorList} value={sectionData.appointment?.doctor || ''} onChange={(v) => updateSingleSection('appointment', { doctor: v })} onAddToList={onAddDoctor} placeholder="ชื่อสัตวแพทย์ (ถ้ามี)" className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
+              <MemoTextField list={doctorList} value={sectionData.appoin
+````
+````jsx
+tment?.doctor || ''} onChange={(v) => updateSingleSection('appointment', { doctor: v })} onAddToList={onAddDoctor} placeholder="ชื่อสัตวแพทย์ (ถ้ามี)" className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
               <SectionPhotoAttach sectionKey="appointment" />
             </div>
           )}
@@ -6804,3 +6823,6 @@ function AllDogsReportSection({ dogs }) {
     </div>
   );
 }
+
+````
+
