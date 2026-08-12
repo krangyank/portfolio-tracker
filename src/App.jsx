@@ -1537,6 +1537,27 @@ function Card({ children }) { return <div style={{ background: 'white', borderRa
 
 // Popup แก้ไขรายการทั่วไป (ฟีเจอร์ O) — ใช้ร่วมกันทุก Tab ที่มีปุ่มลบ ยกเว้นตัวหุ้น/บัญชีทั้งก้อน
 // fields: [{ key, label, type: 'text'|'number'|'date'|'time'|'select'|'textarea', options }]
+// เลือกบัญชีปลายทางจากลิสต์จริง หรือพิมพ์เองได้ (เช่น "ตู้เซฟ", "ฝากเด็กร้านขายยา") เผื่อเก็บเงินไว้ก่อนยังไม่ได้ฝากเข้าบัญชีลงทุนจริง
+function AccountPickerWithCustom({ options, value, onChange }) {
+  const isKnownAccount = options.some((o) => (o.value !== undefined ? o.value : o) === value);
+  const [customMode, setCustomMode] = useState(!!value && !isKnownAccount);
+  return (
+    <div>
+      <select
+        value={customMode ? '__custom__' : (isKnownAccount ? value : '')}
+        onChange={(e) => { if (e.target.value === '__custom__') { setCustomMode(true); onChange(''); } else { setCustomMode(false); onChange(e.target.value); } }}
+        style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1">
+        <option value="">— เลือกบัญชีปลายทาง —</option>
+        {options.map((o) => <option key={o.value !== undefined ? o.value : o} value={o.value !== undefined ? o.value : o}>{o.label || o}</option>)}
+        <option value="__custom__">+ เก็บไว้ก่อน / พิมพ์เอง (เช่น ตู้เซฟ, ฝากร้านยา)</option>
+      </select>
+      {customMode && (
+        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="เช่น ตู้เซฟ, ฝากเด็กร้านยา" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1.5" />
+      )}
+    </div>
+  );
+}
+
 function EditModal({ title, fields, initialValues, onSave, onClose }) {
   const [values, setValues] = useState(initialValues);
   function setField(key, v) { setValues({ ...values, [key]: v }); }
@@ -1553,6 +1574,8 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
               <select value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1">
                 {(f.options || []).map((o) => <option key={o.value !== undefined ? o.value : o} value={o.value !== undefined ? o.value : o}>{o.label || o}</option>)}
               </select>
+            ) : f.type === 'select-custom' ? (
+              <AccountPickerWithCustom options={f.options || []} value={values[f.key] || ''} onChange={(v) => setField(f.key, v)} />
             ) : f.type === 'textarea' ? (
               <textarea value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} rows={3} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
             ) : (
@@ -3313,7 +3336,8 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
         <label className="text-xs" style={{ color: SLATE }}>มาจากแหล่งไหน</label>
         <select value={source} onChange={(e) => setSource(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
         <label className="text-xs" style={{ color: SLATE }}>ลงทุนเข้าบัญชีไหน</label>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+        <AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} />
+        <div className="mb-3" />
         {isDime && <><label className="text-xs" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" /></>}
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเงินเข้า</button>
       </Card>
@@ -3335,7 +3359,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
       {groupedList.thisMonthItems.length === 0 && <p className="text-xs mb-3" style={{ color: SLATE }}>ยังไม่มีรายการเดือนนี้</p>}
       {groupedList.thisMonthItems.map((c) => {
         const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((s) => s.id === c.source);
-        return <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{src?.label || c.source} → {acc?.name || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}</p></div><div className="flex items-center gap-3"><span className="text-sm">฿{fmt(c.amount)}</span><EditButton onClick={() => setEditing(c)} /><button onClick={() => onRemove(c.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>;
+        return <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{src?.label || c.source} → {acc?.name || c.accountId || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}</p></div><div className="flex items-center gap-3"><span className="text-sm">฿{fmt(c.amount)}</span><EditButton onClick={() => setEditing(c)} /><button onClick={() => onRemove(c.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>;
       })}
       {groupedList.groupRows.length > 0 && (
         <>
@@ -3344,10 +3368,10 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
             const acc = accounts.find((a) => a.id === g.accountId); const src = SOURCES.find((s) => s.id === g.source);
             const total = g.items.reduce((s, it) => s + Number(it.amount || 0), 0);
             return (
-              <button key={`${g.source}__${g.accountId}__${g.month}`} onClick={() => setGroupPopup({ label: `${src?.label || g.source} → ${acc?.name || 'ไม่ทราบบัญชี'} · ${g.month}`, items: g.items })} className="w-full text-left" style={{ display: 'block' }}>
+              <button key={`${g.source}__${g.accountId}__${g.month}`} onClick={() => setGroupPopup({ label: `${src?.label || g.source} → ${acc?.name || g.accountId || 'ไม่ทราบบัญชี'} · ${g.month}`, items: g.items })} className="w-full text-left" style={{ display: 'block' }}>
                 <Card>
                   <div className="flex justify-between items-center">
-                    <div><p className="text-sm">{src?.label || g.source} → {acc?.name || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{g.month} · {g.items.length} รายการ</p></div>
+                    <div><p className="text-sm">{src?.label || g.source} → {acc?.name || g.accountId || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{g.month} · {g.items.length} รายการ</p></div>
                     <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(total)}</span><ChevronRight size={15} color={SLATE} /></div>
                   </div>
                 </Card>
@@ -3373,7 +3397,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
             { key: 'date', label: 'วันที่', type: 'date' },
             { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
             { key: 'source', label: 'แหล่งที่มา', type: 'select', options: SOURCES.map((s) => ({ value: s.id, label: s.label })) },
-            { key: 'accountId', label: 'บัญชีปลายทาง', type: 'select', options: accounts.map((a) => ({ value: a.id, label: a.name })) },
+            { key: 'accountId', label: 'บัญชีปลายทาง', type: 'select-custom', options: accounts.map((a) => ({ value: a.id, label: a.name })) },
           ]}
           onSave={(v) => { onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId }); setEditing(null); }}
         />
