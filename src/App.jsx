@@ -117,6 +117,7 @@ const EMPTY_STATE = {
   doctorList: [],
   departmentList: ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'],
   doctorDepartments: {},
+  customDestinationList: [],
   bloodTestTypeList: ['CBC', 'ค่าไต', 'ค่าตับ', 'ค่าตับอ่อน (Lipase/Amylase/cPLI)', 'ไขมันในเลือด', 'น้ำตาล', 'SDMA', 'Electrolyte', 'Cortisol', 'ACTH', 'T4/Thyroid', 'Coagulation (PT/PTT)', 'Urinalysis'],
   organTypeList: ['ไต', 'ตับ', 'ตับอ่อน', 'ถุงน้ำดี', 'ม้าม', 'ต่อมหมวกไต', 'หัวใจ', 'ตา'],
   imagingTypeList: ['Ultrasound', 'X-ray', 'CT', 'MRI', 'Echo (Echocardiogram)'],
@@ -713,6 +714,7 @@ export default function App() {
   const doctorList = state?.doctorList || [];
   const departmentList = state?.departmentList || ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'];
   const doctorDepartments = state?.doctorDepartments || {};
+  const customDestinationList = state?.customDestinationList || [];
   const bloodTestTypeList = state?.bloodTestTypeList || BLOOD_TEST_TYPES;
   const organTypeList = state?.organTypeList || ORGAN_TYPES;
   const imagingTypeList = state?.imagingTypeList || IMAGING_TYPES;
@@ -1033,6 +1035,7 @@ export default function App() {
     if (doctorDepartments[doctorName] === department) return;
     persist({ ...state, doctorDepartments: { ...doctorDepartments, [doctorName]: department } });
   }
+  function addCustomDestination(name) { if (name && !customDestinationList.includes(name)) persist({ ...state, customDestinationList: [...customDestinationList, name] }); }
   function addBloodTestType(name) { if (name && !bloodTestTypeList.includes(name)) persist({ ...state, bloodTestTypeList: [...bloodTestTypeList, name] }); }
   function addOrganType(name) { if (name && !organTypeList.includes(name)) persist({ ...state, organTypeList: [...organTypeList, name] }); }
   function addImagingType(name) { if (name && !imagingTypeList.includes(name)) persist({ ...state, imagingTypeList: [...imagingTypeList, name] }); }
@@ -1485,7 +1488,7 @@ export default function App() {
           onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
           onSellHolding={sellHolding} onRemoveSell={removeSell} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} />
       )}
-      {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} />}
+      {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} />}
       {tab === 'income' && <IncomeTab income={income} onUpdate={updateIncome} onAdd={addIncome} onRemove={removeIncome} monthlyIncome={monthlyIncome} />}
       {tab === 'reports' && <ReportsTab contributions={contributions} accounts={accounts} costBasisByAccount={costBasisByAccount} history={history} />}
       {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onAddCategory={addExpenseCategory}
@@ -1538,21 +1541,30 @@ function Card({ children }) { return <div style={{ background: 'white', borderRa
 // Popup แก้ไขรายการทั่วไป (ฟีเจอร์ O) — ใช้ร่วมกันทุก Tab ที่มีปุ่มลบ ยกเว้นตัวหุ้น/บัญชีทั้งก้อน
 // fields: [{ key, label, type: 'text'|'number'|'date'|'time'|'select'|'textarea', options }]
 // เลือกบัญชีปลายทางจากลิสต์จริง หรือพิมพ์เองได้ (เช่น "ตู้เซฟ", "ฝากเด็กร้านขายยา") เผื่อเก็บเงินไว้ก่อนยังไม่ได้ฝากเข้าบัญชีลงทุนจริง
-function AccountPickerWithCustom({ options, value, onChange }) {
+function AccountPickerWithCustom({ options, value, onChange, customList, onAddCustom }) {
   const isKnownAccount = options.some((o) => (o.value !== undefined ? o.value : o) === value);
-  const [customMode, setCustomMode] = useState(!!value && !isKnownAccount);
+  const isKnownCustom = (customList || []).includes(value);
+  const [typingNew, setTypingNew] = useState(!!value && !isKnownAccount && !isKnownCustom);
+  const selectValue = typingNew ? '__custom__' : (isKnownAccount || isKnownCustom ? value : '');
   return (
     <div>
       <select
-        value={customMode ? '__custom__' : (isKnownAccount ? value : '')}
-        onChange={(e) => { if (e.target.value === '__custom__') { setCustomMode(true); onChange(''); } else { setCustomMode(false); onChange(e.target.value); } }}
+        value={selectValue}
+        onChange={(e) => { if (e.target.value === '__custom__') { setTypingNew(true); onChange(''); } else { setTypingNew(false); onChange(e.target.value); } }}
         style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1">
         <option value="">— เลือกบัญชีปลายทาง —</option>
         {options.map((o) => <option key={o.value !== undefined ? o.value : o} value={o.value !== undefined ? o.value : o}>{o.label || o}</option>)}
-        <option value="__custom__">+ เก็บไว้ก่อน / พิมพ์เอง (เช่น ตู้เซฟ, ฝากร้านยา)</option>
+        {(customList || []).length > 0 && <option disabled>── จุดเก็บเงินที่เคยบันทึกไว้ ──</option>}
+        {(customList || []).map((c) => <option key={c} value={c}>📍 {c}</option>)}
+        <option value="__custom__">+ เก็บไว้ก่อน / พิมพ์เองใหม่</option>
       </select>
-      {customMode && (
-        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="เช่น ตู้เซฟ, ฝากเด็กร้านยา" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1.5" />
+      {typingNew && (
+        <div className="flex gap-2 mt-1.5">
+          <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="เช่น ตู้เซฟ, ฝากเด็กร้านยา" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm flex-1" />
+          {value && onAddCustom && (
+            <button type="button" onClick={() => onAddCustom(value)} className="text-xs rounded-lg px-3 whitespace-nowrap" style={{ border: `1px solid ${BRASS}`, color: BRASS }}>จำไว้ด้วย</button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1575,7 +1587,7 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
                 {(f.options || []).map((o) => <option key={o.value !== undefined ? o.value : o} value={o.value !== undefined ? o.value : o}>{o.label || o}</option>)}
               </select>
             ) : f.type === 'select-custom' ? (
-              <AccountPickerWithCustom options={f.options || []} value={values[f.key] || ''} onChange={(v) => setField(f.key, v)} />
+              <AccountPickerWithCustom options={f.options || []} value={values[f.key] || ''} onChange={(v) => setField(f.key, v)} customList={f.customList} onAddCustom={f.onAddCustom} />
             ) : f.type === 'textarea' ? (
               <textarea value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} rows={3} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
             ) : (
@@ -3287,13 +3299,15 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   );
 }
 
-function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
+function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, customDestinationList, onAddCustomDestination, onAddToCalendar, googleConnected }) {
   const [amount, setAmount] = useState(10000);
   const [source, setSource] = useState('pharmacy');
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
   const [usdAmount, setUsdAmount] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [editing, setEditing] = useState(null); // contribution being edited
+  const [syncingId, setSyncingId] = useState(null);
+  const [syncMsg, setSyncMsg] = useState({}); // { [contributionId]: message }
   const [summaryPeriodType, setSummaryPeriodType] = useState('month');
   const destAccount = accounts.find((a) => a.id === accountId);
   const isDime = destAccount && destAccount.category === 'dime';
@@ -3336,7 +3350,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
         <label className="text-xs" style={{ color: SLATE }}>มาจากแหล่งไหน</label>
         <select value={source} onChange={(e) => setSource(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
         <label className="text-xs" style={{ color: SLATE }}>ลงทุนเข้าบัญชีไหน</label>
-        <AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} />
+        <AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} customList={customDestinationList} onAddCustom={onAddCustomDestination} />
         <div className="mb-3" />
         {isDime && <><label className="text-xs" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" /></>}
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเงินเข้า</button>
@@ -3359,7 +3373,31 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
       {groupedList.thisMonthItems.length === 0 && <p className="text-xs mb-3" style={{ color: SLATE }}>ยังไม่มีรายการเดือนนี้</p>}
       {groupedList.thisMonthItems.map((c) => {
         const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((s) => s.id === c.source);
-        return <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{src?.label || c.source} → {acc?.name || c.accountId || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}</p></div><div className="flex items-center gap-3"><span className="text-sm">฿{fmt(c.amount)}</span><EditButton onClick={() => setEditing(c)} /><button onClick={() => onRemove(c.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>;
+        const destLabel = acc?.name || c.accountId || 'ไม่ทราบบัญชี';
+        return (
+          <Card key={c.id}>
+            <div className="flex justify-between items-center">
+              <div><p className="text-sm">{src?.label || c.source} → {destLabel}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}</p></div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm">฿{fmt(c.amount)}</span>
+                {googleConnected && (
+                  <button onClick={async () => {
+                    setSyncingId(c.id);
+                    const r = await onAddToCalendar(`เก็บเงิน ${src?.label || c.source} → ${destLabel}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0]);
+                    setSyncMsg((prev) => ({ ...prev, [c.id]: r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}` }));
+                    if (r.ok) onUpdate(c.id, { calendarSynced: true });
+                    setSyncingId(null);
+                  }}>{syncingId === c.id ? <Loader2 size={14} className="animate-spin" color={BRASS} /> : <Calendar size={14} color={BRASS} />}</button>
+                )}
+                <EditButton onClick={() => setEditing(c)} />
+                <button onClick={() => onRemove(c.id)}><Trash2 size={14} color={BAD} /></button>
+              </div>
+            </div>
+            {syncMsg[c.id] ? (
+              <p className="text-[11px] mt-1" style={{ color: syncMsg[c.id].includes('สำเร็จ') ? GOOD : BAD }}>{syncMsg[c.id]}</p>
+            ) : (c.calendarSynced && <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินไว้แล้ว ✓ (แก้ไขข้อมูลแล้วกดใหม่ได้ถ้าอยากอัปเดต)</p>)}
+          </Card>
+        );
       })}
       {groupedList.groupRows.length > 0 && (
         <>
@@ -3384,9 +3422,34 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
         <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
           <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[75vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">{groupPopup.label}</p><button onClick={() => setGroupPopup(null)}><X size={20} color={INK} /></button></div>
-            {groupPopup.items.sort((a, b) => b.date.localeCompare(a.date)).map((c) => (
-              <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{c.date}</p>{c.usdAmount ? <p className="text-xs" style={{ color: SLATE }}>{c.usdAmount} USD</p> : null}</div><div className="flex items-center gap-3"><span className="text-sm">฿{fmt(c.amount)}</span><EditButton onClick={() => { setEditing(c); setGroupPopup(null); }} /><button onClick={() => { onRemove(c.id); setGroupPopup({ ...groupPopup, items: groupPopup.items.filter((x) => x.id !== c.id) }); }}><Trash2 size={14} color={BAD} /></button></div></div></Card>
-            ))}
+            {groupPopup.items.sort((a, b) => b.date.localeCompare(a.date)).map((c) => {
+              const acc2 = accounts.find((a) => a.id === c.accountId); const src2 = SOURCES.find((s) => s.id === c.source);
+              const destLabel2 = acc2?.name || c.accountId || 'ไม่ทราบบัญชี';
+              return (
+                <Card key={c.id}>
+                  <div className="flex justify-between items-center">
+                    <div><p className="text-sm">{c.date}</p>{c.usdAmount ? <p className="text-xs" style={{ color: SLATE }}>{c.usdAmount} USD</p> : null}</div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm">฿{fmt(c.amount)}</span>
+                      {googleConnected && (
+                        <button onClick={async () => {
+                          setSyncingId(c.id);
+                          const r = await onAddToCalendar(`เก็บเงิน ${src2?.label || c.source} → ${destLabel2}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0]);
+                          setSyncMsg((prev) => ({ ...prev, [c.id]: r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}` }));
+                          if (r.ok) onUpdate(c.id, { calendarSynced: true });
+                          setSyncingId(null);
+                        }}>{syncingId === c.id ? <Loader2 size={14} className="animate-spin" color={BRASS} /> : <Calendar size={14} color={BRASS} />}</button>
+                      )}
+                      <EditButton onClick={() => { setEditing(c); setGroupPopup(null); }} />
+                      <button onClick={() => { onRemove(c.id); setGroupPopup({ ...groupPopup, items: groupPopup.items.filter((x) => x.id !== c.id) }); }}><Trash2 size={14} color={BAD} /></button>
+                    </div>
+                  </div>
+                  {syncMsg[c.id] ? (
+                    <p className="text-[11px] mt-1" style={{ color: syncMsg[c.id].includes('สำเร็จ') ? GOOD : BAD }}>{syncMsg[c.id]}</p>
+                  ) : (c.calendarSynced && <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินไว้แล้ว ✓</p>)}
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}
@@ -3397,7 +3460,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate }) {
             { key: 'date', label: 'วันที่', type: 'date' },
             { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
             { key: 'source', label: 'แหล่งที่มา', type: 'select', options: SOURCES.map((s) => ({ value: s.id, label: s.label })) },
-            { key: 'accountId', label: 'บัญชีปลายทาง', type: 'select-custom', options: accounts.map((a) => ({ value: a.id, label: a.name })) },
+            { key: 'accountId', label: 'บัญชีปลายทาง', type: 'select-custom', options: accounts.map((a) => ({ value: a.id, label: a.name })), customList: customDestinationList, onAddCustom: onAddCustomDestination },
           ]}
           onSave={(v) => { onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId }); setEditing(null); }}
         />
