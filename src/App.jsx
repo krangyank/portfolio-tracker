@@ -219,6 +219,22 @@ async function createCalendarEvent(accessToken, evt) {
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err.error && err.error.message) || `HTTP ${res.status}`); }
   return res.json();
 }
+// แก้ไขอีเวนต์เดิมที่มีอยู่แล้วในปฏิทิน (ใช้ event id ที่เก็บไว้จากตอนสร้างครั้งแรก) แทนที่จะสร้างอันใหม่ซ้อนขึ้นมาทุกครั้งที่กด sync ซ้ำ
+async function updateCalendarEvent(accessToken, eventId, evt) {
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      summary: evt.summary,
+      description: evt.description || '',
+      start: { dateTime: evt.startDateTime, timeZone: 'Asia/Bangkok' },
+      end: { dateTime: evt.endDateTime, timeZone: 'Asia/Bangkok' },
+      reminders: { useDefault: false, overrides: evt.reminders || [{ method: 'popup', minutes: 7 * 24 * 60 }, { method: 'popup', minutes: 3 * 24 * 60 }, { method: 'popup', minutes: 24 * 60 }, { method: 'popup', minutes: 120 }] },
+    }),
+  });
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err.error && err.error.message) || `HTTP ${res.status}`); }
+  return res.json();
+}
 
 function holdingMarketValueTHB(h) { const fx = h.currency === 'USD' ? Number(h.currentFx || 0) : 1; return Number(h.shares || 0) * Number(h.currentPrice || 0) * fx; }
 function holdingCostBasisTHB(h) { const fx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1; return Number(h.shares || 0) * Number(h.avgCost || 0) * fx; }
@@ -426,15 +442,19 @@ export default function App() {
       return { ok: true };
     } catch (e) { return { ok: false, message: e.message }; }
   }
-  async function addPropertyEventToCalendar(summary, description, date, reminderDays) {
+  async function addPropertyEventToCalendar(summary, description, date, reminderDays, existingEventId) {
     if (!googleToken) { setCalendarError('ยังไม่ได้เชื่อมต่อ Google Calendar'); return { ok: false }; }
     try {
       const startDateTime = `${date}T09:00:00`;
       const endDateTime = `${date}T10:00:00`;
       const days = (reminderDays && reminderDays.length > 0) ? reminderDays : [7, 3, 1];
       const reminders = days.map((d) => ({ method: 'popup', minutes: d * 24 * 60 }));
-      await createCalendarEvent(googleToken, { summary, description, startDateTime, endDateTime, reminders });
-      return { ok: true };
+      if (existingEventId) {
+        await updateCalendarEvent(googleToken, existingEventId, { summary, description, startDateTime, endDateTime, reminders });
+        return { ok: true, eventId: existingEventId };
+      }
+      const created = await createCalendarEvent(googleToken, { summary, description, startDateTime, endDateTime, reminders });
+      return { ok: true, eventId: created.id };
     } catch (e) { return { ok: false, message: e.message }; }
   }
 
@@ -3383,9 +3403,9 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
                 {googleConnected && (
                   <button onClick={async () => {
                     setSyncingId(c.id);
-                    const r = await onAddToCalendar(`เก็บเงิน ${src?.label || c.source} → ${destLabel}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0]);
+                    const r = await onAddToCalendar(`เก็บเงิน ${src?.label || c.source} → ${destLabel}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0], c.calendarEventId);
                     setSyncMsg((prev) => ({ ...prev, [c.id]: r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}` }));
-                    if (r.ok) onUpdate(c.id, { calendarSynced: true });
+                    if (r.ok) onUpdate(c.id, { calendarSynced: true, calendarEventId: r.eventId });
                     setSyncingId(null);
                   }}>{syncingId === c.id ? <Loader2 size={14} className="animate-spin" color={BRASS} /> : <Calendar size={14} color={BRASS} />}</button>
                 )}
@@ -3434,9 +3454,9 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
                       {googleConnected && (
                         <button onClick={async () => {
                           setSyncingId(c.id);
-                          const r = await onAddToCalendar(`เก็บเงิน ${src2?.label || c.source} → ${destLabel2}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0]);
+                          const r = await onAddToCalendar(`เก็บเงิน ${src2?.label || c.source} → ${destLabel2}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0], c.calendarEventId);
                           setSyncMsg((prev) => ({ ...prev, [c.id]: r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}` }));
-                          if (r.ok) onUpdate(c.id, { calendarSynced: true });
+                          if (r.ok) onUpdate(c.id, { calendarSynced: true, calendarEventId: r.eventId });
                           setSyncingId(null);
                         }}>{syncingId === c.id ? <Loader2 size={14} className="animate-spin" color={BRASS} /> : <Calendar size={14} color={BRASS} />}</button>
                       )}
@@ -4193,50 +4213,97 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
 }
 
 // นัดหมายรวมทุกตัว — ไม่ต้องเปิดทีละตัวเพื่อดู เรียงตามวันที่ใกล้สุด ไม่จำกัดจำนวน/ไม่จำกัดช่วงเวลา
+const PET_EVENT_ICONS = { appt: '📅', weight: '⚖️', blood: '🩸', imaging: '🩻', organ: '👁️' };
 function AllDogsAppointmentsOverlay({ dogs, onClose, onJumpTo }) {
-  const items = [];
+  const [viewDate, setViewDate] = useState(new Date());
+  const [filterType, setFilterType] = useState('all');
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
+  // รวมเหตุการณ์สำคัญของลูกๆ ทุกตัว — นัดหมาย/น้ำหนัก/ผลเลือด/Imaging/อวัยวะ (รวมตรวจตา)
+  const allItems = [];
   (dogs || []).forEach((d) => {
-    (d.appointments || []).forEach((a) => {
-      const d_ = daysUntil(a.date);
-      items.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: a.date, time: a.time, purpose: a.purpose, hospital: a.hospital, isPast: d_ !== null && d_ < 0 });
-    });
+    (d.appointments || []).forEach((a) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: a.date, time: a.time, label: a.purpose || 'นัดหมาย', sub: a.hospital, type: 'appt' }));
+    (d.weights || []).forEach((w) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: w.date, label: `ชั่งน้ำหนัก — ${w.weight} กก.`, type: 'weight' }));
+    (d.bloodTests || []).forEach((b) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: b.date, label: `ตรวจเลือด${b.type ? ' — ' + b.type : ''}`, type: 'blood' }));
+    (d.imaging || []).forEach((im) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: im.date, label: im.type || 'Imaging', type: 'imaging' }));
+    (d.organExams || []).forEach((o) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: o.date, label: `ตรวจอวัยวะ — ${o.organ || ''}`, type: 'organ' }));
   });
-  items.sort((a, b) => a.date.localeCompare(b.date));
-  const upcoming = items.filter((it) => !it.isPast);
-  const past = items.filter((it) => it.isPast);
+  allItems.sort((a, b) => a.date.localeCompare(b.date));
+
+  const thisMonthItems = allItems.filter((it) => { const dd = new Date(it.date); return dd.getFullYear() === year && dd.getMonth() === month; });
+  const eventsByDay = {};
+  thisMonthItems.forEach((it) => { const day = new Date(it.date).getDate(); if (!eventsByDay[day]) eventsByDay[day] = []; eventsByDay[day].push(it); });
+  const typeColor = { appt: BRASS, weight: '#2563EB', blood: BAD, imaging: '#7C3AED', organ: GOOD };
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+  const cells = [...Array(firstWeekday).fill(null), ...Array(daysInMonth).fill(0).map((_, i) => i + 1)];
+
+  const filteredMonthItems = filterType === 'all' ? thisMonthItems : thisMonthItems.filter((it) => it.type === filterType);
+  const today = new Date();
+  const monthExpenseTotal = (dogs || []).reduce((sum, d) => sum + (d.expenses || []).filter((e) => { const dd = new Date(e.date); return dd.getFullYear() === year && dd.getMonth() === month; }).reduce((s, e) => s + Number(e.amount || 0), 0), 0);
+
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
-      <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">นัดหมายรวมทุกตัว</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
-        {items.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีนัดหมายบันทึกไว้เลย</p>}
-        {upcoming.length > 0 && <p className="text-[11px] font-bold mb-2" style={{ color: SLATE }}>กำลังจะถึง</p>}
-        {upcoming.map((it, i) => {
-          const d_ = daysUntil(it.date);
-          return (
-            <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-              {it.dogPhoto ? <img src={it.dogPhoto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" /> : <div style={{ background: PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"><Dog size={16} color={SLATE} /></div>}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold" style={{ color: INK }}>{it.dogName}{it.purpose ? ` — ${it.purpose}` : ''}</p>
-                <p className="text-xs" style={{ color: d_ <= 3 ? BAD : GOOD }}>{formatDateDMY(it.date)} {it.time} {d_ >= 0 && `(อีก ${d_} วัน)`}{it.hospital ? ` · ${it.hospital}` : ''}</p>
-              </div>
-              <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-            </button>
-          );
-        })}
-        {past.length > 0 && (
-          <>
-            <p className="text-[11px] font-bold mb-2 mt-4" style={{ color: SLATE }}>ผ่านมาแล้ว</p>
-            {[...past].reverse().map((it, i) => (
-              <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', opacity: 0.6 }}>
+      <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">ปฏิทินรวมของลูกๆ</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
+
+        <Card>
+          <div className="flex justify-between items-center mb-3">
+            <button onClick={() => setViewDate(new Date(year, month - 1, 1))}><ChevronLeft size={18} color={SLATE} /></button>
+            <p className="text-sm font-bold" style={{ color: INK }}>{THAI_MONTHS[month]} {year + 543}</p>
+            <button onClick={() => setViewDate(new Date(year, month + 1, 1))}><ChevronRight size={18} color={SLATE} /></button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => <p key={d} className="text-center text-[10px]" style={{ color: SLATE }}>{d}</p>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, i) => {
+              const dayEvents = day ? eventsByDay[day] : null;
+              const dotColor = dayEvents && dayEvents.length > 0 ? typeColor[dayEvents[0].type] : null;
+              return (
+                <div key={i} className="flex items-center justify-center" style={{ height: 34 }}>
+                  {day && <div style={{ width: 28, height: 28, borderRadius: '50%', background: dotColor || 'transparent', color: dotColor ? 'white' : INK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: dotColor ? 700 : 400 }}>{day}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+          <button onClick={() => setFilterType('all')} style={{ background: filterType === 'all' ? BRASS : PAPER_DIM, color: filterType === 'all' ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs">ทั้งหมด</button>
+          {[{ k: 'appt', l: 'นัดหมาย' }, { k: 'weight', l: 'น้ำหนัก' }, { k: 'blood', l: 'ผลเลือด' }, { k: 'imaging', l: 'Imaging' }, { k: 'organ', l: 'อวัยวะ/ตา' }].map((t) => (
+            <button key={t.k} onClick={() => setFilterType(t.k)} style={{ background: filterType === t.k ? BRASS : PAPER_DIM, color: filterType === t.k ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{PET_EVENT_ICONS[t.k]} {t.l}</button>
+          ))}
+        </div>
+
+        <Card>
+          <p className="text-xs mb-2" style={{ color: SLATE }}>รายการแจ้งเตือนเดือนนี้</p>
+          {filteredMonthItems.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ไม่มีรายการ</p>}
+          {filteredMonthItems.map((it, i) => {
+            const d_ = daysUntil(it.date);
+            const isFuture = d_ !== null && d_ >= 0 && new Date(it.date) >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            return (
+              <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
                 {it.dogPhoto ? <img src={it.dogPhoto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" /> : <div style={{ background: PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"><Dog size={16} color={SLATE} /></div>}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold" style={{ color: INK }}>{it.dogName}{it.purpose ? ` — ${it.purpose}` : ''}</p>
-                  <p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(it.date)} {it.time}{it.hospital ? ` · ${it.hospital}` : ''}</p>
+                  <p className="text-sm font-semibold" style={{ color: INK }}>{PET_EVENT_ICONS[it.type]} {it.dogName} — {it.label}</p>
+                  <p className="text-xs" style={{ color: isFuture ? GOOD : SLATE }}>{formatDateDMY(it.date)} {it.time || ''}{isFuture ? ` (อีก ${d_} วัน)` : ''}{it.sub ? ` · ${it.sub}` : ''}</p>
                 </div>
+                <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
               </button>
-            ))}
-          </>
-        )}
+            );
+          })}
+        </Card>
+
+        <Card>
+          <p className="text-xs mb-2" style={{ color: SLATE }}>สรุปเดือนนี้</p>
+          <div className="grid grid-cols-2 gap-2">
+            <StatBox label="ลูกๆ ทั้งหมด" value={`${(dogs || []).length} ตัว`} />
+            <StatBox label="ค่าใช้จ่ายเดือนนี้" value={`฿${fmt(monthExpenseTotal)}`} />
+          </div>
+        </Card>
       </div>
     </div>
   );
