@@ -4249,6 +4249,18 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
 
 // นัดหมายรวมทุกตัว — ไม่ต้องเปิดทีละตัวเพื่อดู เรียงตามวันที่ใกล้สุด ไม่จำกัดจำนวน/ไม่จำกัดช่วงเวลา
 const PET_EVENT_ICONS = { appt: '📅', weight: '⚖️', blood: '🩸', imaging: '🩻', organ: '👁️' };
+function imagingBadge(type) {
+  const t = (type || '').toLowerCase();
+  if (t.includes('mri')) return 'MRI';
+  if (t.includes('ct')) return 'CT';
+  if (t.includes('ultrasound') || t.includes('อัลตราซาวด์') || t.includes('us')) return 'US';
+  if (t.includes('x-ray') || t.includes('xray') || t.includes('เอกซเรย์')) return 'X-ray';
+  return '🩻';
+}
+function eventBadge(it) {
+  if (it.type === 'imaging') return imagingBadge(it.label);
+  return PET_EVENT_ICONS[it.type];
+}
 function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
   const [viewDate, setViewDate] = useState(new Date());
   const [filterType, setFilterType] = useState('all');
@@ -4269,7 +4281,6 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
   const thisMonthItems = allItems.filter((it) => { const dd = new Date(it.date); return dd.getFullYear() === year && dd.getMonth() === month; });
   const eventsByDay = {};
   thisMonthItems.forEach((it) => { const day = new Date(it.date).getDate(); if (!eventsByDay[day]) eventsByDay[day] = []; eventsByDay[day].push(it); });
-  const typeColor = { appt: BRASS, weight: '#2563EB', blood: BAD, imaging: '#7C3AED', organ: GOOD };
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
@@ -4293,13 +4304,25 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
         <div className="grid grid-cols-7 gap-1">
           {cells.map((day, i) => {
             const dayEvents = day ? eventsByDay[day] : null;
-            const dotColor = dayEvents && dayEvents.length > 0 ? typeColor[dayEvents[0].type] : null;
+            const isToday = day && year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
             return (
-              <div key={i} className="flex items-center justify-center" style={{ height: 34 }}>
-                {day && <div style={{ width: 28, height: 28, borderRadius: '50%', background: dotColor || 'transparent', color: dotColor ? 'white' : INK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: dotColor ? 700 : 400 }}>{day}</div>}
+              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: isToday ? PAPER_DIM : 'transparent', borderRadius: 10 }}>
+                {day && <span className="text-[11px]" style={{ color: isToday ? BRASS : INK, fontWeight: isToday ? 700 : 400 }}>{day}</span>}
+                {dayEvents && dayEvents.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-center gap-x-0.5" style={{ maxWidth: 34, lineHeight: 1.3 }}>
+                    {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 9 }}>{eventBadge(e)}</span>)}
+                  </div>
+                )}
               </div>
             );
           })}
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${BORDER}` }}>
+          <span className="text-[10px]" style={{ color: SLATE }}>📅 นัดหมาย</span>
+          <span className="text-[10px]" style={{ color: SLATE }}>⚖️ น้ำหนัก</span>
+          <span className="text-[10px]" style={{ color: SLATE }}>🩸 ผลเลือด</span>
+          <span className="text-[10px]" style={{ color: SLATE }}>MRI/CT/US/X-ray</span>
+          <span className="text-[10px]" style={{ color: SLATE }}>👁️ อวัยวะ/ตา</span>
         </div>
       </Card>
 
@@ -4829,6 +4852,14 @@ function RentCollectionMatrix({ properties, onTogglePayment }) {
 }
 
 const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+// คำย่อชื่อทรัพย์สินสำหรับโชว์ในปฏิทิน — เช็คคำที่มักปรากฏในชื่อทรัพย์สินก่อน เผื่อชื่อเต็มไม่ตรงเป๊ะ แล้วค่อย fallback เป็นคำสุดท้ายของชื่อ
+function propertyAbbrev(name) {
+  const n = name || '';
+  const knownMap = [['O2', 'O2'], ['วัชระ', 'วัชระ'], ['แก๊ส', 'แก๊ส'], ['หลักสี่', 'หลักสี่'], ['Kave', 'Kave'], ['Wish', 'Wish']];
+  for (const [keyword, abbrev] of knownMap) { if (n.includes(keyword)) return abbrev; }
+  const words = n.trim().split(/\s+/);
+  return words[words.length - 1] || n;
+}
 function RealEstateCalendarSection({ properties, googleConnected, onSelectProperty }) {
   const [viewDate, setViewDate] = useState(new Date());
   const year = viewDate.getFullYear();
@@ -4845,12 +4876,12 @@ function RealEstateCalendarSection({ properties, googleConnected, onSelectProper
       let status = 'upcoming';
       if (pay.paid) status = 'paid';
       else if (dueDate < today) status = 'overdue';
-      events.push({ day: Number(p.rentDueDay), type: 'rent', status, label: `เก็บค่าเช่า ${p.name}`, amount: p.rent, propertyId: p.id });
+      events.push({ day: Number(p.rentDueDay), type: 'rent', status, label: `เก็บค่าเช่า ${p.name}`, abbrev: propertyAbbrev(p.name), amount: p.rent, propertyId: p.id });
     }
     if (p.contractEndDate) {
       const d = new Date(p.contractEndDate);
       if (d.getFullYear() === year && d.getMonth() === month) {
-        events.push({ day: d.getDate(), type: 'contract', status: 'contract', label: `ครบสัญญา ${p.name}`, sub: `ครบกำหนด ${formatDateDMY(p.contractEndDate)}`, propertyId: p.id });
+        events.push({ day: d.getDate(), type: 'contract', status: 'contract', label: `ครบสัญญา ${p.name}`, abbrev: propertyAbbrev(p.name), sub: `ครบกำหนด ${formatDateDMY(p.contractEndDate)}`, propertyId: p.id });
       }
     }
   });
@@ -4878,15 +4909,24 @@ function RealEstateCalendarSection({ properties, googleConnected, onSelectProper
         <div className="grid grid-cols-7 gap-1">
           {cells.map((day, i) => {
             const dayEvents = day ? eventsByDay[day] : null;
-            const dotColor = dayEvents && dayEvents.length > 0 ? statusColor[dayEvents[0].status] : null;
+            const isToday = day && year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
             return (
-              <div key={i} className="flex items-center justify-center" style={{ height: 34 }}>
-                {day && (
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: dotColor || 'transparent', color: dotColor ? 'white' : INK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: dotColor ? 700 : 400 }}>{day}</div>
+              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: isToday ? PAPER_DIM : 'transparent', borderRadius: 10 }}>
+                {day && <span className="text-[11px]" style={{ color: isToday ? BRASS : INK, fontWeight: isToday ? 700 : 400 }}>{day}</span>}
+                {dayEvents && dayEvents.length > 0 && (
+                  <div className="flex flex-col items-center" style={{ maxWidth: 40, lineHeight: 1.25 }}>
+                    {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 8.5, fontWeight: 700, color: statusColor[e.status] }}>{e.abbrev}</span>)}
+                  </div>
                 )}
               </div>
             );
           })}
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${BORDER}` }}>
+          <span className="text-[10px]" style={{ color: GOOD }}>■ จ่ายแล้ว</span>
+          <span className="text-[10px]" style={{ color: BRASS }}>■ ใกล้ถึง</span>
+          <span className="text-[10px]" style={{ color: BAD }}>■ ค้างชำระ</span>
+          <span className="text-[10px]" style={{ color: '#2563EB' }}>■ ครบสัญญา</span>
         </div>
       </Card>
       <Card>
