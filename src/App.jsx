@@ -4262,6 +4262,13 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
 
 // นัดหมายรวมทุกตัว — ไม่ต้องเปิดทีละตัวเพื่อดู เรียงตามวันที่ใกล้สุด ไม่จำกัดจำนวน/ไม่จำกัดช่วงเวลา
 const PET_EVENT_ICONS = { appt: '📅', weight: '⚖️', blood: '🩸', imaging: '🩻', organ: '👁️' };
+// คำย่อชื่อลูกๆ สำหรับโชว์ในปฏิทิน — เช็คคำที่ระบุไว้ก่อน แล้วค่อย fallback เป็นชื่อเต็ม
+function dogAbbrev(name) {
+  const n = name || '';
+  const knownMap = [['เป๋าตุง', 'เป๋า'], ['ถุงทอง', 'ถุง'], ['หญิงเล็ก', 'หญิง'], ['ขวานฟ้า', 'ขวาน'], ['โยกเยก', 'โยก'], ['คัตโตะ', 'พัต'], ['หนึ่งหนึ่ง', 'หนึ่ง'], ['ตุ้มแต้ม', 'แต้ม']];
+  for (const [keyword, abbrev] of knownMap) { if (n === keyword || n.includes(keyword)) return abbrev; }
+  return n.slice(0, 3);
+}
 function imagingBadge(type) {
   const t = (type || '').toLowerCase();
   if (t.includes('mri')) return 'MRI';
@@ -4325,8 +4332,8 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
                   <span className="flex items-center justify-center" style={{ width: 20, height: 20, borderRadius: '50%', background: hasEvents ? BRASS : 'transparent', color: hasEvents ? 'white' : (isToday ? BRASS : INK), fontSize: 11, fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>
                 )}
                 {hasEvents && (
-                  <div className="flex flex-wrap items-center justify-center gap-x-0.5" style={{ maxWidth: 34, lineHeight: 1.3 }}>
-                    {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 9 }}>{eventBadge(e)}</span>)}
+                  <div className="flex flex-col items-center" style={{ maxWidth: 40, lineHeight: 1.25 }}>
+                    {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 8 }}>{dogAbbrev(e.dogName)}{eventBadge(e)}</span>)}
                   </div>
                 )}
               </div>
