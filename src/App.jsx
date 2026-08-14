@@ -2162,7 +2162,8 @@ async function scanBuySellHistory(file, symbols) {
   const symbolHint = (symbols && symbols.length > 0) ? `\nชื่อกองทุน/หุ้นที่มีอยู่ในพอร์ต: ${symbols.join(', ')} — จับคู่ชื่อที่อ่านได้กับรายการนี้ให้ใกล้เคียงที่สุด` : '';
   const prompt = `นี่คือภาพประวัติรายการคำสั่งซื้อ-ขายกองทุน/หุ้น จากแอปการลงทุน อาจมีหลายกองทุนปนกันในภาพเดียว อ่านเฉพาะรายการที่เป็น "ซื้อ" หรือ "ขาย" ปกติเท่านั้น (ไม่เอารายการ YIELDTECH)${symbolHint}
 ถ้าภาพมีจำนวนหน่วย/ราคาต่อหน่วยระบุไว้ ให้อ่านมาด้วย ถ้าไม่มีให้เว้นว่าง (null) ห้ามเดา
-ตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"symbol":"ชื่อกองทุน/หุ้น","type":"buy หรือ sell","amount":จำนวนเงินเป็นตัวเลขบวกไม่มีคอมมา,"shares":จำนวนหน่วยถ้ามีระบุไม่งั้นเป็น null,"price":ราคาต่อหน่วยถ้ามีระบุไม่งั้นเป็น null,"date":"YYYY-MM-DD"}]`;
+สำคัญ: ถ้าภาพไม่มีวันที่กำกับไว้ชัดเจนต่อแต่ละแถว (เช่น หน้าจอสรุปที่ไม่ได้แยกวันที่ต่อรายการ) ให้ใส่ "date" เป็น null ห้ามเดาวันที่เอง เพราะจะทำให้ระบบตรวจจับรายการซ้ำทำงานผิดพลาด
+ตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"symbol":"ชื่อกองทุน/หุ้น","type":"buy หรือ sell","amount":จำนวนเงินเป็นตัวเลขบวกไม่มีคอมมา,"shares":จำนวนหน่วยถ้ามีระบุไม่งั้นเป็น null,"price":ราคาต่อหน่วยถ้ามีระบุไม่งั้นเป็น null,"date":"YYYY-MM-DD หรือ null ถ้าไม่มีวันที่ต่อแถวชัดเจน"}]`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
@@ -2734,14 +2735,16 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         const found = holdings.find((h) => h.symbol && r.symbol && (h.symbol.toUpperCase() === r.symbol.toUpperCase() || h.symbol.toUpperCase().includes(r.symbol.toUpperCase()) || r.symbol.toUpperCase().includes(h.symbol.toUpperCase())));
         const rShares = r.shares ? Number(r.shares) : null;
         const rAmount = Number(r.amount) || 0;
-        // เช็คว่ารายการนี้อาจซ้ำกับที่เคยบันทึกไว้แล้วไหม (วันที่เดียวกัน + จำนวนหุ้นหรือยอดเงินใกล้เคียงกัน) — กันเผลอบันทึกซ้ำเวลารูปที่แปะมีรายการเก่าติดมาด้วย
+        // เช็คว่ารายการนี้อาจซ้ำกับที่เคยบันทึกไว้แล้วไหม — ใช้จำนวนหุ้น+ยอดเงินเป็นหลัก (แม่นกว่าวันที่มาก เพราะบางภาพหน้าจอ เช่น Deal Sum ไม่มีวันที่กำกับต่อแถว ทำให้ AI เดาวันที่ไม่ตรงกันทุกครั้งที่สแกนรูปเดียวกัน)
         let isDuplicate = false;
         if (found) {
           const existingList = r.type === 'sell' ? (found.sells || []) : (found.buys || []);
           isDuplicate = existingList.some((ex) => {
-            if (ex.date !== (r.date || '')) return false;
-            if (rShares && ex.shares) return Math.abs(ex.shares - rShares) < 0.01;
-            return Math.abs(Number(ex.amount || 0) - rAmount) < 1;
+            const sharesMatch = rShares && ex.shares ? Math.abs(ex.shares - rShares) < 0.01 : false;
+            const amountMatch = Math.abs(Number(ex.amount || 0) - rAmount) < 1;
+            if (sharesMatch && amountMatch) return true; // จำนวนหุ้น+ยอดเงินตรงกันเป๊ะ ถือว่าเป็นรายการเดียวกัน ไม่ต้องพึ่งวันที่
+            if (!rShares && amountMatch && ex.date === (r.date || '')) return true; // ถ้าไม่รู้จำนวนหุ้น ค่อยพึ่งวันที่+ยอดเงินแทน
+            return false;
           });
         }
         return { symbol: r.symbol, type: r.type === 'sell' ? 'sell' : 'buy', amount: rAmount, shares: rShares, price: r.price ? Number(r.price) : null, date: r.date || new Date().toISOString().slice(0, 10), holdingId: isDuplicate ? '' : (found ? found.id : '__new__'), isDuplicate };
