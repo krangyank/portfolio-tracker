@@ -4317,11 +4317,14 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
         <div className="grid grid-cols-7 gap-1">
           {cells.map((day, i) => {
             const dayEvents = day ? eventsByDay[day] : null;
+            const hasEvents = dayEvents && dayEvents.length > 0;
             const isToday = day && year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
             return (
-              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: isToday ? PAPER_DIM : 'transparent', borderRadius: 10 }}>
-                {day && <span className="text-[11px]" style={{ color: isToday ? BRASS : INK, fontWeight: isToday ? 700 : 400 }}>{day}</span>}
-                {dayEvents && dayEvents.length > 0 && (
+              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: isToday && !hasEvents ? PAPER_DIM : 'transparent', borderRadius: 10 }}>
+                {day && (
+                  <span className="flex items-center justify-center" style={{ width: 20, height: 20, borderRadius: '50%', background: hasEvents ? BRASS : 'transparent', color: hasEvents ? 'white' : (isToday ? BRASS : INK), fontSize: 11, fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>
+                )}
+                {hasEvents && (
                   <div className="flex flex-wrap items-center justify-center gap-x-0.5" style={{ maxWidth: 34, lineHeight: 1.3 }}>
                     {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 9 }}>{eventBadge(e)}</span>)}
                   </div>
@@ -4922,11 +4925,15 @@ function RealEstateCalendarSection({ properties, googleConnected, onSelectProper
         <div className="grid grid-cols-7 gap-1">
           {cells.map((day, i) => {
             const dayEvents = day ? eventsByDay[day] : null;
+            const hasEvents = dayEvents && dayEvents.length > 0;
+            const circleColor = hasEvents ? statusColor[dayEvents[0].status] : null;
             const isToday = day && year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
             return (
-              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: isToday ? PAPER_DIM : 'transparent', borderRadius: 10 }}>
-                {day && <span className="text-[11px]" style={{ color: isToday ? BRASS : INK, fontWeight: isToday ? 700 : 400 }}>{day}</span>}
-                {dayEvents && dayEvents.length > 0 && (
+              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: isToday && !hasEvents ? PAPER_DIM : 'transparent', borderRadius: 10 }}>
+                {day && (
+                  <span className="flex items-center justify-center" style={{ width: 20, height: 20, borderRadius: '50%', background: circleColor || 'transparent', color: circleColor ? 'white' : (isToday ? BRASS : INK), fontSize: 11, fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>
+                )}
+                {hasEvents && (
                   <div className="flex flex-col items-center" style={{ maxWidth: 40, lineHeight: 1.25 }}>
                     {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 8.5, fontWeight: 700, color: statusColor[e.status] }}>{e.abbrev}</span>)}
                   </div>
