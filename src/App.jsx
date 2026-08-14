@@ -2732,7 +2732,19 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       if (!rows || rows.length === 0) { setBsScanError('อ่านรายการไม่พบ ลองภาพที่ชัดกว่านี้'); return; }
       const matched = rows.map((r) => {
         const found = holdings.find((h) => h.symbol && r.symbol && (h.symbol.toUpperCase() === r.symbol.toUpperCase() || h.symbol.toUpperCase().includes(r.symbol.toUpperCase()) || r.symbol.toUpperCase().includes(h.symbol.toUpperCase())));
-        return { symbol: r.symbol, type: r.type === 'sell' ? 'sell' : 'buy', amount: Number(r.amount) || 0, shares: r.shares ? Number(r.shares) : null, price: r.price ? Number(r.price) : null, date: r.date || new Date().toISOString().slice(0, 10), holdingId: found ? found.id : '__new__' };
+        const rShares = r.shares ? Number(r.shares) : null;
+        const rAmount = Number(r.amount) || 0;
+        // เช็คว่ารายการนี้อาจซ้ำกับที่เคยบันทึกไว้แล้วไหม (วันที่เดียวกัน + จำนวนหุ้นหรือยอดเงินใกล้เคียงกัน) — กันเผลอบันทึกซ้ำเวลารูปที่แปะมีรายการเก่าติดมาด้วย
+        let isDuplicate = false;
+        if (found) {
+          const existingList = r.type === 'sell' ? (found.sells || []) : (found.buys || []);
+          isDuplicate = existingList.some((ex) => {
+            if (ex.date !== (r.date || '')) return false;
+            if (rShares && ex.shares) return Math.abs(ex.shares - rShares) < 0.01;
+            return Math.abs(Number(ex.amount || 0) - rAmount) < 1;
+          });
+        }
+        return { symbol: r.symbol, type: r.type === 'sell' ? 'sell' : 'buy', amount: rAmount, shares: rShares, price: r.price ? Number(r.price) : null, date: r.date || new Date().toISOString().slice(0, 10), holdingId: isDuplicate ? '' : (found ? found.id : '__new__'), isDuplicate };
       });
       setBsDraft(matched);
     } catch (err) { setBsScanError('เกิดข้อผิดพลาด: ' + err.message); }
@@ -2795,8 +2807,9 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             <div className="mt-2">
               <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>พบ {bsDraft.length} รายการ — เช็คประเภท/จับคู่กองทุนให้ถูกต้องก่อนยืนยัน</p>
               {bsDraft.map((row, idx) => (
-                <div key={idx} style={{ background: 'white', border: `1px solid ${BORDER}` }} className="rounded-lg p-2 mb-1.5">
+                <div key={idx} style={{ background: 'white', border: `1px solid ${row.isDuplicate ? WARN : BORDER}` }} className="rounded-lg p-2 mb-1.5">
                   <p className="text-[11px] font-semibold mb-1">{row.symbol} · {row.date} · ฿{fmt(row.amount)}{row.shares ? ` · ${fmt2(row.shares)} หน่วย` : ''}</p>
+                  {row.isDuplicate && <p className="text-[10px] mb-1.5" style={{ color: WARN }}>⚠️ ดูเหมือนซ้ำกับรายการที่เคยบันทึกไว้แล้ว (วันที่/จำนวนตรงกัน) — ระบบตั้งค่าเป็น "ข้าม" ไว้ให้ ถ้าตั้งใจบันทึกซ้ำจริงค่อยเลือกกองทุนเอง</p>}
                   <div className="grid grid-cols-2 gap-1.5 mb-1">
                     <select value={row.type} onChange={(e) => updateBsDraftRow(idx, { type: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: `1px solid ${row.type === 'sell' ? BAD : GOOD}`, color: row.type === 'sell' ? BAD : GOOD }}>
                       <option value="buy">🟢 ซื้อ</option>
