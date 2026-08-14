@@ -4327,10 +4327,8 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
             const hasEvents = dayEvents && dayEvents.length > 0;
             const isToday = day && year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
             return (
-              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: isToday && !hasEvents ? PAPER_DIM : 'transparent', borderRadius: 10 }}>
-                {day && (
-                  <span className="flex items-center justify-center" style={{ width: 20, height: 20, borderRadius: '50%', background: hasEvents ? BRASS : 'transparent', color: hasEvents ? 'white' : (isToday ? BRASS : INK), fontSize: 11, fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>
-                )}
+              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: hasEvents ? '#F2761E14' : (isToday ? PAPER_DIM : 'transparent'), borderRadius: 10 }}>
+                {day && <span className="text-[11px]" style={{ color: hasEvents ? BRASS : (isToday ? BRASS : INK), fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>}
                 {hasEvents && (
                   <div className="flex flex-col items-center" style={{ maxWidth: 40, lineHeight: 1.25 }}>
                     {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 8 }}>{dogAbbrev(e.dogName)}{eventBadge(e)}</span>)}
@@ -4933,13 +4931,11 @@ function RealEstateCalendarSection({ properties, googleConnected, onSelectProper
           {cells.map((day, i) => {
             const dayEvents = day ? eventsByDay[day] : null;
             const hasEvents = dayEvents && dayEvents.length > 0;
-            const circleColor = hasEvents ? statusColor[dayEvents[0].status] : null;
+            const cellColor = hasEvents ? statusColor[dayEvents[0].status] : null;
             const isToday = day && year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
             return (
-              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: isToday && !hasEvents ? PAPER_DIM : 'transparent', borderRadius: 10 }}>
-                {day && (
-                  <span className="flex items-center justify-center" style={{ width: 20, height: 20, borderRadius: '50%', background: circleColor || 'transparent', color: circleColor ? 'white' : (isToday ? BRASS : INK), fontSize: 11, fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>
-                )}
+              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: cellColor ? `${cellColor}14` : (isToday ? PAPER_DIM : 'transparent'), borderRadius: 10 }}>
+                {day && <span className="text-[11px]" style={{ color: cellColor || (isToday ? BRASS : INK), fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>}
                 {hasEvents && (
                   <div className="flex flex-col items-center" style={{ maxWidth: 40, lineHeight: 1.25 }}>
                     {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 8.5, fontWeight: 700, color: statusColor[e.status] }}>{e.abbrev}</span>)}
