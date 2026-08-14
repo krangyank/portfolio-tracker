@@ -3343,6 +3343,17 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
     filtered.forEach((c) => { map[c.source] = (map[c.source] || 0) + Number(c.amount || 0); });
     return Object.entries(map).map(([src, total]) => ({ src, label: SOURCES.find((s) => s.id === src)?.label || src, total })).sort((a, b) => b.total - a.total);
   }, [contributions, summaryPeriod, summaryPeriodType]);
+  const byDestinationThisPeriod = useMemo(() => {
+    const filtered = contributions.filter((c) => summaryKeyFn(c.date) === summaryPeriod);
+    const map = {};
+    filtered.forEach((c) => {
+      const acc = accounts.find((a) => a.id === c.accountId);
+      const label = acc?.name || c.accountId || 'ไม่ทราบปลายทาง';
+      map[label] = (map[label] || 0) + Number(c.amount || 0);
+    });
+    return Object.entries(map).map(([dest, total]) => ({ dest, total })).sort((a, b) => b.total - a.total);
+  }, [contributions, summaryPeriod, summaryPeriodType, accounts]);
+  const [destPopup, setDestPopup] = useState(null); // { label, items: [...] }
   const periodGrandTotal = bySourceThisPeriod.reduce((s, r) => s + r.total, 0);
   const [groupPopup, setGroupPopup] = useState(null); // { label, items: [...] }
   const groupedList = useMemo(() => {
@@ -3389,6 +3400,30 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
         ))}
         {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span>฿{fmt(periodGrandTotal)}</span></div>}
       </Card>
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>สรุปแยกตามปลายทาง (ไปลงที่ไหนบ้าง)</p>
+        {byDestinationThisPeriod.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
+        {byDestinationThisPeriod.map((r) => {
+          const items = contributions.filter((c) => summaryKeyFn(c.date) === summaryPeriod && ((accounts.find((a) => a.id === c.accountId)?.name || c.accountId || 'ไม่ทราบปลายทาง') === r.dest));
+          return (
+            <button key={r.dest} onClick={() => setDestPopup({ label: `${r.dest} · ${summaryPeriod}`, items })} className="w-full flex justify-between text-sm mb-1.5 text-left">
+              <span>{r.dest}</span><span>฿{fmt(r.total)}</span>
+            </button>
+          );
+        })}
+        {summaryPeriod && byDestinationThisPeriod.length > 0 && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span>฿{fmt(byDestinationThisPeriod.reduce((s, r) => s + r.total, 0))}</span></div>}
+      </Card>
+      {destPopup && (
+        <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
+          <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[75vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">{destPopup.label}</p><button onClick={() => setDestPopup(null)}><X size={20} color={INK} /></button></div>
+            {destPopup.items.sort((a, b) => b.date.localeCompare(a.date)).map((c) => {
+              const src3 = SOURCES.find((s) => s.id === c.source);
+              return <Card key={c.id}><div className="flex justify-between items-center"><div><p className="text-sm">{src3?.label || c.source}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(c.date)}</p></div><span className="text-sm">฿{fmt(c.amount)}</span></div></Card>;
+            })}
+          </div>
+        </div>
+      )}
       <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด (เดือนนี้)</p>
       {groupedList.thisMonthItems.length === 0 && <p className="text-xs mb-3" style={{ color: SLATE }}>ยังไม่มีรายการเดือนนี้</p>}
       {groupedList.thisMonthItems.map((c) => {
@@ -4098,10 +4133,9 @@ function computeDogInsights(dog) {
 }
 
 function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onRemoveMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
-  const [selectedId, setSelectedId] = useState(dogs[0]?.id || '');
+  const [selectedId, setSelectedId] = useState(null); // null = หน้าปฏิทินรวม (ค่าเริ่มต้น) / มีค่า = กำลังดูลูกตัวนั้นอยู่
   const [section, setSection] = useState('overview');
-  const [showAllAppointments, setShowAllAppointments] = useState(false);
-  const dog = dogs.find((d) => d.id === selectedId) || dogs[0];
+  const dog = selectedId ? dogs.find((d) => d.id === selectedId) : null;
   useEffect(() => { if (onCurrentPhotoChange) onCurrentPhotoChange(dog?.photoUrl || null); }, [dog?.photoUrl, dog?.id]);
   const photoFileRef = useRef(null);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -4149,9 +4183,12 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           </button>
         ))}
       </div>
-      <button onClick={() => setShowAllAppointments(true)} className="flex items-center gap-1.5 text-xs font-semibold mb-4" style={{ color: BRASS }}><Calendar size={14} /> นัดหมายรวมทุกตัว</button>
+
+      {!dog && <AllDogsAppointmentsCalendar dogs={dogs} onJumpTo={(dogId) => { setSelectedId(dogId); setSection('appt'); }} />}
 
       {dog && (
+        <>
+        <button onClick={() => setSelectedId(null)} className="flex items-center gap-1 text-xs font-semibold mb-3" style={{ color: BRASS }}>‹ ภาพรวมทุกตัว</button>
         <Card>
           <input ref={photoFileRef} type="file" accept="image/*" onChange={handlePhotoFile} className="hidden" />
           <div className="flex items-center gap-4">
@@ -4173,7 +4210,6 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
             </div>
           </div>
         </Card>
-      )}
 
       <div className="grid grid-cols-5 gap-2 mb-4">
         {sections.map((s) => {
@@ -4190,7 +4226,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
 
       {section === 'allreport' ? (
         <AllDogsReportSection dogs={dogs} />
-      ) : dog && (
+      ) : (
         <>
           {section === 'overview' && <DogOverviewSection dog={dog} setSection={setSection} onRunHealthInsight={onRunHealthInsight} />}
           {section === 'profile' && <DogProfileSection dog={dog} onUpdateDog={onUpdateDog} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
@@ -4205,8 +4241,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'album' && <DogAlbumSection dog={dog} onAddAlbumPhoto={onAddAlbumPhoto} onRemoveAlbumPhoto={onRemoveAlbumPhoto} />}
         </>
       )}
-      {showAllAppointments && (
-        <AllDogsAppointmentsOverlay dogs={dogs} onClose={() => setShowAllAppointments(false)} onJumpTo={(dogId) => { setSelectedId(dogId); setSection('appt'); setShowAllAppointments(false); }} />
+      </>
       )}
     </div>
   );
@@ -4214,7 +4249,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
 
 // นัดหมายรวมทุกตัว — ไม่ต้องเปิดทีละตัวเพื่อดู เรียงตามวันที่ใกล้สุด ไม่จำกัดจำนวน/ไม่จำกัดช่วงเวลา
 const PET_EVENT_ICONS = { appt: '📅', weight: '⚖️', blood: '🩸', imaging: '🩻', organ: '👁️' };
-function AllDogsAppointmentsOverlay({ dogs, onClose, onJumpTo }) {
+function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
   const [viewDate, setViewDate] = useState(new Date());
   const [filterType, setFilterType] = useState('all');
   const year = viewDate.getFullYear();
@@ -4245,66 +4280,62 @@ function AllDogsAppointmentsOverlay({ dogs, onClose, onJumpTo }) {
   const monthExpenseTotal = (dogs || []).reduce((sum, d) => sum + (d.expenses || []).filter((e) => { const dd = new Date(e.date); return dd.getFullYear() === year && dd.getMonth() === month; }).reduce((s, e) => s + Number(e.amount || 0), 0), 0);
 
   return (
-    <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
-      <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">ปฏิทินรวมของลูกๆ</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
-
-        <Card>
-          <div className="flex justify-between items-center mb-3">
-            <button onClick={() => setViewDate(new Date(year, month - 1, 1))}><ChevronLeft size={18} color={SLATE} /></button>
-            <p className="text-sm font-bold" style={{ color: INK }}>{THAI_MONTHS[month]} {year + 543}</p>
-            <button onClick={() => setViewDate(new Date(year, month + 1, 1))}><ChevronRight size={18} color={SLATE} /></button>
-          </div>
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => <p key={d} className="text-center text-[10px]" style={{ color: SLATE }}>{d}</p>)}
-          </div>
-          <div className="grid grid-cols-7 gap-1">
-            {cells.map((day, i) => {
-              const dayEvents = day ? eventsByDay[day] : null;
-              const dotColor = dayEvents && dayEvents.length > 0 ? typeColor[dayEvents[0].type] : null;
-              return (
-                <div key={i} className="flex items-center justify-center" style={{ height: 34 }}>
-                  {day && <div style={{ width: 28, height: 28, borderRadius: '50%', background: dotColor || 'transparent', color: dotColor ? 'white' : INK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: dotColor ? 700 : 400 }}>{day}</div>}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-
-        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
-          <button onClick={() => setFilterType('all')} style={{ background: filterType === 'all' ? BRASS : PAPER_DIM, color: filterType === 'all' ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs">ทั้งหมด</button>
-          {[{ k: 'appt', l: 'นัดหมาย' }, { k: 'weight', l: 'น้ำหนัก' }, { k: 'blood', l: 'ผลเลือด' }, { k: 'imaging', l: 'Imaging' }, { k: 'organ', l: 'อวัยวะ/ตา' }].map((t) => (
-            <button key={t.k} onClick={() => setFilterType(t.k)} style={{ background: filterType === t.k ? BRASS : PAPER_DIM, color: filterType === t.k ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{PET_EVENT_ICONS[t.k]} {t.l}</button>
-          ))}
+    <div>
+      <Card>
+        <div className="flex justify-between items-center mb-3">
+          <button onClick={() => setViewDate(new Date(year, month - 1, 1))}><ChevronLeft size={18} color={SLATE} /></button>
+          <p className="text-sm font-bold" style={{ color: INK }}>{THAI_MONTHS[month]} {year + 543}</p>
+          <button onClick={() => setViewDate(new Date(year, month + 1, 1))}><ChevronRight size={18} color={SLATE} /></button>
         </div>
-
-        <Card>
-          <p className="text-xs mb-2" style={{ color: SLATE }}>รายการแจ้งเตือนเดือนนี้</p>
-          {filteredMonthItems.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ไม่มีรายการ</p>}
-          {filteredMonthItems.map((it, i) => {
-            const d_ = daysUntil(it.date);
-            const isFuture = d_ !== null && d_ >= 0 && new Date(it.date) >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => <p key={d} className="text-center text-[10px]" style={{ color: SLATE }}>{d}</p>)}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((day, i) => {
+            const dayEvents = day ? eventsByDay[day] : null;
+            const dotColor = dayEvents && dayEvents.length > 0 ? typeColor[dayEvents[0].type] : null;
             return (
-              <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-                {it.dogPhoto ? <img src={it.dogPhoto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" /> : <div style={{ background: PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"><Dog size={16} color={SLATE} /></div>}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold" style={{ color: INK }}>{PET_EVENT_ICONS[it.type]} {it.dogName} — {it.label}</p>
-                  <p className="text-xs" style={{ color: isFuture ? GOOD : SLATE }}>{formatDateDMY(it.date)} {it.time || ''}{isFuture ? ` (อีก ${d_} วัน)` : ''}{it.sub ? ` · ${it.sub}` : ''}</p>
-                </div>
-                <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-              </button>
+              <div key={i} className="flex items-center justify-center" style={{ height: 34 }}>
+                {day && <div style={{ width: 28, height: 28, borderRadius: '50%', background: dotColor || 'transparent', color: dotColor ? 'white' : INK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: dotColor ? 700 : 400 }}>{day}</div>}
+              </div>
             );
           })}
-        </Card>
+        </div>
+      </Card>
 
-        <Card>
-          <p className="text-xs mb-2" style={{ color: SLATE }}>สรุปเดือนนี้</p>
-          <div className="grid grid-cols-2 gap-2">
-            <StatBox label="ลูกๆ ทั้งหมด" value={`${(dogs || []).length} ตัว`} />
-            <StatBox label="ค่าใช้จ่ายเดือนนี้" value={`฿${fmt(monthExpenseTotal)}`} />
-          </div>
-        </Card>
+      <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+        <button onClick={() => setFilterType('all')} style={{ background: filterType === 'all' ? BRASS : PAPER_DIM, color: filterType === 'all' ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs">ทั้งหมด</button>
+        {[{ k: 'appt', l: 'นัดหมาย' }, { k: 'weight', l: 'น้ำหนัก' }, { k: 'blood', l: 'ผลเลือด' }, { k: 'imaging', l: 'Imaging' }, { k: 'organ', l: 'อวัยวะ/ตา' }].map((t) => (
+          <button key={t.k} onClick={() => setFilterType(t.k)} style={{ background: filterType === t.k ? BRASS : PAPER_DIM, color: filterType === t.k ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{PET_EVENT_ICONS[t.k]} {t.l}</button>
+        ))}
       </div>
+
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>รายการแจ้งเตือนเดือนนี้</p>
+        {filteredMonthItems.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ไม่มีรายการ</p>}
+        {filteredMonthItems.map((it, i) => {
+          const d_ = daysUntil(it.date);
+          const isFuture = d_ !== null && d_ >= 0 && new Date(it.date) >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          return (
+            <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
+              {it.dogPhoto ? <img src={it.dogPhoto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" /> : <div style={{ background: PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"><Dog size={16} color={SLATE} /></div>}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold" style={{ color: INK }}>{PET_EVENT_ICONS[it.type]} {it.dogName} — {it.label}</p>
+                <p className="text-xs" style={{ color: isFuture ? GOOD : SLATE }}>{formatDateDMY(it.date)} {it.time || ''}{isFuture ? ` (อีก ${d_} วัน)` : ''}{it.sub ? ` · ${it.sub}` : ''}</p>
+              </div>
+              <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+            </button>
+          );
+        })}
+      </Card>
+
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>สรุปเดือนนี้</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatBox label="ลูกๆ ทั้งหมด" value={`${(dogs || []).length} ตัว`} />
+          <StatBox label="ค่าใช้จ่ายเดือนนี้" value={`฿${fmt(monthExpenseTotal)}`} />
+        </div>
+      </Card>
     </div>
   );
 }
