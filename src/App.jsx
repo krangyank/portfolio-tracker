@@ -3595,6 +3595,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   const [listSearch, setListSearch] = useState('');
   const [editingExpense, setEditingExpense] = useState(null);
   const [groupPopup, setGroupPopup] = useState(null);
+  const [calViewDate, setCalViewDate] = useState(new Date());
 
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState('');
@@ -3697,17 +3698,16 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   return (
     <div className="px-5 pt-5">
       <div className="flex gap-2 mb-4">
-        <button onClick={() => setMainSection('cash')} style={{ background: mainSection === 'cash' ? INK : PAPER_DIM, color: mainSection === 'cash' ? 'white' : INK }} className="rounded-full px-4 py-2 text-xs font-medium">รายจ่ายเงินสด</button>
+        <button onClick={() => setMainSection('cash')} style={{ background: mainSection === 'cash' ? INK : PAPER_DIM, color: mainSection === 'cash' ? 'white' : INK }} className="rounded-full px-4 py-2 text-xs font-medium">📅 ปฏิทิน &amp; รายจ่ายเงินสด</button>
         <button onClick={() => setMainSection('cards')} style={{ background: mainSection === 'cards' ? INK : PAPER_DIM, color: mainSection === 'cards' ? 'white' : INK }} className="rounded-full px-4 py-2 text-xs font-medium">💳 บัตรเครดิต</button>
-        <button onClick={() => setMainSection('calendar')} style={{ background: mainSection === 'calendar' ? INK : PAPER_DIM, color: mainSection === 'calendar' ? 'white' : INK }} className="rounded-full px-4 py-2 text-xs font-medium">📅 ปฏิทิน</button>
       </div>
-      {mainSection === 'calendar' && <ExpenseCalendarSection expenses={expenses} creditCards={creditCards} />}
       {mainSection === 'cards' && (
         <CreditCardsSection creditCards={creditCards} onAddCard={onAddCreditCard} onUpdateCard={onUpdateCreditCard} onRemoveCard={onRemoveCreditCard}
           onAddTransaction={onAddCreditCardTransaction} onRemoveTransaction={onRemoveCreditCardTransaction} onUpdateTransaction={onUpdateCreditCardTransaction} />
       )}
       {mainSection === 'cash' && (
       <>
+      <ExpenseMonthCalendar expenses={expenses} creditCards={creditCards} viewDate={calViewDate} onChangeViewDate={setCalViewDate} />
       <div className="relative mb-4">
         <Search size={15} color={SLATE} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
         <input value={listSearch} onChange={(e) => setListSearch(e.target.value)} placeholder="ค้นหารายจ่าย (โน้ต/หมวดหมู่)..." style={{ border: '1px solid #E7EAF0' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
@@ -3896,8 +3896,7 @@ function nextCardDueDate(dueDay) {
 }
 
 // ปฏิทินรายจ่าย — วันที่มีรายจ่ายจะโชว์ตัวย่อธนาคาร/ชื่อบัตร (ถ้าจ่ายด้วยบัตร) หรือ 💵 พร้อมจำนวนเงิน (ถ้าจ่ายเงินสด)
-function ExpenseCalendarSection({ expenses, creditCards }) {
-  const [viewDate, setViewDate] = useState(new Date());
+function ExpenseMonthCalendar({ expenses, creditCards, viewDate, onChangeViewDate }) {
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const today = new Date();
@@ -3908,7 +3907,6 @@ function ExpenseCalendarSection({ expenses, creditCards }) {
     const cardLabel = c.cardName || c.bankName || 'บัตร';
     (c.transactions || []).forEach((t) => allItems.push({ date: t.date, label: `${cardLabel} — ${t.category}${t.note ? ' — ' + t.note : ''}`, amount: t.amount, source: 'card', cardLabel }));
   });
-  allItems.sort((a, b) => a.date.localeCompare(b.date));
 
   const thisMonthItems = allItems.filter((it) => { const dd = new Date(it.date); return dd.getFullYear() === year && dd.getMonth() === month; });
   const eventsByDay = {};
@@ -3917,55 +3915,39 @@ function ExpenseCalendarSection({ expenses, creditCards }) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
   const cells = [...Array(firstWeekday).fill(null), ...Array(daysInMonth).fill(0).map((_, i) => i + 1)];
-  const monthTotal = thisMonthItems.reduce((s, it) => s + Number(it.amount || 0), 0);
 
   return (
-    <div>
-      <Card>
-        <div className="flex justify-between items-center mb-3">
-          <button onClick={() => setViewDate(new Date(year, month - 1, 1))}><ChevronLeft size={18} color={SLATE} /></button>
-          <p className="text-sm font-bold" style={{ color: INK }}>{THAI_MONTHS[month]} {year + 543}</p>
-          <button onClick={() => setViewDate(new Date(year, month + 1, 1))}><ChevronRight size={18} color={SLATE} /></button>
-        </div>
-        <div className="grid grid-cols-7 gap-1 mb-1">
-          {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => <p key={d} className="text-center text-[10px]" style={{ color: SLATE }}>{d}</p>)}
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {cells.map((day, i) => {
-            const dayEvents = day ? eventsByDay[day] : null;
-            const hasEvents = dayEvents && dayEvents.length > 0;
-            const isToday = day && year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
-            return (
-              <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: hasEvents ? '#F2761E14' : (isToday ? PAPER_DIM : 'transparent'), borderRadius: 10 }}>
-                {day && <span className="text-[11px]" style={{ color: hasEvents ? BRASS : (isToday ? BRASS : INK), fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>}
-                {hasEvents && (
-                  <div className="flex flex-col items-center" style={{ maxWidth: 44, lineHeight: 1.25 }}>
-                    {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 7.5 }}>{e.source === 'card' ? e.cardLabel : `💵${fmt(e.amount)}`}</span>)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${BORDER}` }}>
-          <span className="text-[10px]" style={{ color: SLATE }}>💳 ชื่อบัตร/ธนาคาร = จ่ายด้วยบัตรเครดิต</span>
-          <span className="text-[10px]" style={{ color: SLATE }}>💵 จำนวนเงิน = จ่ายเงินสด</span>
-        </div>
-      </Card>
-      <Card>
-        <div className="flex justify-between items-center mb-2"><p className="text-xs" style={{ color: SLATE }}>รายการเดือนนี้</p><p className="text-sm font-semibold" style={{ color: INK }}>รวม ฿{fmt(monthTotal)}</p></div>
-        {thisMonthItems.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีรายจ่ายเดือนนี้</p>}
-        {thisMonthItems.map((it, i) => (
-          <div key={i} className="flex justify-between items-center py-2" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm" style={{ color: INK }}>{it.label}</p>
-              <p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(it.date)} · {it.source === 'card' ? `💳 ${it.cardLabel}` : '💵 เงินสด'}</p>
+    <Card>
+      <div className="flex justify-between items-center mb-3">
+        <button onClick={() => onChangeViewDate(new Date(year, month - 1, 1))}><ChevronLeft size={18} color={SLATE} /></button>
+        <p className="text-sm font-bold" style={{ color: INK }}>{THAI_MONTHS[month]} {year + 543}</p>
+        <button onClick={() => onChangeViewDate(new Date(year, month + 1, 1))}><ChevronRight size={18} color={SLATE} /></button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => <p key={d} className="text-center text-[10px]" style={{ color: SLATE }}>{d}</p>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((day, i) => {
+          const dayEvents = day ? eventsByDay[day] : null;
+          const hasEvents = dayEvents && dayEvents.length > 0;
+          const isToday = day && year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
+          return (
+            <div key={i} className="flex flex-col items-center pt-1" style={{ minHeight: 44, background: hasEvents ? '#F2761E14' : (isToday ? PAPER_DIM : 'transparent'), borderRadius: 10 }}>
+              {day && <span className="text-[11px]" style={{ color: hasEvents ? BRASS : (isToday ? BRASS : INK), fontWeight: hasEvents || isToday ? 700 : 400 }}>{day}</span>}
+              {hasEvents && (
+                <div className="flex flex-col items-center" style={{ maxWidth: 44, lineHeight: 1.25 }}>
+                  {dayEvents.map((e, ei) => <span key={ei} style={{ fontSize: 7.5 }}>{e.source === 'card' ? e.cardLabel : `💵${fmt(e.amount)}`}</span>)}
+                </div>
+              )}
             </div>
-            <span className="text-sm font-semibold" style={{ color: INK }}>฿{fmt(it.amount)}</span>
-          </div>
-        ))}
-      </Card>
-    </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${BORDER}` }}>
+        <span className="text-[10px]" style={{ color: SLATE }}>💳 ชื่อบัตร/ธนาคาร = จ่ายด้วยบัตรเครดิต</span>
+        <span className="text-[10px]" style={{ color: SLATE }}>💵 จำนวนเงิน = จ่ายเงินสด</span>
+      </div>
+    </Card>
   );
 }
 function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction }) {
