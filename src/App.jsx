@@ -47,9 +47,10 @@ const TAB_MASCOTS = {
   expenses: { emoji: '🛍️', bg: '#FBE3E1', photo: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=200&h=200&fit=crop' },
   pets: { emoji: '🐶', bg: '#EFE7FE' },
   realestate: { emoji: '🏡', bg: '#DDF4F4' },
+  insurance: { emoji: '🛡️', bg: '#DCE8FE' },
   reports: { emoji: '🦉', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=200&fit=crop' },
 };
-const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'รายรับ', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', reports: 'รายงาน' };
+const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'รายรับ', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', reports: 'รายงาน' };
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -121,6 +122,8 @@ const EMPTY_STATE = {
   customDestinationList: [],
   openToLastTab: false,
   lastUsedTab: 'dashboard',
+  insurancePolicies: [],
+  insuranceClaims: [],
   bloodTestTypeList: ['CBC', 'ค่าไต', 'ค่าตับ', 'ค่าตับอ่อน (Lipase/Amylase/cPLI)', 'ไขมันในเลือด', 'น้ำตาล', 'SDMA', 'Electrolyte', 'Cortisol', 'ACTH', 'T4/Thyroid', 'Coagulation (PT/PTT)', 'Urinalysis'],
   organTypeList: ['ไต', 'ตับ', 'ตับอ่อน', 'ถุงน้ำดี', 'ม้าม', 'ต่อมหมวกไต', 'หัวใจ', 'ตา'],
   imagingTypeList: ['Ultrasound', 'X-ray', 'CT', 'MRI', 'Echo (Echocardiogram)'],
@@ -1106,6 +1109,56 @@ export default function App() {
     persist({ ...state, doctorDepartments: { ...doctorDepartments, [doctorName]: department } });
   }
   function addCustomDestination(name) { if (name && !customDestinationList.includes(name)) persist({ ...state, customDestinationList: [...customDestinationList, name] }); }
+  // ประกันครอบครัว — 1 กรมธรรม์ = สัญญาหลัก + สัญญาเพิ่มเติมได้หลายรายการ (riders)
+  const insurancePolicies = state?.insurancePolicies || [];
+  const insuranceClaims = state?.insuranceClaims || [];
+  function addInsurancePolicy(entry) {
+    const p = { id: uid(), owner: 'me', category: 'life', company: '', policyNumber: '', planName: '', startDate: '', endDate: '', premiumAmount: 0, premiumFrequency: 'year', nextDueDate: '', agentName: '', agentPhone: '', status: 'active', documents: [], riders: [], ...entry };
+    persist({ ...state, insurancePolicies: [p, ...insurancePolicies] });
+    return p.id;
+  }
+  function updateInsurancePolicy(policyId, patch) {
+    persist({ ...state, insurancePolicies: insurancePolicies.map((p) => (p.id === policyId ? { ...p, ...patch } : p)) });
+  }
+  function removeInsurancePolicy(policyId) {
+    persist({ ...state, insurancePolicies: insurancePolicies.filter((p) => p.id !== policyId) });
+  }
+  function addInsuranceRider(policyId, entry) {
+    const p = insurancePolicies.find((x) => x.id === policyId);
+    const rider = { id: uid(), name: '', type: 'life', sumInsured: 0, deathBenefit: 0, taxDeductible: 'no', notes: '', ...entry };
+    updateInsurancePolicy(policyId, { riders: [...(p.riders || []), rider] });
+  }
+  function updateInsuranceRider(policyId, riderId, patch) {
+    const p = insurancePolicies.find((x) => x.id === policyId);
+    updateInsurancePolicy(policyId, { riders: (p.riders || []).map((r) => (r.id === riderId ? { ...r, ...patch } : r)) });
+  }
+  function removeInsuranceRider(policyId, riderId) {
+    const p = insurancePolicies.find((x) => x.id === policyId);
+    updateInsurancePolicy(policyId, { riders: (p.riders || []).filter((r) => r.id !== riderId) });
+  }
+  async function addInsurancePolicyDocument(policyId, file) {
+    const p = insurancePolicies.find((x) => x.id === policyId);
+    const path = `properties/${FAMILY_SHARE_ID}/insurance/${policyId}/${Date.now()}_${file.name}`;
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    updateInsurancePolicy(policyId, { documents: [{ id: uid(), url, path, name: file.name, uploadedAt: new Date().toISOString().slice(0, 10) }, ...(p.documents || [])] });
+  }
+  async function removeInsurancePolicyDocument(policyId, docId) {
+    const p = insurancePolicies.find((x) => x.id === policyId);
+    const doc = (p.documents || []).find((d) => d.id === docId);
+    if (doc && doc.path) { try { await deleteObject(storageRef(storage, doc.path)); } catch (e) { /* ignore */ } }
+    updateInsurancePolicy(policyId, { documents: (p.documents || []).filter((d) => d.id !== docId) });
+  }
+  function addInsuranceClaim(entry) {
+    persist({ ...state, insuranceClaims: [{ id: uid(), ...entry }, ...insuranceClaims] });
+  }
+  function updateInsuranceClaim(claimId, patch) {
+    persist({ ...state, insuranceClaims: insuranceClaims.map((c) => (c.id === claimId ? { ...c, ...patch } : c)) });
+  }
+  function removeInsuranceClaim(claimId) {
+    persist({ ...state, insuranceClaims: insuranceClaims.filter((c) => c.id !== claimId) });
+  }
   function addBloodTestType(name) { if (name && !bloodTestTypeList.includes(name)) persist({ ...state, bloodTestTypeList: [...bloodTestTypeList, name] }); }
   function addOrganType(name) { if (name && !organTypeList.includes(name)) persist({ ...state, organTypeList: [...organTypeList, name] }); }
   function addImagingType(name) { if (name && !imagingTypeList.includes(name)) persist({ ...state, imagingTypeList: [...imagingTypeList, name] }); }
@@ -1615,9 +1668,16 @@ export default function App() {
           accounts={accounts}
           googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} onRefreshShared={refreshSharedData} onCurrentPhotoChange={setHeaderPhotoOverride} />
       )}
+      {tab === 'insurance' && (
+        <InsuranceTab policies={insurancePolicies} claims={insuranceClaims}
+          onAddPolicy={addInsurancePolicy} onUpdatePolicy={updateInsurancePolicy} onRemovePolicy={removeInsurancePolicy}
+          onAddRider={addInsuranceRider} onUpdateRider={updateInsuranceRider} onRemoveRider={removeInsuranceRider}
+          onAddDocument={addInsurancePolicyDocument} onRemoveDocument={removeInsurancePolicyDocument}
+          onAddClaim={addInsuranceClaim} onUpdateClaim={updateInsuranceClaim} onRemoveClaim={removeInsuranceClaim} />
+      )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'รายรับ', icon: TrendingUp }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'รายรับ', icon: TrendingUp }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
             <t.icon size={17} color={tab === t.id ? '#FFFFFF' : '#94A3B8'} /><span className="text-[8px]" style={{ color: tab === t.id ? '#FFFFFF' : '#94A3B8' }}>{t.label}</span>
           </button>
@@ -2263,6 +2323,40 @@ async function scanBuySellHistory(file, symbols) {
 ตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"symbol":"ชื่อกองทุน/หุ้น","type":"buy หรือ sell","amount":จำนวนเงินเป็นตัวเลขบวกไม่มีคอมมา,"shares":จำนวนหน่วยถ้ามีระบุไม่งั้นเป็น null,"price":ราคาต่อหน่วยถ้ามีระบุไม่งั้นเป็น null,"date":"YYYY-MM-DD หรือ null ถ้าไม่มีวันที่ต่อแถวชัดเจน"}]`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
+}
+// อ่านกรมธรรม์ประกันจากรูปได้หลายหน้า/หลายรูป — เนื่องจาก askServer ส่งได้ทีละรูป จะสแกนทีละรูปแล้วรวมผลลัพธ์เข้าด้วยกัน
+// สำคัญ: แยกผลประโยชน์กรณีเสียชีวิตกับทุนประกันหลักของแต่ละสัญญาออกจากกัน ไม่ใช่ค่าเดียวกันเสมอไป (พบจากกรมธรรม์ตัวอย่างจริง)
+// และแยก "จำนวนเงินที่รับรองแน่นอน" ออกจาก "เงินปันผล/ผลตอบแทนที่ไม่รับรอง" (ตัวอย่างประมาณการเท่านั้น) ของกรมธรรม์แบบมีเงินปันผล
+async function scanInsurancePolicyPage(file) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพเอกสารกรมธรรม์ประกัน (อาจเป็นตารางกรมธรรม์ ใบเสร็จ หรือตารางผลประโยชน์) อ่านข้อมูลที่พบในภาพนี้เท่านั้น ห้ามเดาข้อมูลที่ไม่มีในภาพ ถ้าไม่พบให้ใส่ null
+ข้อควรระวังสำคัญ:
+- "ผลประโยชน์กรณีเสียชีวิต" ของแต่ละสัญญา อาจไม่เท่ากับทุนประกัน/ผลประโยชน์หลักของสัญญานั้น ต้องอ่านแยกจากตารางที่ระบุกรณีเสียชีวิตโดยเฉพาะ ถ้ามี
+- ถ้าเป็นกรมธรรม์แบบมีเงินปันผล ให้แยก "จำนวนเงินที่รับรองแน่นอนตามกรมธรรม์" ออกจาก "เงินปันผล/ผลตอบแทนที่ไม่รับรอง" (เป็นแค่ตัวอย่างประมาณการ) — เอาเฉพาะจำนวนที่รับรองแน่นอนมาใส่ในผลประโยชน์
+- 1 กรมธรรม์อาจมีทั้งสัญญาหลักและสัญญาเพิ่มเติมหลายรายการปนกัน ให้แยกเป็นรายการละ 1 สัญญา
+- หมวดผลประโยชน์ที่เป็น "ตามที่จ่ายจริง" ไม่มีเพดานตายตัว ให้ใส่ notes อธิบายแทนตัวเลข
+- เงื่อนไขซับซ้อน (ระยะรอคอย, เงื่อนไขเลือกอย่างใดอย่างหนึ่ง ฯลฯ) ให้สรุปสั้นๆ ใส่ใน notes
+ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ:
+{"company":"","policyNumber":"","planName":"","insuredName":"","startDate":"YYYY-MM-DD หรือ null","endDate":"YYYY-MM-DD หรือ null","premiumAmount":ตัวเลขหรือnull,"premiumFrequency":"year หรือ month หรือ null","riders":[{"name":"ชื่อสัญญาหลักหรือสัญญาเพิ่มเติม","type":"life หรือ health หรือ critical หรือ accident หรือ daily_cash หรือ other","sumInsured":ตัวเลขหรือnull,"deathBenefit":ตัวเลขหรือnull,"premiumAmount":ตัวเลขหรือnull,"taxDeductible":"yes หรือ no หรือ partial หรือ null","ipdLimit":ตัวเลขหรือnull,"opdLimit":ตัวเลขหรือnull,"roomLimit":ตัวเลขหรือnull,"doctorLimit":ตัวเลขหรือnull,"surgeryLimit":ตัวเลขหรือnull,"dailyCashAmount":ตัวเลขหรือnull,"notes":"ข้อความสรุปเงื่อนไขสำคัญ หรือ ตามที่จ่ายจริง"}]}`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  return safeParseJson(text);
+}
+async function scanInsurancePolicyMultiPhoto(files) {
+  const merged = { company: '', policyNumber: '', planName: '', insuredName: '', startDate: '', endDate: '', premiumAmount: 0, premiumFrequency: 'year', riders: [] };
+  for (const file of files) {
+    try {
+      const page = await scanInsurancePolicyPage(file);
+      if (!page) continue;
+      ['company', 'policyNumber', 'planName', 'insuredName', 'startDate', 'endDate', 'premiumFrequency'].forEach((k) => { if (page[k] && !merged[k]) merged[k] = page[k]; });
+      if (page.premiumAmount && !merged.premiumAmount) merged.premiumAmount = page.premiumAmount;
+      (page.riders || []).forEach((r) => {
+        const existingIdx = merged.riders.findIndex((x) => x.name && r.name && x.name.trim().toLowerCase() === r.name.trim().toLowerCase());
+        if (existingIdx >= 0) merged.riders[existingIdx] = { ...merged.riders[existingIdx], ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null && v !== undefined && v !== '')) };
+        else merged.riders.push(r);
+      });
+    } catch (e) { console.error('scanInsurancePolicyPage failed for one photo', e); }
+  }
+  return merged;
 }
 
 async function scanReceiptItems(file, cardNames) {
@@ -5038,6 +5132,518 @@ function propertyAbbrev(name) {
   const words = n.trim().split(/\s+/);
   return words[words.length - 1] || n;
 }
+const INSURANCE_CATEGORIES = [
+  { id: 'life', label: 'ชีวิต', emoji: '❤️' },
+  { id: 'health', label: 'สุขภาพ', emoji: '🏥' },
+  { id: 'critical', label: 'โรคร้ายแรง', emoji: '🧬' },
+  { id: 'accident', label: 'อุบัติเหตุ', emoji: '🚑' },
+  { id: 'car', label: 'รถยนต์', emoji: '🚗' },
+  { id: 'other', label: 'อื่นๆ', emoji: '📄' },
+];
+const RIDER_TYPES = [
+  { id: 'life', label: 'ชีวิต' },
+  { id: 'health', label: 'สุขภาพ (IPD/OPD)' },
+  { id: 'critical', label: 'โรคร้ายแรง' },
+  { id: 'accident', label: 'อุบัติเหตุ' },
+  { id: 'daily_cash', label: 'ชดเชยรายวัน' },
+  { id: 'other', label: 'อื่นๆ' },
+];
+const INSURANCE_OWNERS = [{ id: 'me', label: 'ผม' }, { id: 'spouse', label: 'ภรรยา' }, { id: 'car', label: 'รถยนต์' }];
+const INSURANCE_SCENARIOS = [
+  { id: 'hospital', label: 'เข้า รพ.', emoji: '🏥' },
+  { id: 'opd', label: 'OPD', emoji: '🩺' },
+  { id: 'critical', label: 'มะเร็ง/โรคร้ายแรง', emoji: '🧬' },
+  { id: 'accident', label: 'อุบัติเหตุ', emoji: '🚑' },
+  { id: 'death', label: 'เสียชีวิต', emoji: '💀' },
+  { id: 'car', label: 'รถชน', emoji: '🚗' },
+];
+function allRiders(policies) {
+  const list = [];
+  (policies || []).forEach((p) => (p.riders || []).forEach((r) => list.push({ ...r, policyId: p.id, policyName: p.planName || p.company, owner: p.owner, company: p.company })));
+  return list;
+}
+
+function InsuranceTab({ policies, claims, onAddPolicy, onUpdatePolicy, onRemovePolicy, onAddRider, onUpdateRider, onRemoveRider, onAddDocument, onRemoveDocument, onAddClaim, onUpdateClaim, onRemoveClaim }) {
+  const [section, setSection] = useState('overview');
+  const [ownerFilter, setOwnerFilter] = useState('all');
+  const [selectedPolicyId, setSelectedPolicyId] = useState(null);
+  const filteredPolicies = ownerFilter === 'all' ? policies : policies.filter((p) => p.owner === ownerFilter);
+  const selectedPolicy = policies.find((p) => p.id === selectedPolicyId);
+
+  return (
+    <div className="px-5 pt-5">
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+        {[{ id: 'overview', l: '🏠 ภาพรวม' }, { id: 'policies', l: '🛡️ กรมธรรม์' }, { id: 'coverage', l: '❤️ ความคุ้มครอง' }, { id: 'claims', l: '🧾 เคลม' }, { id: 'manage', l: '📅 ต่ออายุ/เอกสาร' }].map((s) => (
+          <button key={s.id} onClick={() => { setSection(s.id); setSelectedPolicyId(null); }} style={{ background: section === s.id ? INK : PAPER_DIM, color: section === s.id ? 'white' : INK, flexShrink: 0 }} className="rounded-full px-3.5 py-2 text-xs font-medium whitespace-nowrap">{s.l}</button>
+        ))}
+      </div>
+      <div className="flex gap-2 mb-4">
+        {[{ id: 'all', l: 'ทั้งหมด' }, ...INSURANCE_OWNERS].map((o) => (
+          <button key={o.id} onClick={() => setOwnerFilter(o.id)} style={{ background: ownerFilter === o.id ? BRASS : PAPER_DIM, color: ownerFilter === o.id ? 'white' : SLATE }} className="rounded-full px-3 py-1.5 text-xs">{o.l}</button>
+        ))}
+      </div>
+
+      {section === 'overview' && <InsuranceOverviewSection policies={filteredPolicies} onGoScenario={(s) => { setSection('coverage'); }} />}
+      {section === 'policies' && !selectedPolicy && <InsurancePoliciesList policies={filteredPolicies} onSelect={setSelectedPolicyId} onAddPolicy={onAddPolicy} />}
+      {section === 'policies' && selectedPolicy && (
+        <InsurancePolicyDetail policy={selectedPolicy} onBack={() => setSelectedPolicyId(null)} onUpdate={onUpdatePolicy} onRemove={() => { onRemovePolicy(selectedPolicy.id); setSelectedPolicyId(null); }}
+          onAddRider={onAddRider} onUpdateRider={onUpdateRider} onRemoveRider={onRemoveRider} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument} />
+      )}
+      {section === 'coverage' && <InsuranceCoverageSection policies={filteredPolicies} onJumpToPolicy={(id) => { setSelectedPolicyId(id); setSection('policies'); }} />}
+      {section === 'claims' && <InsuranceClaimsSection policies={policies} claims={claims} onAddClaim={onAddClaim} onUpdateClaim={onUpdateClaim} onRemoveClaim={onRemoveClaim} />}
+      {section === 'manage' && <InsuranceManageSection policies={filteredPolicies} onJumpToPolicy={(id) => { setSelectedPolicyId(id); setSection('policies'); }} />}
+    </div>
+  );
+}
+
+function InsuranceOverviewSection({ policies, onGoScenario }) {
+  const riders = allRiders(policies);
+  const totalPremium = policies.reduce((s, p) => s + Number(p.premiumAmount || 0) * (p.premiumFrequency === 'month' ? 12 : 1), 0);
+  const taxDeductiblePremium = riders.filter((r) => r.taxDeductible === 'yes' || r.taxDeductible === 'partial').reduce((s, r) => s + Number(r.premiumAmount || 0), 0);
+  const countByCategory = (cat) => policies.filter((p) => p.category === cat).length;
+  const totalDeath = riders.reduce((s, r) => s + Number(r.deathBenefit || 0), 0);
+  const totalIPD = riders.reduce((s, r) => s + Number(r.ipdLimit || 0), 0);
+  const maxRoom = riders.reduce((m, r) => Math.max(m, Number(r.roomLimit || 0)), 0);
+  const totalCritical = riders.filter((r) => r.type === 'critical').reduce((s, r) => s + Number(r.sumInsured || 0), 0);
+
+  return (
+    <div>
+      <Card>
+        <p className="text-xs mb-1" style={{ color: SLATE }}>เบี้ยประกันรวมต่อปี</p>
+        <p className="text-2xl font-bold mb-3" style={{ color: INK }}>฿{fmt(totalPremium)}</p>
+        <div className="grid grid-cols-3 gap-2">
+          <StatBox label="ชีวิต" value={`${countByCategory('life')} กรมธรรม์`} />
+          <StatBox label="สุขภาพ" value={`${countByCategory('health')} กรมธรรม์`} />
+          <StatBox label="รถยนต์" value={`${countByCategory('car')} คัน`} />
+        </div>
+        {taxDeductiblePremium > 0 && <p className="text-xs mt-3" style={{ color: GOOD }}>💡 เบี้ยที่ลดหย่อนภาษีได้ปีนี้ ≈ ฿{fmt(taxDeductiblePremium)}{taxDeductiblePremium > 100000 && ' (เกินเพดานรวม ฿100,000/ปี)'}</p>}
+      </Card>
+      <Card>
+        <p className="text-xs mb-3" style={{ color: SLATE }}>สรุปความคุ้มครองรวม</p>
+        {totalDeath > 0 && <div className="flex justify-between text-sm py-1.5" style={{ borderTop: `1px solid ${BORDER}` }}><span>❤️ เสียชีวิต</span><span className="font-semibold">฿{fmt(totalDeath)}</span></div>}
+        {totalIPD > 0 && <div className="flex justify-between text-sm py-1.5" style={{ borderTop: `1px solid ${BORDER}` }}><span>🏥 IPD ต่อปี</span><span className="font-semibold">฿{fmt(totalIPD)}</span></div>}
+        {maxRoom > 0 && <div className="flex justify-between text-sm py-1.5" style={{ borderTop: `1px solid ${BORDER}` }}><span>🛏️ ค่าห้องสูงสุด</span><span className="font-semibold">฿{fmt(maxRoom)}/คืน</span></div>}
+        {totalCritical > 0 && <div className="flex justify-between text-sm py-1.5" style={{ borderTop: `1px solid ${BORDER}` }}><span>🧬 โรคร้ายแรง</span><span className="font-semibold">฿{fmt(totalCritical)}</span></div>}
+        {riders.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูลความคุ้มครอง</p>}
+      </Card>
+      <Card>
+        <p className="text-xs mb-3 font-semibold" style={{ color: INK }}>ถ้าเกิดวันนี้...</p>
+        <div className="grid grid-cols-3 gap-2">
+          {INSURANCE_SCENARIOS.map((s) => (
+            <button key={s.id} onClick={() => onGoScenario(s.id)} style={{ border: `1px solid ${BORDER}` }} className="rounded-2xl py-3 text-center">
+              <p className="text-xl mb-1">{s.emoji}</p><p className="text-[11px]" style={{ color: INK }}>{s.label}</p>
+            </button>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function InsurancePoliciesList({ policies, onSelect, onAddPolicy }) {
+  const [showAdd, setShowAdd] = useState(false);
+  return (
+    <div>
+      <button onClick={() => setShowAdd(true)} style={{ border: `1px dashed ${BRASS}`, color: BRASS }} className="w-full rounded-xl py-3 text-sm font-semibold mb-4">+ เพิ่มกรมธรรม์ใหม่</button>
+      {policies.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีกรมธรรม์บันทึกไว้</p>}
+      {policies.map((p) => {
+        const cat = INSURANCE_CATEGORIES.find((c) => c.id === p.category);
+        const dl = p.endDate ? daysUntil(p.endDate) : null;
+        return (
+          <button key={p.id} onClick={() => onSelect(p.id)} className="w-full text-left">
+            <Card>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-bold" style={{ color: INK }}>{cat?.emoji} {p.planName || p.company}</p>
+                  <p className="text-xs mt-0.5" style={{ color: SLATE }}>{p.company} · {INSURANCE_OWNERS.find((o) => o.id === p.owner)?.label} · ฿{fmt(p.premiumAmount)}/{p.premiumFrequency === 'month' ? 'เดือน' : 'ปี'}</p>
+                  {dl !== null && <p className="text-[11px] mt-1" style={{ color: dl < 0 ? BAD : dl <= 30 ? WARN : GOOD }}>{dl < 0 ? '⚫ หมดอายุแล้ว' : `🟢 มีผลคุ้มครอง (ต่ออายุอีก ${dl} วัน)`}</p>}
+                </div>
+                <ChevronRight size={16} color={SLATE} />
+              </div>
+            </Card>
+          </button>
+        );
+      })}
+      {showAdd && <InsuranceAddPolicyFlow onClose={() => setShowAdd(false)} onAddPolicy={onAddPolicy} onSelect={onSelect} />}
+    </div>
+  );
+}
+
+function InsuranceAddPolicyFlow({ onClose, onAddPolicy, onSelect }) {
+  const [step, setStep] = useState(1); // 1: category, 2: photo/manual, 3: review
+  const [category, setCategory] = useState('health');
+  const [owner, setOwner] = useState('me');
+  const fileRef = useRef(null);
+  const [files, setFiles] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [draft, setDraft] = useState(null);
+
+  function handleFiles(e) {
+    const list = Array.from(e.target.files || []);
+    setFiles(list);
+  }
+  async function runScan() {
+    if (files.length === 0) return;
+    setScanning(true); setScanError('');
+    try {
+      const merged = await scanInsurancePolicyMultiPhoto(files);
+      setDraft(merged);
+      setStep(3);
+    } catch (err) { setScanError('อ่านรูปไม่สำเร็จ: ' + err.message); }
+    finally { setScanning(false); }
+  }
+  function startManual() {
+    setDraft({ company: '', policyNumber: '', planName: '', insuredName: '', startDate: '', endDate: '', premiumAmount: 0, premiumFrequency: 'year', riders: [{ name: '', type: category, sumInsured: 0, deathBenefit: 0, premiumAmount: 0, taxDeductible: 'no', notes: '' }] });
+    setStep(3);
+  }
+  function saveAll() {
+    const policyId = onAddPolicy({ owner, category, company: draft.company, policyNumber: draft.policyNumber, planName: draft.planName, startDate: draft.startDate, endDate: draft.endDate, premiumAmount: draft.premiumAmount, premiumFrequency: draft.premiumFrequency, riders: (draft.riders || []).map((r) => ({ id: uid(), ...r })) });
+    onClose();
+    onSelect(policyId);
+  }
+
+  return (
+    <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
+      <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">เพิ่มกรมธรรม์ใหม่</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
+
+        {step === 1 && (
+          <Card>
+            <p className="text-xs mb-2" style={{ color: SLATE }}>เจ้าของ</p>
+            <div className="flex gap-2 mb-4">{INSURANCE_OWNERS.map((o) => <button key={o.id} onClick={() => setOwner(o.id)} style={{ background: owner === o.id ? BRASS : PAPER_DIM, color: owner === o.id ? 'white' : SLATE }} className="rounded-full px-3 py-1.5 text-xs">{o.label}</button>)}</div>
+            <p className="text-xs mb-2" style={{ color: SLATE }}>ประเภทกรมธรรม์</p>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {INSURANCE_CATEGORIES.map((c) => (
+                <button key={c.id} onClick={() => setCategory(c.id)} style={{ background: category === c.id ? BRASS : 'white', color: category === c.id ? 'white' : INK, border: `1px solid ${category === c.id ? BRASS : BORDER}` }} className="rounded-xl py-3 text-center text-[11px] font-semibold">
+                  <p className="text-lg mb-1">{c.emoji}</p>{c.label}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setStep(2)} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm">ถัดไป</button>
+          </Card>
+        )}
+
+        {step === 2 && (
+          <Card>
+            <p className="text-xs mb-2" style={{ color: SLATE }}>แนบรูปกรมธรรม์/ตารางผลประโยชน์ (เลือกได้หลายรูป)</p>
+            <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
+            <button onClick={() => fileRef.current && fileRef.current.click()} style={{ border: `2px dashed ${BORDER}` }} className="w-full rounded-2xl py-6 text-center mb-3">
+              <Camera size={26} color={SLATE} /><p className="text-xs mt-2" style={{ color: SLATE }}>{files.length > 0 ? `เลือกไว้ ${files.length} รูป` : 'ถ่ายรูป/เลือกรูปตารางผลประโยชน์'}</p>
+            </button>
+            {scanError && <p className="text-xs mb-2" style={{ color: BAD }}>{scanError}</p>}
+            <button onClick={runScan} disabled={files.length === 0 || scanning} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 mb-2">{scanning ? <Loader2 size={14} className="animate-spin" /> : '🤖'} {scanning ? 'กำลังอ่านข้อมูล...' : 'ให้ AI อ่านข้อมูลจากรูป'}</button>
+            <button onClick={startManual} style={{ border: `1px solid ${BORDER}` }} className="w-full rounded-lg py-2.5 text-sm">✏️ กรอกเองแทน (ไม่ถ่ายรูป)</button>
+          </Card>
+        )}
+
+        {step === 3 && draft && (
+          <InsurancePolicyReviewForm draft={draft} setDraft={setDraft} onSave={saveAll} category={category} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InsurancePolicyReviewForm({ draft, setDraft, onSave, category }) {
+  function setField(k, v) { setDraft({ ...draft, [k]: v }); }
+  function setRiderField(idx, k, v) { const riders = [...draft.riders]; riders[idx] = { ...riders[idx], [k]: v }; setDraft({ ...draft, riders }); }
+  function addRiderRow() { setDraft({ ...draft, riders: [...(draft.riders || []), { name: '', type: category, sumInsured: 0, deathBenefit: 0, premiumAmount: 0, taxDeductible: 'no', notes: '' }] }); }
+  function removeRiderRow(idx) { setDraft({ ...draft, riders: draft.riders.filter((_, i) => i !== idx) }); }
+  return (
+    <div>
+      <div className="ai-banner" style={{ background: '#FFF6E5', border: '1px solid #E7D0A0', borderRadius: 12, padding: '10px 12px', fontSize: 11.5, color: '#8a6d1f', marginBottom: 12 }}>🤖 เช็คความถูกต้องก่อนบันทึก แก้ไขได้ทุกช่อง — ช่องที่ไม่พบข้อมูลในรูปจะว่างไว้ ไม่ได้เดา</div>
+      <Card>
+        <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>ข้อมูลกรมธรรม์</p>
+        <label className="text-[10px]" style={{ color: SLATE }}>บริษัทประกัน</label>
+        <input value={draft.company || ''} onChange={(e) => setField('company', e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>ชื่อแผน</label>
+        <input value={draft.planName || ''} onChange={(e) => setField('planName', e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>เลขกรมธรรม์</label>
+        <input value={draft.policyNumber || ''} onChange={(e) => setField('policyNumber', e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>เริ่มคุ้มครอง</label><input type="date" value={draft.startDate || ''} onChange={(e) => setField('startDate', e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: `1px solid ${BORDER}` }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ครบกำหนด/ต่ออายุ</label><input type="date" value={draft.endDate || ''} onChange={(e) => setField('endDate', e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: `1px solid ${BORDER}` }} /></div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>เบี้ยรวม</label><NumInput value={draft.premiumAmount} onChange={(v) => setField('premiumAmount', v)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: `1px solid ${BORDER}` }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ความถี่จ่าย</label>
+            <select value={draft.premiumFrequency || 'year'} onChange={(e) => setField('premiumFrequency', e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: `1px solid ${BORDER}` }}>
+              <option value="year">รายปี</option><option value="month">รายเดือน</option>
+            </select>
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div className="flex justify-between items-center mb-2"><p className="text-xs font-semibold" style={{ color: SLATE }}>สัญญาหลัก/สัญญาเพิ่มเติม ({(draft.riders || []).length})</p><button onClick={addRiderRow} className="text-xs font-semibold" style={{ color: BRASS }}>+ เพิ่มสัญญา</button></div>
+        {(draft.riders || []).map((r, idx) => (
+          <div key={idx} style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-3 mb-2">
+            <div className="flex justify-between items-center mb-2">
+              <input value={r.name || ''} onChange={(e) => setRiderField(idx, 'name', e.target.value)} placeholder="ชื่อสัญญา" className="rounded px-2 py-1 text-xs flex-1 mr-2" style={{ border: `1px solid ${BORDER}` }} />
+              <button onClick={() => removeRiderRow(idx)}><Trash2 size={14} color={BAD} /></button>
+            </div>
+            <select value={r.type} onChange={(e) => setRiderField(idx, 'type', e.target.value)} className="rounded px-2 py-1 text-xs w-full mb-2" style={{ border: `1px solid ${BORDER}` }}>
+              {RIDER_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div><label className="text-[9px]" style={{ color: SLATE }}>ทุนประกัน/ผลประโยชน์หลัก</label><NumInput value={r.sumInsured} onChange={(v) => setRiderField(idx, 'sumInsured', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+              <div><label className="text-[9px]" style={{ color: SLATE }}>ผลประโยชน์กรณีเสียชีวิต</label><NumInput value={r.deathBenefit} onChange={(v) => setRiderField(idx, 'deathBenefit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+            </div>
+            {r.type === 'health' && (
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div><label className="text-[9px]" style={{ color: SLATE }}>IPD/ปี</label><NumInput value={r.ipdLimit} onChange={(v) => setRiderField(idx, 'ipdLimit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+                <div><label className="text-[9px]" style={{ color: SLATE }}>OPD/ปี</label><NumInput value={r.opdLimit} onChange={(v) => setRiderField(idx, 'opdLimit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+                <div><label className="text-[9px]" style={{ color: SLATE }}>ค่าห้อง/คืน</label><NumInput value={r.roomLimit} onChange={(v) => setRiderField(idx, 'roomLimit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+                <div><label className="text-[9px]" style={{ color: SLATE }}>ค่าแพทย์/วัน</label><NumInput value={r.doctorLimit} onChange={(v) => setRiderField(idx, 'doctorLimit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+              </div>
+            )}
+            {r.type === 'daily_cash' && (
+              <div className="mb-2"><label className="text-[9px]" style={{ color: SLATE }}>ชดเชยรายวัน (บาท/วัน)</label><NumInput value={r.dailyCashAmount} onChange={(v) => setRiderField(idx, 'dailyCashAmount', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+            )}
+            <div className="mb-2">
+              <label className="text-[9px]" style={{ color: SLATE }}>ลดหย่อนภาษีได้</label>
+              <select value={r.taxDeductible || 'no'} onChange={(e) => setRiderField(idx, 'taxDeductible', e.target.value)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
+                <option value="yes">ได้</option><option value="partial">ได้บางส่วน</option><option value="no">ไม่ได้</option>
+              </select>
+            </div>
+            <label className="text-[9px]" style={{ color: SLATE }}>หมายเหตุ (เงื่อนไขสำคัญ/ตามที่จ่ายจริง)</label>
+            <textarea value={r.notes || ''} onChange={(e) => setRiderField(idx, 'notes', e.target.value)} rows={2} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} />
+          </div>
+        ))}
+      </Card>
+      <button onClick={onSave} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm">บันทึกกรมธรรม์</button>
+    </div>
+  );
+}
+
+function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRider, onUpdateRider, onRemoveRider, onAddDocument, onRemoveDocument }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
+  async function handleUpload(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try { await onAddDocument(p.id, file); } catch (err) { /* เงียบไว้ */ }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
+  }
+  const dl = p.endDate ? daysUntil(p.endDate) : null;
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูทุกกรมธรรม์</button>
+      <Card>
+        <div className="flex justify-between items-center mb-2">
+          <input value={p.planName || ''} onChange={(e) => onUpdate(p.id, { planName: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
+          <button onClick={onRemove}><Trash2 size={16} color={BAD} /></button>
+        </div>
+        {dl !== null && <p className="text-xs mb-2" style={{ color: dl < 0 ? BAD : dl <= 30 ? WARN : GOOD }}>{dl < 0 ? '⚫ หมดอายุแล้ว' : `🟢 มีผลคุ้มครอง (ต่ออายุอีก ${dl} วัน)`}</p>}
+        <label className="text-[10px]" style={{ color: SLATE }}>บริษัทประกัน</label>
+        <input value={p.company || ''} onChange={(e) => onUpdate(p.id, { company: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>เลขกรมธรรม์</label>
+        <input value={p.policyNumber || ''} onChange={(e) => onUpdate(p.id, { policyNumber: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>เริ่มคุ้มครอง</label><input type="date" value={p.startDate || ''} onChange={(e) => onUpdate(p.id, { startDate: e.target.value })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: `1px solid ${BORDER}` }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ครบกำหนด/ต่ออายุ</label><input type="date" value={p.endDate || ''} onChange={(e) => onUpdate(p.id, { endDate: e.target.value })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: `1px solid ${BORDER}` }} /></div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>เบี้ยรวม</label><NumInput value={p.premiumAmount} onChange={(v) => onUpdate(p.id, { premiumAmount: v })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: `1px solid ${BORDER}` }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>ความถี่จ่าย</label>
+            <select value={p.premiumFrequency || 'year'} onChange={(e) => onUpdate(p.id, { premiumFrequency: e.target.value })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: `1px solid ${BORDER}` }}>
+              <option value="year">รายปี</option><option value="month">รายเดือน</option>
+            </select>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex justify-between items-center mb-2"><p className="text-xs font-semibold" style={{ color: SLATE }}>สัญญาหลัก/สัญญาเพิ่มเติม ({(p.riders || []).length})</p><button onClick={() => onAddRider(p.id, {})} className="text-xs font-semibold" style={{ color: BRASS }}>+ เพิ่มสัญญา</button></div>
+        {(p.riders || []).map((r) => (
+          <div key={r.id} style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-3 mb-2">
+            <div className="flex justify-between items-center mb-2">
+              <input value={r.name || ''} onChange={(e) => onUpdateRider(p.id, r.id, { name: e.target.value })} placeholder="ชื่อสัญญา" className="rounded px-2 py-1 text-xs flex-1 mr-2" style={{ border: `1px solid ${BORDER}` }} />
+              <button onClick={() => onRemoveRider(p.id, r.id)}><Trash2 size={14} color={BAD} /></button>
+            </div>
+            <select value={r.type} onChange={(e) => onUpdateRider(p.id, r.id, { type: e.target.value })} className="rounded px-2 py-1 text-xs w-full mb-2" style={{ border: `1px solid ${BORDER}` }}>
+              {RIDER_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div><label className="text-[9px]" style={{ color: SLATE }}>ทุนประกัน/ผลประโยชน์หลัก</label><NumInput value={r.sumInsured} onChange={(v) => onUpdateRider(p.id, r.id, { sumInsured: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+              <div><label className="text-[9px]" style={{ color: SLATE }}>ผลประโยชน์กรณีเสียชีวิต</label><NumInput value={r.deathBenefit} onChange={(v) => onUpdateRider(p.id, r.id, { deathBenefit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+            </div>
+            {r.type === 'health' && (
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div><label className="text-[9px]" style={{ color: SLATE }}>IPD/ปี</label><NumInput value={r.ipdLimit} onChange={(v) => onUpdateRider(p.id, r.id, { ipdLimit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+                <div><label className="text-[9px]" style={{ color: SLATE }}>OPD/ปี</label><NumInput value={r.opdLimit} onChange={(v) => onUpdateRider(p.id, r.id, { opdLimit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+                <div><label className="text-[9px]" style={{ color: SLATE }}>ค่าห้อง/คืน</label><NumInput value={r.roomLimit} onChange={(v) => onUpdateRider(p.id, r.id, { roomLimit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+                <div><label className="text-[9px]" style={{ color: SLATE }}>ค่าแพทย์/วัน</label><NumInput value={r.doctorLimit} onChange={(v) => onUpdateRider(p.id, r.id, { doctorLimit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+              </div>
+            )}
+            {r.type === 'daily_cash' && (
+              <div className="mb-2"><label className="text-[9px]" style={{ color: SLATE }}>ชดเชยรายวัน (บาท/วัน)</label><NumInput value={r.dailyCashAmount} onChange={(v) => onUpdateRider(p.id, r.id, { dailyCashAmount: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+            )}
+            <div className="mb-2">
+              <label className="text-[9px]" style={{ color: SLATE }}>ลดหย่อนภาษีได้</label>
+              <select value={r.taxDeductible || 'no'} onChange={(e) => onUpdateRider(p.id, r.id, { taxDeductible: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
+                <option value="yes">ได้</option><option value="partial">ได้บางส่วน</option><option value="no">ไม่ได้</option>
+              </select>
+            </div>
+            <label className="text-[9px]" style={{ color: SLATE }}>หมายเหตุ</label>
+            <textarea value={r.notes || ''} onChange={(e) => onUpdateRider(p.id, r.id, { notes: e.target.value })} rows={2} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} />
+          </div>
+        ))}
+      </Card>
+
+      <Card>
+        <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>📎 เอกสารแนบ ({(p.documents || []).length})</p>
+        <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={handleUpload} className="hidden" />
+        <button onClick={() => fileRef.current && fileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-2 mb-2">{uploading ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />}{uploading ? 'กำลังอัพโหลด...' : '+ เพิ่มเอกสาร (บัตรประกัน/ใบเสร็จ/ใบเคลม)'}</button>
+        {(p.documents || []).map((d) => (
+          <div key={d.id} className="flex justify-between items-center py-2" style={{ borderTop: `1px solid ${BORDER}` }}>
+            <button onClick={() => setLightboxUrl(d.url)} className="text-xs text-left flex-1" style={{ color: INK }}>📄 {d.name}</button>
+            <button onClick={() => onRemoveDocument(p.id, d.id)}><Trash2 size={13} color={BAD} /></button>
+          </div>
+        ))}
+      </Card>
+      <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+    </div>
+  );
+}
+
+function InsuranceCoverageSection({ policies, onJumpToPolicy }) {
+  const [scenario, setScenario] = useState('hospital');
+  const riders = allRiders(policies);
+  return (
+    <div>
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        {INSURANCE_SCENARIOS.map((s) => (
+          <button key={s.id} onClick={() => setScenario(s.id)} style={{ background: scenario === s.id ? INK : 'white', color: scenario === s.id ? 'white' : INK, border: `1px solid ${scenario === s.id ? INK : BORDER}` }} className="rounded-2xl py-3 text-center">
+            <p className="text-xl mb-1">{s.emoji}</p><p className="text-[11px]">{s.label}</p>
+          </button>
+        ))}
+      </div>
+      {scenario === 'death' && (
+        <Card>
+          <p className="text-sm font-bold mb-3" style={{ color: INK }}>💀 ผลประโยชน์กรณีเสียชีวิต</p>
+          {riders.filter((r) => Number(r.deathBenefit) > 0).map((r) => (
+            <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(r.deathBenefit)}</span></button>
+          ))}
+          <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">รวมทั้งหมด</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(riders.reduce((s, r) => s + Number(r.deathBenefit || 0), 0))}</p></div>
+        </Card>
+      )}
+      {(scenario === 'hospital' || scenario === 'opd') && (
+        <>
+          <Card>
+            <p className="text-sm font-bold mb-3" style={{ color: INK }}>🛏️ ค่าห้อง/คืน</p>
+            {riders.filter((r) => Number(r.roomLimit) > 0).map((r) => <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(r.roomLimit)}</span></button>)}
+            <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">รวมสูงสุด/คืน</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(riders.reduce((s, r) => s + Number(r.roomLimit || 0), 0))}</p></div>
+          </Card>
+          <Card>
+            <p className="text-sm font-bold mb-3" style={{ color: INK }}>💊 วงเงิน{scenario === 'hospital' ? 'ค่ารักษาต่อปี (IPD)' : 'OPD ต่อปี'}</p>
+            {riders.filter((r) => Number(scenario === 'hospital' ? r.ipdLimit : r.opdLimit) > 0).map((r) => <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(scenario === 'hospital' ? r.ipdLimit : r.opdLimit)}</span></button>)}
+            <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">วงเงินสูงสุด</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(Math.max(0, ...riders.map((r) => Number(scenario === 'hospital' ? r.ipdLimit : r.opdLimit) || 0)))}</p></div>
+          </Card>
+        </>
+      )}
+      {scenario === 'critical' && (
+        <Card>
+          <p className="text-sm font-bold mb-3" style={{ color: INK }}>🧬 โรคร้ายแรง</p>
+          {riders.filter((r) => r.type === 'critical').map((r) => <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(r.sumInsured)}</span></button>)}
+          <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">รวมทั้งหมด</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(riders.filter((r) => r.type === 'critical').reduce((s, r) => s + Number(r.sumInsured || 0), 0))}</p></div>
+        </Card>
+      )}
+      {(scenario === 'accident' || scenario === 'car') && (
+        <Card>
+          <p className="text-sm font-bold mb-3" style={{ color: INK }}>{scenario === 'accident' ? '🚑 อุบัติเหตุ' : '🚗 รถยนต์'}</p>
+          {riders.filter((r) => r.type === (scenario === 'accident' ? 'accident' : 'other') || (scenario === 'car' && r.type === 'other')).map((r) => <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(r.sumInsured)}</span></button>)}
+        </Card>
+      )}
+      {riders.filter((r) => r.notes).length > 0 && (
+        <Card>
+          <p className="text-xs font-semibold mb-2" style={{ color: WARN }}>⚠️ ข้อควรระวัง</p>
+          {riders.filter((r) => r.notes).map((r) => <p key={r.id} className="text-[11px] mb-1.5" style={{ color: SLATE }}>{r.name}: {r.notes}</p>)}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function InsuranceClaimsSection({ policies, claims, onAddClaim, onUpdateClaim, onRemoveClaim }) {
+  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), policyId: '', hospital: '', diagnosis: '', type: 'opd', billedAmount: 0, paidByInsurance: 0, paidBySelf: 0 });
+  const riders = allRiders(policies);
+  const opdRiders = riders.filter((r) => Number(r.opdLimit) > 0);
+  const thisYear = new Date().getFullYear();
+  const opdUsedThisYear = claims.filter((c) => c.type === 'opd' && new Date(c.date).getFullYear() === thisYear).reduce((s, c) => s + Number(c.paidByInsurance || 0), 0);
+  const opdMax = Math.max(0, ...opdRiders.map((r) => Number(r.opdLimit) || 0));
+  return (
+    <div>
+      {opdMax > 0 && (
+        <Card>
+          <div className="flex justify-between text-xs mb-1"><span style={{ color: SLATE }}>OPD ปี {thisYear}</span><span className="font-semibold">฿{fmt(opdUsedThisYear)} / ฿{fmt(opdMax)}</span></div>
+          <div style={{ background: PAPER_DIM }} className="h-2 rounded-full overflow-hidden"><div style={{ width: `${Math.min(100, (opdUsedThisYear / opdMax) * 100)}%`, background: BRASS }} className="h-full rounded-full" /></div>
+        </Card>
+      )}
+      <Card>
+        <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>บันทึกการเคลมใหม่</p>
+        <label className="text-[10px]" style={{ color: SLATE }}>วันที่</label>
+        <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>กรมธรรม์ที่ใช้เคลม</label>
+        <select value={form.policyId} onChange={(e) => setForm({ ...form, policyId: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }}>
+          <option value="">— เลือกกรมธรรม์ —</option>
+          {policies.map((p) => <option key={p.id} value={p.id}>{p.planName || p.company}</option>)}
+        </select>
+        <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label>
+        <input value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mb-2" style={{ border: `1px solid ${BORDER}` }}>
+          <option value="opd">OPD</option><option value="ipd">IPD</option><option value="other">อื่นๆ</option>
+        </select>
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          <div><label className="text-[9px]" style={{ color: SLATE }}>ค่ารักษารวม</label><NumInput value={form.billedAmount} onChange={(v) => setForm({ ...form, billedAmount: v })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+          <div><label className="text-[9px]" style={{ color: SLATE }}>ประกันจ่าย</label><NumInput value={form.paidByInsurance} onChange={(v) => setForm({ ...form, paidByInsurance: v })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+          <div><label className="text-[9px]" style={{ color: SLATE }}>จ่ายเอง</label><NumInput value={form.paidBySelf} onChange={(v) => setForm({ ...form, paidBySelf: v })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+        </div>
+        <button onClick={() => { onAddClaim(form); setForm({ ...form, hospital: '', diagnosis: '', billedAmount: 0, paidByInsurance: 0, paidBySelf: 0 }); }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกการเคลม</button>
+      </Card>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติการเคลม</p>
+      {claims.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีประวัติ</p>}
+      {[...claims].sort((a, b) => b.date.localeCompare(a.date)).map((c) => {
+        const pol = policies.find((p) => p.id === c.policyId);
+        return (
+          <Card key={c.id}>
+            <div className="flex justify-between items-center">
+              <div><p className="text-sm" style={{ color: INK }}>{c.hospital} · {c.type.toUpperCase()}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(c.date)}{pol ? ` · ${pol.planName || pol.company}` : ''}</p></div>
+              <div className="flex items-center gap-2"><span className="text-sm font-semibold" style={{ color: GOOD }}>+฿{fmt(c.paidByInsurance)}</span><button onClick={() => onRemoveClaim(c.id)}><Trash2 size={14} color={BAD} /></button></div>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function InsuranceManageSection({ policies, onJumpToPolicy }) {
+  const withEndDate = policies.filter((p) => p.endDate).map((p) => ({ ...p, dl: daysUntil(p.endDate) })).sort((a, b) => a.dl - b.dl);
+  const next3MonthsPremium = policies.filter((p) => { const dl = p.endDate ? daysUntil(p.endDate) : null; return dl !== null && dl >= 0 && dl <= 90; }).reduce((s, p) => s + Number(p.premiumAmount || 0), 0);
+  return (
+    <div>
+      {next3MonthsPremium > 0 && (
+        <Card><p className="text-xs mb-1" style={{ color: SLATE }}>เบี้ยที่ต้องจ่าย 3 เดือนข้างหน้า</p><p className="text-xl font-bold" style={{ color: INK }}>฿{fmt(next3MonthsPremium)}</p></Card>
+      )}
+      <p className="text-xs mb-2" style={{ color: SLATE }}>สถานะต่ออายุ/ชำระเบี้ย</p>
+      {withEndDate.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีกรมธรรม์ที่มีวันครบกำหนด</p>}
+      {withEndDate.map((p) => (
+        <button key={p.id} onClick={() => onJumpToPolicy(p.id)} className="w-full text-left">
+          <Card>
+            <div className="flex items-center gap-2">
+              <span>{p.dl < 0 ? '⚫' : p.dl <= 30 ? '🔴' : p.dl <= 90 ? '🟡' : '🟢'}</span>
+              <div className="flex-1"><p className="text-sm" style={{ color: INK }}>{p.planName || p.company}</p><p className="text-xs" style={{ color: SLATE }}>{p.dl < 0 ? 'หมดอายุแล้ว' : `ครบกำหนดอีก ${p.dl} วัน`} · {formatDateDMY(p.endDate)}</p></div>
+            </div>
+          </Card>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function RealEstateCalendarSection({ properties, googleConnected, onSelectProperty }) {
   const [viewDate, setViewDate] = useState(new Date());
   const year = viewDate.getFullYear();
