@@ -118,6 +118,8 @@ const EMPTY_STATE = {
   departmentList: ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'],
   doctorDepartments: {},
   customDestinationList: [],
+  openToLastTab: false,
+  lastUsedTab: 'dashboard',
   bloodTestTypeList: ['CBC', 'ค่าไต', 'ค่าตับ', 'ค่าตับอ่อน (Lipase/Amylase/cPLI)', 'ไขมันในเลือด', 'น้ำตาล', 'SDMA', 'Electrolyte', 'Cortisol', 'ACTH', 'T4/Thyroid', 'Coagulation (PT/PTT)', 'Urinalysis'],
   organTypeList: ['ไต', 'ตับ', 'ตับอ่อน', 'ถุงน้ำดี', 'ม้าม', 'ต่อมหมวกไต', 'หัวใจ', 'ตา'],
   imagingTypeList: ['Ultrasound', 'X-ray', 'CT', 'MRI', 'Echo (Echocardiogram)'],
@@ -368,6 +370,7 @@ export default function App() {
   return <ErrorBoundary><AuthGate>{(user) => <Tracker user={user} />}</AuthGate></ErrorBoundary>;
 }function Tracker({ user }) {
   const [state, setState] = useState(null);
+  const appliedLastTabRef = useRef(false);
   const stateRef = useRef(null);
   const [tab, setTab] = useState(() => {
     if (typeof window === 'undefined') return 'dashboard';
@@ -633,6 +636,13 @@ export default function App() {
       setState(data);
       stateRef.current = data;
       sharedStateRef.current = shared;
+      // จำหน้าที่เปิดล่าสุด — ใช้ได้เฉพาะตอนเข้าหน้าแรกปกติ (ไม่ใช่ deep-link เฉพาะ เช่น /expense) และต้องเปิดใช้ในตั้งค่าไว้ก่อน
+      if (!appliedLastTabRef.current) {
+        appliedLastTabRef.current = true;
+        const path = typeof window !== 'undefined' ? window.location.pathname : '';
+        const isPlainEntry = path.indexOf('/expense') !== 0 && path.indexOf('/realestate') !== 0 && new URLSearchParams(window.location.search).get('quick') !== 'expense';
+        if (isPlainEntry && data.openToLastTab && data.lastUsedTab) setTab(data.lastUsedTab);
+      }
      } catch (e) {
        console.error('initial load failed', e);
        setSaveError(`โหลดข้อมูลไม่สำเร็จ: ${e.message || e.code || e}`);
@@ -661,6 +671,13 @@ export default function App() {
     }
     return obj;
   }
+  // จำหน้าที่ใช้ล่าสุดไว้เบาๆ (แค่ field เดียว ไม่เขียนทับข้อมูลทั้งก้อน) เผื่อผู้ใช้เปิดใช้ "จำหน้าที่ใช้ล่าสุด" ไว้ในตั้งค่า
+  useEffect(() => {
+    if (!state) return;
+    if (state.lastUsedTab === tab) return;
+    stateRef.current = stateRef.current ? { ...stateRef.current, lastUsedTab: tab } : stateRef.current;
+    updateDoc(docRef, { lastUsedTab: tab }).catch((e) => console.error('save lastUsedTab failed', e));
+  }, [tab]);
   function persist(rawNext) {
     const next = stripUndefined(rawNext);
     setState(next); stateRef.current = next;
@@ -1485,7 +1502,8 @@ export default function App() {
         <SettingsModal finnhubKey={state.finnhubKey} onChange={changeFinnhubKey} onClose={() => setShowSettings(false)}
           googleClientId={state.googleClientId} onChangeGoogleClientId={changeGoogleClientId}
           googleToken={googleToken} onConnectCalendar={connectCalendar} onDisconnectCalendar={disconnectCalendar}
-          calendarError={calendarError} reconnecting={reconnecting} />
+          calendarError={calendarError} reconnecting={reconnecting}
+          openToLastTab={state.openToLastTab} onChangeOpenToLastTab={(v) => persist({ ...state, openToLastTab: v })} />
       )}
 
       {tab === 'dashboard' && (
@@ -1803,11 +1821,24 @@ function MedicalPhotoAttach({ record, onAddPhoto, onRemovePhoto }) {
   );
 }
 
-function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting }) {
+function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting, openToLastTab, onChangeOpenToLastTab }) {
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">ตั้งค่า</p><button onClick={onClose}><X size={20} color={INK} /></button></div>
+
+        <div style={{ borderBottom: '1px solid #E7EAF0' }} className="pb-4 mb-4">
+          <div className="flex justify-between items-center">
+            <div className="pr-3">
+              <p className="text-xs font-semibold" style={{ color: INK }}>จำหน้าที่ใช้ล่าสุด</p>
+              <p className="text-[11px]" style={{ color: SLATE }}>เปิดแอปครั้งถัดไปจะเข้าหน้าที่ใช้ล่าสุดแทนหน้าภาพรวม</p>
+            </div>
+            <button onClick={() => onChangeOpenToLastTab(!openToLastTab)} style={{ background: openToLastTab ? GOOD : PAPER_DIM, flexShrink: 0 }} className="w-12 h-7 rounded-full relative">
+              <div style={{ background: 'white', left: openToLastTab ? 22 : 3, top: 3 }} className="w-5 h-5 rounded-full absolute transition-all" />
+            </button>
+          </div>
+        </div>
+
         <p className="text-xs mb-2" style={{ color: SLATE }}>Finnhub API key (ฟรี) — ใช้สำหรับปุ่มรีเฟรชราคาหุ้นสหรัฐฯ สมัครที่ finnhub.io/register</p>
         <input type="text" value={finnhubKey || ''} onChange={(e) => onChange(e.target.value)} placeholder="วาง API key ที่นี่" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mb-2" />
         <p className="text-[11px] mb-4" style={{ color: SLATE }}>หุ้นไทย (SET) ยังไม่มี API ฟรีที่ดึงราคาได้ตรงจากเบราว์เซอร์ ต้องอัพเดทราคาด้วยตนเองไปก่อนครับ</p>
