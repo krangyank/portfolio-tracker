@@ -49,6 +49,7 @@ const TAB_MASCOTS = {
   realestate: { emoji: '🏡', bg: '#DDF4F4' },
   reports: { emoji: '🦉', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=200&fit=crop' },
 };
+const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'รายรับ', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', reports: 'รายงาน' };
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -747,6 +748,38 @@ export default function App() {
   const creditCards = state?.creditCards || [];
   const dogs = (sharedState?.dogs && sharedState.dogs.length > 0) ? sharedState.dogs : DEFAULT_DOGS;
   const properties = (sharedState?.properties && sharedState.properties.length > 0) ? sharedState.properties : DEFAULT_PROPERTIES;
+  // สรุปสิ่งที่ต้องรีบทำ/ต้องระวังของแต่ละแท็บ ใช้โชว์ในหัวเรื่องเล็กแทนตัวเลขสินทรัพย์สุทธิ (ยกเว้นหน้าภาพรวมที่ยังโชว์แบบเดิม)
+  const tabAlert = useMemo(() => {
+    if (tab === 'pets') {
+      const items = [];
+      (dogs || []).forEach((d) => (d.appointments || []).forEach((a) => { const dl = daysUntil(a.date); if (dl !== null && dl >= 0) items.push({ dogName: d.name, purpose: a.purpose || 'นัดหมาย', date: a.date, daysLeft: dl }); }));
+      items.sort((a, b) => a.daysLeft - b.daysLeft);
+      const nearest = items[0];
+      if (!nearest) return { tone: 'ok', icon: '✅', title: 'ยังไม่มีนัดหมายบันทึกไว้', sub: '' };
+      if (nearest.daysLeft <= 7) return { tone: nearest.daysLeft <= 1 ? 'bad' : 'warn', icon: '⚠️', title: `${nearest.dogName} มีนัด "${nearest.purpose}" อีก ${nearest.daysLeft} วัน`, sub: formatDateDMY(nearest.date) };
+      return { tone: 'ok', icon: '✅', title: 'ไม่มีนัดด่วนใน 7 วันนี้', sub: `นัดถัดไป: ${nearest.dogName} ${formatDateDMY(nearest.date)}` };
+    }
+    if (tab === 'realestate') {
+      const ym = thisMonth();
+      const overdue = (properties || []).find((p) => { if (p.status !== 'occupied' || !p.rentDueDay) return false; const pay = (p.payments || {})[ym]; if (pay && pay.paid) return false; const due = new Date(new Date().getFullYear(), new Date().getMonth(), Number(p.rentDueDay)); return due < new Date(); });
+      if (overdue) return { tone: 'bad', icon: '🔴', title: `${overdue.name} ค้างชำระค่าเช่า`, sub: `฿${fmt(overdue.rent)} · เลยกำหนด ${overdue.rentDueDay} ${THAI_MONTHS[new Date().getMonth()]}` };
+      const contracts = (properties || []).filter((p) => p.contractEndDate).map((p) => ({ ...p, dl: daysUntil(p.contractEndDate) })).filter((p) => p.dl !== null && p.dl >= 0 && p.dl <= 60).sort((a, b) => a.dl - b.dl);
+      if (contracts[0]) return { tone: 'warn', icon: '⚠️', title: `${contracts[0].name} ใกล้ครบสัญญา`, sub: `อีก ${contracts[0].dl} วัน` };
+      return { tone: 'ok', icon: '✅', title: 'เก็บค่าเช่าครบทุกหลังแล้ว', sub: '' };
+    }
+    if (tab === 'expenses') {
+      const upcoming = (creditCards || []).map((c) => { const dl = daysUntil(monthKey(new Date().toISOString().slice(0, 10)) + '-' + String(c.dueDay || 15).padStart(2, '0')); return { ...c, dl }; }).filter((c) => c.dl !== null && c.dl >= 0 && c.dl <= 5).sort((a, b) => a.dl - b.dl);
+      if (upcoming[0]) return { tone: upcoming[0].dl <= 1 ? 'bad' : 'warn', icon: '💳', title: `บัตร ${upcoming[0].cardName || upcoming[0].bankName} ครบกำหนดจ่ายอีก ${upcoming[0].dl} วัน`, sub: '' };
+      return { tone: 'ok', icon: '✅', title: 'ไม่มีบัตรใกล้ครบกำหนดจ่าย', sub: '' };
+    }
+    if (tab === 'savings') {
+      const realIds = accounts.map((a) => a.id);
+      const pending = (contributions || []).filter((c) => c.accountId && !realIds.includes(c.accountId)).sort((a, b) => a.date.localeCompare(b.date))[0];
+      if (pending) { const daysSince = Math.abs(daysUntil(pending.date)); return { tone: daysSince >= 7 ? 'warn' : 'ok', icon: '💰', title: `มีเงิน ฿${fmt(pending.amount)} ค้างใน "${pending.accountId}"`, sub: daysSince > 0 ? `ยังไม่ได้ย้ายไปลงทุน มา ${daysSince} วันแล้ว` : 'เพิ่งบันทึกวันนี้' }; }
+      return { tone: 'ok', icon: '✅', title: 'เงินเข้าทุกรายการลงบัญชีจริงแล้ว', sub: '' };
+    }
+    return null;
+  }, [tab, dogs, properties, creditCards, contributions, accounts]);
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
   const doctorList = state?.doctorList || [];
   const departmentList = state?.departmentList || ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'];
@@ -1475,14 +1508,11 @@ export default function App() {
           <span>กำลังบันทึกข้อมูล... รอสักครู่ก่อนปิดแอปนะครับ</span>
         </div>
       )}
+      {tab === 'dashboard' ? (
       <div style={{ background: INK }} className="px-5 pt-8 pb-6 text-white relative overflow-hidden">
         <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', border: `1px solid #FFFFFF22`, pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', right: 10, bottom: 10, width: 104, height: 104, borderRadius: '50%', background: (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 54, border: '3px solid #FFFFFF4D', boxShadow: '0 8px 20px rgba(0,0,0,0.3)', pointerEvents: 'none', overflow: 'hidden' }}>
-          {((tab === 'pets' || tab === 'realestate') && headerPhotoOverride) ? (
-            <img src={headerPhotoOverride} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).photo ? (
-            <img src={(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).emoji}
+        <div style={{ position: 'absolute', right: 10, bottom: 10, width: 104, height: 104, borderRadius: '50%', background: TAB_MASCOTS.dashboard.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 54, border: '3px solid #FFFFFF4D', boxShadow: '0 8px 20px rgba(0,0,0,0.3)', pointerEvents: 'none', overflow: 'hidden' }}>
+          {TAB_MASCOTS.dashboard.photo ? <img src={TAB_MASCOTS.dashboard.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : TAB_MASCOTS.dashboard.emoji}
         </div>
         <div className="flex justify-between items-start">
           <div><p className="text-xs tracking-widest" style={{ color: '#94A3B8' }}>สมุดบัญชีการลงทุน</p><h1 className="text-3xl mt-1 font-semibold">สินทรัพย์สุทธิ</h1></div>
@@ -1497,6 +1527,42 @@ export default function App() {
         {prevSnapshot && showAmounts && <p className="text-xs mt-1" style={{ color: totalNetWorth >= prevSnapshot.netWorth ? '#86EFAC' : '#FCA5A5' }}>{totalNetWorth >= prevSnapshot.netWorth ? '+' : ''}฿{fmt(totalNetWorth - prevSnapshot.netWorth)} จากเดือนก่อน</p>}
         <div className="flex items-center gap-2 mt-3"><Flame size={14} color="#FBBF24" /><p className="text-xs" style={{ color: '#94A3B8' }}>เป้าหมายเกษียณอีก {daysLeft.toLocaleString()} วัน</p></div>
       </div>
+      ) : (
+      <div style={{ background: INK }} className="px-5 pt-5 pb-4 text-white relative overflow-hidden">
+        <div className="flex justify-between items-center mb-3" style={{ paddingRight: 74 }}>
+          <h1 className="text-base font-semibold flex items-center gap-2">
+            {TAB_LABELS[tab] || ''}
+          </h1>
+          <div className="flex gap-2">
+            <button onClick={() => setShowAmounts(!showAmounts)} className="flex items-center gap-1 text-xs rounded-full px-2.5 py-2" style={{ background: '#ffffff15', color: '#CBD5E1' }}>{showAmounts ? <Eye size={12} /> : <EyeOff size={12} />}</button>
+            <button onClick={() => setShowSettings(true)} className="flex items-center gap-1 text-xs rounded-full px-2.5 py-2" style={{ background: '#ffffff15', color: '#CBD5E1' }}><Settings size={12} /></button>
+            <button onClick={() => setShareMode(true)} className="flex items-center gap-1 text-xs rounded-full px-2.5 py-2" style={{ background: '#ffffff15', color: '#CBD5E1' }}><Share2 size={12} /></button>
+          </div>
+        </div>
+        <div style={{ position: 'absolute', right: 14, top: 14, width: 52, height: 52, borderRadius: '50%', background: (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, border: '2px solid #FFFFFF4D', overflow: 'hidden' }}>
+          {(tab === 'expenses' || tab === 'savings') ? (
+            <div className="relative flex items-center justify-center w-full h-full" style={{ background: '#3d2f22' }}>
+              <Wallet size={22} color="white" />
+              <div className="absolute flex items-center justify-center" style={{ bottom: -2, right: -2, width: 20, height: 20, borderRadius: '50%', background: tab === 'expenses' ? BAD : GOOD, border: `2px solid ${INK}`, fontSize: 13, fontWeight: 900, color: 'white' }}>{tab === 'expenses' ? '−' : '+'}</div>
+            </div>
+          ) : ((tab === 'pets' || tab === 'realestate') && headerPhotoOverride) ? (
+            <img src={headerPhotoOverride} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).photo ? (
+            <img src={(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).emoji}
+        </div>
+        {tabAlert && (
+          <div style={{ background: tabAlert.tone === 'bad' ? '#3a2020' : tabAlert.tone === 'warn' ? '#3a2a1a' : '#1a2e22', borderRadius: 14 }} className="px-3 py-2.5 flex items-start gap-2.5" >
+            <span style={{ fontSize: 16, flexShrink: 0 }}>{tabAlert.icon}</span>
+            <div>
+              <p className="text-xs font-semibold" style={{ color: tabAlert.tone === 'ok' ? '#86EFAC' : '#FCA5A5' }}>{tabAlert.title}</p>
+              {tabAlert.sub && <p className="text-[11px] mt-0.5" style={{ color: '#C9BCAE' }}>{tabAlert.sub}</p>}
+            </div>
+          </div>
+        )}
+      </div>
+      )}
+
 
       {showSettings && (
         <SettingsModal finnhubKey={state.finnhubKey} onChange={changeFinnhubKey} onClose={() => setShowSettings(false)}
