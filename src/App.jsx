@@ -2932,7 +2932,9 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const totalGain = totalValue - totalCost;
   const displayValue = holdings.length > 0 ? totalValue : a.value;
   const currency = a.category === 'dime' ? 'USD' : 'THB';
-  const cashTHB = currency === 'USD' ? Number(a.cashBalance || 0) * Number(a.cashBalanceFx || 36) : Number(a.cashBalance || 0);
+  const cashTHB = a.category === 'dime'
+    ? Number(a.cashBalanceTHB || 0) + (Number(a.cashBalanceUSD || 0) + Number(a.cashBalanceFCD || 0)) * Number(a.cashBalanceFx || 36)
+    : Number(a.cashBalance || 0);
 
   const portFileRef = useRef(null);
   const [portScanning, setPortScanning] = useState(false);
