@@ -3240,7 +3240,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           )}
         </div>
       )}
-      <p className="text-lg font-semibold mt-1">฿{fmt(displayValue + cashTHB)}</p>
+      <p className="text-lg font-semibold mt-1">฿{fmt(displayValue)}{cashTHB > 0 && <span className="text-sm font-normal" style={{ color: SLATE }}> (รวมเงินสด ≈ ฿{fmt(displayValue + cashTHB)})</span>}</p>
       {holdings.length > 0 && totalCost > 0 && <p className="text-xs mb-2" style={{ color: totalGain >= 0 ? GOOD : BAD }}>ต้นทุนรวม ฿{fmt(totalCost)} · {totalGain >= 0 ? '+' : ''}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</p>}
       {holdings.length > 0 && a.category !== 'dime' && (
         <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-2">
