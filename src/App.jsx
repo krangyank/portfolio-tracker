@@ -254,7 +254,13 @@ function holdingCAGR(h) {
 }
 function accountValueTHB(a) {
   const holdingsValue = (a.holdings && a.holdings.length > 0) ? a.holdings.reduce((s, h) => s + holdingMarketValueTHB(h), 0) : Number(a.value || 0);
-  const cashTHB = a.category === 'dime' ? Number(a.cashBalance || 0) * Number(a.cashBalanceFx || 36) : Number(a.cashBalance || 0);
+  let cashTHB;
+  if (a.category === 'dime') {
+    const fx = Number(a.cashBalanceFx || 36);
+    cashTHB = Number(a.cashBalanceTHB || 0) + (Number(a.cashBalanceUSD || 0) + Number(a.cashBalanceFCD || 0)) * fx;
+  } else {
+    cashTHB = Number(a.cashBalance || 0);
+  }
   return holdingsValue + cashTHB;
 }
 
@@ -2322,6 +2328,28 @@ async function scanSingleValue(file) {
   const parsed = safeParseJson(text);
   return { value: Number(parsed.value) || 0, currency: parsed.currency === 'USD' ? 'USD' : 'THB' };
 }
+async function scanCashBalance(file) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพหน้าจอพอร์ตการลงทุน ซึ่งอาจมีตัวเลขหลายค่าปนกัน (เช่น Amount, Market Value, Unrealized P/L, Line Available, Cash Balance) หาตัวเลข "เงินสด" ของบัญชีนี้ตามลำดับความสำคัญนี้:
+1. ถ้าเห็นช่อง "Line Available" (วงเงินคงเหลือที่ใช้ซื้อได้) ให้ใช้ค่านี้เป็นหลัก — สำหรับพอร์ตหุ้นแบบมาร์จิ้น เลขนี้คือเงินสด/วงเงินที่ใช้ได้จริง
+2. ถ้าไม่มีช่อง "Line Available" ในภาพ ให้ใช้ช่อง "Cash Balance" หรือ "เงินสดคงเหลือ" หรือ "เงินสดในบัญชี" แทน
+ห้ามอ่านค่าอื่นเช่น Market Value, Amount, ยอดพอร์ตรวม เด็ดขาด ถ้าไม่เจอทั้ง 2 แบบข้างต้นชัดเจนในภาพ ให้ตอบ value เป็น null ห้ามเดา ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"value": ตัวเลขไม่มีคอมมาหรือnull, "currency": "THB หรือ USD", "source": "line_available หรือ cash_balance"}`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const parsed = safeParseJson(text);
+  return { value: parsed.value !== null && parsed.value !== undefined ? Number(parsed.value) : null, currency: parsed.currency === 'USD' ? 'USD' : 'THB', source: parsed.source || '' };
+}
+// อ่านหน้าจอ "เงินสด" ของแอป Dime! ซึ่งแยกเป็น 3 บัญชีย่อยในภาพเดียว: THB (Dime! Save), USD (Dime! USD), USD (Dime! FCD)
+async function scanDimeCashBalances(file) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพหน้าจอ "เงินสด" ของแอป Dime! ซึ่งมีบัญชีย่อยแยกกัน 3 บัญชี:
+1. THB — ป้ายกำกับ "Dime! Save"
+2. USD — ป้ายกำกับ "Dime! USD"
+3. USD — ป้ายกำกับ "Dime! FCD"
+อ่านยอดคงเหลือของแต่ละบัญชีแยกกัน และถ้ามีตัวเลขกำกับด้วย "≈ ... THB" ใต้ยอด USD ให้อ่านค่านั้นมาด้วย (เป็นค่าประมาณเทียบเป็นบาท ใช้คำนวณอัตราแลกเปลี่ยนได้) ถ้าบัญชีไหนไม่ปรากฏในภาพให้ใส่ null ห้ามเดา ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"thbBalance":ตัวเลขหรือnull,"usdBalance":ตัวเลขหรือnull,"usdEquivalentThb":ตัวเลขหรือnull,"fcdBalance":ตัวเลขหรือnull,"fcdEquivalentThb":ตัวเลขหรือnull}`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  return safeParseJson(text);
+}
+
 
 async function scanBuyTransaction(file) {
   const base64 = await readFileAsBase64(file);
@@ -2747,6 +2775,111 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
   );
 }
 
+// สแกนเงินสด — ต่างจาก ScanValueButton ตรงที่ "ไม่แปลงเป็นบาททันที" เพราะเงินสดของบัญชี USD เก็บเป็นสกุลเดิม + อัตราแลกเปลี่ยนแยก
+// (ให้สอดคล้องกับวิธีเก็บ currentPrice/currentFx ของหุ้นรายตัว) ถ้าใช้ ScanValueButton ตัวเดิมจะเกิดการคูณ FX ซ้ำซ้อนสำหรับบัญชี USD
+function CashBalanceScanButton({ onApply, expectedCurrency }) {
+  const fileRef = useRef(null);
+  const [scanning, setScanning] = useState(false);
+  const [pendingValue, setPendingValue] = useState(null); // { value, currency }
+  const [error, setError] = useState('');
+
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setScanning(true); setError(''); setPendingValue(null);
+    try {
+      const result = await scanCashBalance(file);
+      if (result.value === null || result.value === undefined) setError('ไม่พบช่อง "Cash Balance" ในภาพนี้ ลองภาพที่เห็นช่องนี้ชัดกว่านี้');
+      else setPendingValue(result);
+    } catch (e) { setError('เกิดข้อผิดพลาด: ' + e.message); }
+    finally { setScanning(false); if (fileRef.current) fileRef.current.value = ''; }
+  }
+
+  if (pendingValue !== null) {
+    const mismatch = expectedCurrency && pendingValue.currency !== expectedCurrency;
+    return (
+      <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
+        <p className="text-xs mb-2" style={{ color: SLATE }}>พบ{pendingValue.source === 'line_available' ? ' Line Available' : ' Cash Balance'} = <span className="font-semibold" style={{ color: INK }}>{pendingValue.value.toLocaleString()} {pendingValue.currency}</span>{mismatch ? ` — ⚠️ คาดว่าบัญชีนี้เป็น ${expectedCurrency} เช็คให้ดีก่อนยืนยัน` : ''}</p>
+        <div className="flex gap-2">
+          <button onClick={() => { onApply(pendingValue.value); setPendingValue(null); }} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยัน</button>
+          <button onClick={() => setPendingValue(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-1">
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+      <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
+        {scanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {scanning ? 'กำลังอ่านภาพ...' : 'ถ่ายภาพอ่านเฉพาะ Cash Balance'}
+      </button>
+      {error && <p className="text-[10px] mt-1" style={{ color: BAD }}>{error}</p>}
+    </div>
+  );
+}
+
+// สแกนหน้าจอ "เงินสด" ของแอป Dime! ที่มี 3 บัญชีย่อยปนกันในภาพเดียว (THB/USD/FCD) แยกให้อัตโนมัติในครั้งเดียว
+function DimeCashScanButton({ onApply }) {
+  const fileRef = useRef(null);
+  const [scanning, setScanning] = useState(false);
+  const [pendingValue, setPendingValue] = useState(null);
+  const [error, setError] = useState('');
+
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setScanning(true); setError(''); setPendingValue(null);
+    try {
+      const parsed = await scanDimeCashBalances(file);
+      if (parsed.thbBalance === null && parsed.usdBalance === null && parsed.fcdBalance === null) {
+        setError('อ่านไม่พบยอดคงเหลือทั้ง 3 บัญชี ลองภาพที่ชัดกว่านี้');
+      } else {
+        let fx = null;
+        if (parsed.usdBalance && parsed.usdEquivalentThb) fx = parsed.usdEquivalentThb / parsed.usdBalance;
+        else if (parsed.fcdBalance && parsed.fcdEquivalentThb) fx = parsed.fcdEquivalentThb / parsed.fcdBalance;
+        setPendingValue({ thb: parsed.thbBalance, usd: parsed.usdBalance, fcd: parsed.fcdBalance, fx });
+      }
+    } catch (e) { setError('เกิดข้อผิดพลาด: ' + e.message); }
+    finally { setScanning(false); if (fileRef.current) fileRef.current.value = ''; }
+  }
+
+  if (pendingValue !== null) {
+    return (
+      <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
+        <p className="text-xs mb-1" style={{ color: SLATE }}>พบยอดคงเหลือ:</p>
+        {pendingValue.thb !== null && <p className="text-[11px] mb-0.5" style={{ color: INK }}>฿ Dime! Save: {pendingValue.thb.toLocaleString()} THB</p>}
+        {pendingValue.usd !== null && <p className="text-[11px] mb-0.5" style={{ color: INK }}>$ Dime! USD: {pendingValue.usd.toLocaleString()} USD</p>}
+        {pendingValue.fcd !== null && <p className="text-[11px] mb-0.5" style={{ color: INK }}>$ Dime! FCD: {pendingValue.fcd.toLocaleString()} USD</p>}
+        {pendingValue.fx && <p className="text-[11px] mb-1" style={{ color: SLATE }}>FX ที่คำนวณได้: ≈ {pendingValue.fx.toFixed(2)}</p>}
+        <div className="flex gap-2 mt-1">
+          <button
+            onClick={() => {
+              const patch = {};
+              if (pendingValue.thb !== null) patch.cashBalanceTHB = pendingValue.thb;
+              if (pendingValue.usd !== null) patch.cashBalanceUSD = pendingValue.usd;
+              if (pendingValue.fcd !== null) patch.cashBalanceFCD = pendingValue.fcd;
+              if (pendingValue.fx) patch.cashBalanceFx = pendingValue.fx;
+              onApply(patch);
+              setPendingValue(null);
+            }}
+            style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1"
+          >ยืนยัน</button>
+          <button onClick={() => setPendingValue(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-1">
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+      <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
+        {scanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {scanning ? 'กำลังอ่านภาพ...' : 'ถ่ายภาพหน้า "เงินสด" (อ่านครบ 3 บัญชีให้อัตโนมัติ)'}
+      </button>
+      {error && <p className="text-[10px] mt-1" style={{ color: BAD }}>{error}</p>}
+    </div>
+  );
+}
+
 function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue }) {
   const gain = a.value - basis;
   const showInterest = INTEREST_CATEGORIES.includes(a.category);
@@ -3107,15 +3240,38 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       )}
       <p className="text-lg font-semibold mt-1">฿{fmt(displayValue + cashTHB)}</p>
       {holdings.length > 0 && totalCost > 0 && <p className="text-xs mb-2" style={{ color: totalGain >= 0 ? GOOD : BAD }}>ต้นทุนรวม ฿{fmt(totalCost)} · {totalGain >= 0 ? '+' : ''}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</p>}
-      {holdings.length > 0 && (
+      {holdings.length > 0 && a.category !== 'dime' && (
         <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-2">
           <p className="text-[10px] mb-1" style={{ color: SLATE }}>💵 เงินสดในบัญชี (Cash Balance)</p>
           <div className="flex items-center gap-2">
-            <div className="flex items-center flex-1"><span className="text-sm mr-1">{currency === 'USD' ? '$' : '฿'}</span><NumInput value={a.cashBalance} onChange={(v) => onUpdate(a.id, { cashBalance: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="0" /></div>
-            {currency === 'USD' && <div className="flex items-center" style={{ width: 90 }}><span className="text-[10px] mr-1" style={{ color: SLATE }}>FX</span><NumInput value={a.cashBalanceFx} onChange={(v) => onUpdate(a.id, { cashBalanceFx: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="36" /></div>}
+            <div className="flex items-center flex-1"><span className="text-sm mr-1">฿</span><NumInput value={a.cashBalance} onChange={(v) => onUpdate(a.id, { cashBalance: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="0" /></div>
           </div>
-          {onScanValue && <div className="mt-1"><ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { cashBalance: v })} /></div>}
-          {cashTHB > 0 && currency === 'USD' && <p className="text-[10px] mt-1" style={{ color: SLATE }}>≈ ฿{fmt(cashTHB)}</p>}
+          <div className="mt-1"><CashBalanceScanButton expectedCurrency={currency} onApply={(v) => onUpdate(a.id, { cashBalance: v })} /></div>
+        </div>
+      )}
+      {holdings.length > 0 && a.category === 'dime' && (
+        <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-2">
+          <p className="text-[10px] mb-1" style={{ color: SLATE }}>💵 เงินสดในบัญชี Dime! (แยก 3 บัญชีย่อย)</p>
+          <div className="grid grid-cols-1 gap-1.5 mb-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px]" style={{ color: SLATE, width: 84, flexShrink: 0 }}>฿ Dime! Save</span>
+              <div className="flex items-center flex-1"><NumInput value={a.cashBalanceTHB} onChange={(v) => onUpdate(a.id, { cashBalanceTHB: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="0" /></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px]" style={{ color: SLATE, width: 84, flexShrink: 0 }}>$ Dime! USD</span>
+              <div className="flex items-center flex-1"><NumInput value={a.cashBalanceUSD} onChange={(v) => onUpdate(a.id, { cashBalanceUSD: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="0" /></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px]" style={{ color: SLATE, width: 84, flexShrink: 0 }}>$ Dime! FCD</span>
+              <div className="flex items-center flex-1"><NumInput value={a.cashBalanceFCD} onChange={(v) => onUpdate(a.id, { cashBalanceFCD: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="0" /></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px]" style={{ color: SLATE, width: 84, flexShrink: 0 }}>FX (USD→บาท)</span>
+              <div className="flex items-center" style={{ width: 90 }}><NumInput value={a.cashBalanceFx} onChange={(v) => onUpdate(a.id, { cashBalanceFx: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="36" /></div>
+            </div>
+          </div>
+          <div className="mt-1"><DimeCashScanButton onApply={(patch) => onUpdate(a.id, patch)} /></div>
+          {cashTHB > 0 && <p className="text-[10px] mt-1" style={{ color: SLATE }}>รวมเงินสดทั้ง 3 บัญชี ≈ ฿{fmt(cashTHB)}</p>}
         </div>
       )}
       {holdings.length === 0 && (
