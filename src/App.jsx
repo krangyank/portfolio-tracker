@@ -2435,6 +2435,7 @@ async function fetchInvestmentNews(symbols) {
   return (parsed && parsed.items) || [];
 }
 
+async function scanReceiptItems(file, cardNames) {
   const base64 = await readFileAsBase64(file);
   const cardHint = (cardNames && cardNames.length > 0) ? `\nถ้าภาพนี้เป็นสลิปรูดบัตรเครดิต/สลิปยืนยันการชำระ ลองดูว่ามีชื่อธนาคาร/บัตรตรงหรือใกล้เคียงกับรายชื่อนี้ไหม: ${cardNames.join(', ')} — ถ้ามีให้ระบุกลับมาด้วย ถ้าไม่มี/ไม่แน่ใจให้ตอบค่าว่าง` : '';
   const prompt = `นี่คือภาพใบเสร็จรับเงินหรือสลิปการชำระเงิน อ่านรายการสินค้า/บริการทั้งหมดพร้อมราคา ถ้าอ่านราคารวมทั้งบิลได้แต่แยกรายการไม่ได้ ให้ส่งเป็นรายการเดียวชื่อ "รวมบิล"${cardHint}
