@@ -5,7 +5,7 @@ import {
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
   Dog, Scale, Syringe, Shield, Bug, Stethoscope, Eye, EyeOff, Search, Upload,
-  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User,
+  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
@@ -50,7 +50,7 @@ const TAB_MASCOTS = {
   insurance: { emoji: '🛡️', bg: '#DCE8FE' },
   reports: { emoji: '🦉', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=200&fit=crop' },
 };
-const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'รายรับ', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', reports: 'รายงาน' };
+const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'ข่าว', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', reports: 'รายงาน' };
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -131,6 +131,7 @@ const EMPTY_STATE = {
   medicationList: [],
   properties: [],
   creditCards: [],
+  investmentNews: { items: [], fetchedAt: '' },
 };
 const makeCreditCard = (entry) => ({
   id: uid(), bankName: entry?.bankName || '', cardName: entry?.cardName || '', last4: entry?.last4 || '',
@@ -147,11 +148,11 @@ function readFileAsBase64(file) {
   });
 }
 // calls our own serverless function instead of Anthropic directly
-async function askServer(promptText, imageBase64, mediaType) {
+async function askServer(promptText, imageBase64, mediaType, webSearch) {
   const res = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt: promptText, imageBase64, mediaType }),
+    body: JSON.stringify({ prompt: promptText, imageBase64, mediaType, webSearch: !!webSearch }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -1159,6 +1160,11 @@ export default function App() {
   function removeInsuranceClaim(claimId) {
     persist({ ...state, insuranceClaims: insuranceClaims.filter((c) => c.id !== claimId) });
   }
+  // ข่าวลงทุน — ดึงจากหุ้น/สินทรัพย์ที่ถืออยู่จริง + เศรษฐกิจมหภาค แคชไว้ 1 วันไม่ให้เรียก AI ซ้ำทุกครั้งที่เปิดแอป
+  const investmentNews = state?.investmentNews || { items: [], fetchedAt: '' };
+  function saveInvestmentNews(items) {
+    persist({ ...state, investmentNews: { items, fetchedAt: new Date().toISOString() } });
+  }
   function addBloodTestType(name) { if (name && !bloodTestTypeList.includes(name)) persist({ ...state, bloodTestTypeList: [...bloodTestTypeList, name] }); }
   function addOrganType(name) { if (name && !organTypeList.includes(name)) persist({ ...state, organTypeList: [...organTypeList, name] }); }
   function addImagingType(name) { if (name && !imagingTypeList.includes(name)) persist({ ...state, imagingTypeList: [...imagingTypeList, name] }); }
@@ -1646,7 +1652,7 @@ export default function App() {
           onSellHolding={sellHolding} onRemoveSell={removeSell} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} />
       )}
       {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} />}
-      {tab === 'income' && <IncomeTab income={income} onUpdate={updateIncome} onAdd={addIncome} onRemove={removeIncome} monthlyIncome={monthlyIncome} />}
+      {tab === 'income' && <NewsTab news={investmentNews} accounts={accounts} onSaved={saveInvestmentNews} />}
       {tab === 'reports' && <ReportsTab contributions={contributions} accounts={accounts} costBasisByAccount={costBasisByAccount} history={history} />}
       {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onAddCategory={addExpenseCategory}
           creditCards={creditCards} onAddCreditCard={addCreditCard} onUpdateCreditCard={updateCreditCard} onRemoveCreditCard={removeCreditCard}
@@ -1677,7 +1683,7 @@ export default function App() {
       )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'รายรับ', icon: TrendingUp }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ข่าว', icon: Newspaper }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
             <t.icon size={17} color={tab === t.id ? '#FFFFFF' : '#94A3B8'} /><span className="text-[8px]" style={{ color: tab === t.id ? '#FFFFFF' : '#94A3B8' }}>{t.label}</span>
           </button>
@@ -2265,6 +2271,26 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
   );
 }
 
+function tryRepairTruncatedJson(str) {
+  // ซ่อมแซม JSON ที่ถูกตัดครึ่งกลางคัน (เช่น เพราะ token limit ของ AI) โดยตัดกลับไปจุดล่าสุดที่ยัง valid แล้วปิดวงเล็บที่ค้างอยู่ให้ครบ
+  const stack = [];
+  let inStr = false, strCh = null, esc = false, lastSafe = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (inStr) {
+      if (esc) { esc = false; }
+      else if (c === '\\') { esc = true; }
+      else if (c === strCh) { inStr = false; lastSafe = i + 1; }
+      continue;
+    }
+    if (c === '"') { inStr = true; strCh = c; continue; }
+    if (c === '{' || c === '[') { stack.push(c); continue; }
+    if (c === '}' || c === ']') { stack.pop(); lastSafe = i + 1; continue; }
+  }
+  let truncated = str.slice(0, lastSafe).replace(/,\s*$/, '');
+  for (let i = stack.length - 1; i >= 0; i--) truncated += (stack[i] === '{' ? '}' : ']');
+  return truncated;
+}
 function safeParseJson(text) {
   let clean = text.replace(/```json|```/g, '').trim();
   const firstObj = clean.indexOf('{');
@@ -2279,7 +2305,13 @@ function safeParseJson(text) {
   const end = clean.lastIndexOf(closeChar);
   if (end === -1 || end < start) throw new Error('รูปแบบข้อมูลไม่สมบูรณ์');
   clean = clean.slice(start, end + 1);
-  return JSON.parse(clean);
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    // คำตอบอาจถูกตัดครึ่งกลางคัน (token limit) ลองซ่อมก่อนยอมแพ้ เพื่อกู้ข้อมูลบางส่วนแทนที่จะเสียทั้งหมด
+    try { return JSON.parse(tryRepairTruncatedJson(clean)); }
+    catch (e2) { throw e; }
+  }
 }
 
 async function scanSingleValue(file) {
@@ -2340,7 +2372,7 @@ async function scanInsurancePolicyPage(file) {
 - แต่ละแถวในตารางผลประโยชน์ = 1 รายการใน benefitItems: label คือชื่อรายการ (ตัดเลขหมวดออกได้ ให้สั้นกระชับ ไม่เกิน 6 คำ), value คือจำนวนเงิน/เงื่อนไข (เช่น "6,000 ต่อวัน" หรือ "ตามที่จ่ายจริง"), maxCount คือจำนวนครั้ง/วันสูงสุดถ้ามีระบุ (เช่น "15 วัน") ไม่มีให้ใส่ null
 - เอาเฉพาะรายการที่สำคัญที่สุดไม่เกิน 8 รายการต่อสัญญาต่อภาพ (ถ้าตารางมีมากกว่านั้น เลือกเฉพาะรายการที่มีตัวเลขชัดเจน ข้ามรายการรองที่ซ้ำซ้อนกัน) เพื่อให้คำตอบไม่ยาวเกินไป
 ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น ห้ามมีคำอธิบายก่อน/หลัง JSON ห้ามขึ้นบรรทัดใหม่โดยไม่จำเป็น ตอบให้กระชับที่สุด รูปแบบ:
-{"company":"","policyNumber":"","planName":"","insuredName":"","startDate":"YYYY-MM-DD หรือ null","endDate":"YYYY-MM-DD หรือ null","premiumAmount":ตัวเลขหรือnull,"premiumFrequency":"year หรือ month หรือ null","riders":[{"name":"ชื่อสัญญาหลักหรือสัญญาเพิ่มเติม หรือ null ถ้าไม่ปรากฏในภาพนี้","type":"life หรือ health หรือ critical หรือ accident หรือ daily_cash หรือ other","sumInsured":ตัวเลขหรือnull,"deathBenefit":ตัวเลขหรือnull,"premiumAmount":ตัวเลขหรือnull,"taxDeductible":"yes หรือ no หรือ partial หรือ null","ipdLimit":ตัวเลขหรือnull,"opdLimit":ตัวเลขหรือnull,"roomLimit":ตัวเลขหรือnull,"doctorLimit":ตัวเลขหรือnull,"surgeryLimit":ตัวเลขหรือnull,"dailyCashAmount":ตัวเลขหรือnull,"notes":"ข้อความสรุปเงื่อนไขสำคัญ หรือ ตามที่จ่ายจริง","benefitItems":[{"label":"ชื่อรายการผลประโยชน์","value":"จำนวนเงิน/เงื่อนไข เช่น 6,000 ต่อวัน","maxCount":"จำนวนสูงสุด เช่น 15 วัน หรือ null"}]}]}`;
+{"company":"","policyNumber":"","planName":"","insuredName":"","startDate":"YYYY-MM-DD หรือ null","endDate":"YYYY-MM-DD หรือ null","premiumAmount":ตัวเลขหรือnull,"premiumFrequency":"year หรือ month หรือ null","riders":[{"name":"ชื่อสัญญาหลักหรือสัญญาเพิ่มเติม หรือ null ถ้าไม่ปรากฏในภาพนี้","type":"life หรือ health หรือ critical หรือ accident หรือ daily_cash หรือ car หรือ other","sumInsured":ตัวเลขหรือnull,"deathBenefit":ตัวเลขหรือnull,"premiumAmount":ตัวเลขหรือnull,"taxDeductible":"yes หรือ no หรือ partial หรือ null","ipdLimit":ตัวเลขหรือnull,"opdLimit":ตัวเลขหรือnull,"roomLimit":ตัวเลขหรือnull,"doctorLimit":ตัวเลขหรือnull,"icuLimit":ตัวเลขหรือnull,"surgeryLimit":ตัวเลขหรือnull,"erLimit":ตัวเลขหรือnull,"ambulanceLimit":ตัวเลขหรือnull,"cancerLimit":ตัวเลขหรือnull,"dialysisLimit":ตัวเลขหรือnull,"mriCtLimit":ตัวเลขหรือnull,"deductible":ตัวเลขหรือnull,"copaymentPct":ตัวเลขหรือnull,"dailyCashAmount":ตัวเลขหรือnull,"deathAccidentBenefit":ตัวเลขหรือnull,"disabilityBenefit":ตัวเลขหรือnull,"cashBackAmount":ตัวเลขหรือnull,"surrenderValue":ตัวเลขหรือnull,"maturityBenefit":ตัวเลขหรือnull,"coveredDiseases":"ข้อความหรือnull","diagnosisCondition":"ข้อความหรือnull","payoutType":"single หรือ multiple หรือ null","continuesAfterClaim":"yes หรือ no หรือ null","vehiclePlate":"ข้อความหรือnull","insuranceClass":"1 หรือ 2+ หรือ 3+ หรือ 2 หรือ 3 หรือ null","carDeductible":ตัวเลขหรือnull,"theftFireCoverage":"yes หรือ no หรือ null","thirdPartyCoverage":ตัวเลขหรือnull,"compulsoryInsurance":"ข้อความหรือnull","garageType":"center หรือ garage หรือ null","emergencyHotline":"ข้อความหรือnull","notes":"ข้อความสรุปเงื่อนไขสำคัญ หรือ ตามที่จ่ายจริง","benefitItems":[{"label":"ชื่อรายการผลประโยชน์","value":"จำนวนเงิน/เงื่อนไข เช่น 6,000 ต่อวัน","maxCount":"จำนวนสูงสุด เช่น 15 วัน หรือ null"}]}]}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
@@ -2390,7 +2422,19 @@ async function scanInsurancePolicyMultiPhoto(files) {
   return merged;
 }
 
-async function scanReceiptItems(file, cardNames) {
+async function fetchInvestmentNews(symbols) {
+  const symbolLine = symbols.length > 0 ? symbols.join(', ') : '(ไม่มีข้อมูลสินทรัพย์ที่ถือ)';
+  const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นข่าวการลงทุนล่าสุด (ภายใน 3-5 วันที่ผ่านมา) ที่สำคัญที่สุดสำหรับพอร์ตนี้ ใช้เครื่องมือค้นเว็บจริง ห้ามตอบจากความจำเก่า
+สินทรัพย์ที่ถืออยู่: ${symbolLine}
+ให้ค้นข่าวที่เกี่ยวข้องกับสินทรัพย์เหล่านี้โดยตรง (เช่น ผลประกอบการ ข่าวใหญ่ของบริษัท) และข่าวเศรษฐกิจมหภาคสำคัญที่กระทบพอร์ตการลงทุน (ดอกเบี้ยนโยบาย Fed, อัตราเงินเฟ้อสหรัฐ, อัตราการว่างงาน, ค่าเงิน USD/THB)
+เลือกเฉพาะข่าวใหญ่ที่สำคัญจริงๆ ไม่เกิน 6 ข่าว เรียงตามความสำคัญจากมากไปน้อย ห้ามใส่ข่าวซ้ำหรือข่าวเล็กน้อย
+ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ:
+{"items":[{"headline":"หัวข้อข่าวสั้นๆ ภาษาไทย ไม่เกิน 15 คำ","summary":"สรุปใจความสำคัญ 1 บรรทัด ภาษาไทย ไม่เกิน 30 คำ","relatedSymbol":"สัญลักษณ์สินทรัพย์ที่เกี่ยวข้อง หรือ null ถ้าเป็นข่าวมหภาคทั่วไป","tone":"positive หรือ negative หรือ neutral","date":"YYYY-MM-DD หรือ null"}]}`;
+  const text = await askServer(prompt, null, null, true);
+  const parsed = safeParseJson(text);
+  return (parsed && parsed.items) || [];
+}
+
   const base64 = await readFileAsBase64(file);
   const cardHint = (cardNames && cardNames.length > 0) ? `\nถ้าภาพนี้เป็นสลิปรูดบัตรเครดิต/สลิปยืนยันการชำระ ลองดูว่ามีชื่อธนาคาร/บัตรตรงหรือใกล้เคียงกับรายชื่อนี้ไหม: ${cardNames.join(', ')} — ถ้ามีให้ระบุกลับมาด้วย ถ้าไม่มี/ไม่แน่ใจให้ตอบค่าว่าง` : '';
   const prompt = `นี่คือภาพใบเสร็จรับเงินหรือสลิปการชำระเงิน อ่านรายการสินค้า/บริการทั้งหมดพร้อมราคา ถ้าอ่านราคารวมทั้งบิลได้แต่แยกรายการไม่ได้ ให้ส่งเป็นรายการเดียวชื่อ "รวมบิล"${cardHint}
@@ -3758,6 +3802,65 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           onSave={(v) => { onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId }); setEditing(null); }}
         />
       )}
+    </div>
+  );
+}
+
+function NewsTab({ news, accounts, onSaved }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const items = (news && news.items) || [];
+  const fetchedAt = news && news.fetchedAt;
+  const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime()) > 24 * 60 * 60 * 1000;
+
+  function collectSymbols() {
+    const set = new Set();
+    (accounts || []).forEach((a) => (a.holdings || []).forEach((h) => { if (h.symbol) set.add(h.symbol.trim().toUpperCase()); }));
+    return Array.from(set);
+  }
+
+  async function runFetch() {
+    setLoading(true); setError('');
+    try {
+      const newItems = await fetchInvestmentNews(collectSymbols());
+      onSaved(newItems);
+    } catch (e) { setError('ดึงข่าวไม่สำเร็จ: ' + (e.message || 'ไม่ทราบสาเหตุ')); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => {
+    if (isStale && !loading && items.length === 0) runFetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toneColor = (t) => (t === 'positive' ? GOOD : t === 'negative' ? BAD : SLATE);
+  const toneEmoji = (t) => (t === 'positive' ? '📈' : t === 'negative' ? '📉' : '📰');
+
+  return (
+    <div className="px-4 pt-4 pb-24">
+      <div className="flex justify-between items-center mb-3">
+        <div>
+          <p className="text-base font-bold" style={{ color: INK }}>📰 ข่าวลงทุน</p>
+          <p className="text-[10px]" style={{ color: SLATE }}>
+            {fetchedAt ? `อัพเดตล่าสุด ${new Date(fetchedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}` : 'ยังไม่เคยดึงข่าว'}
+          </p>
+        </div>
+        <button onClick={runFetch} disabled={loading} style={{ background: INK }} className="text-white rounded-lg px-3 py-2 text-xs flex items-center gap-1.5">
+          {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {loading ? 'กำลังค้นข่าว...' : 'รีเฟรช'}
+        </button>
+      </div>
+      {error && <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: '#991B1B' }} className="mb-3">⚠️ {error}</div>}
+      {!loading && items.length === 0 && !error && <Card><p className="text-xs text-center py-4" style={{ color: SLATE }}>ยังไม่มีข่าว กด "รีเฟรช" เพื่อดึงข่าวล่าสุด</p></Card>}
+      {items.map((it, idx) => (
+        <Card key={idx}>
+          <div className="flex justify-between items-start mb-1">
+            <p className="text-sm font-semibold flex-1 mr-2" style={{ color: INK }}>{toneEmoji(it.tone)} {it.headline}</p>
+            {it.relatedSymbol && <span style={{ background: PAPER_DIM, color: BRASS }} className="text-[10px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0">{it.relatedSymbol}</span>}
+          </div>
+          <p className="text-xs" style={{ color: toneColor(it.tone) }}>{it.summary}</p>
+          {it.date && <p className="text-[9px] mt-1" style={{ color: SLATE }}>{it.date}</p>}
+        </Card>
+      ))}
     </div>
   );
 }
@@ -5174,12 +5277,102 @@ const INSURANCE_CATEGORIES = [
 const RIDER_TYPES = [
   { id: 'life', label: 'ชีวิต' },
   { id: 'health', label: 'สุขภาพ (IPD/OPD)' },
-  { id: 'critical', label: 'โรคร้ายแรง' },
+  { id: 'critical', label: 'เจอจ่ายจบ/โรคร้ายแรง' },
   { id: 'accident', label: 'อุบัติเหตุ' },
   { id: 'daily_cash', label: 'ชดเชยรายวัน' },
+  { id: 'car', label: 'รถยนต์' },
   { id: 'other', label: 'อื่นๆ' },
 ];
 const INSURANCE_OWNERS = [{ id: 'me', label: 'ผม' }, { id: 'spouse', label: 'ภรรยา' }, { id: 'car', label: 'รถยนต์' }];
+function RiderExtraFields({ r, onChange }) {
+  const numField = (label, key, half) => (
+    <div className={half ? '' : 'col-span-2'}><label className="text-[9px]" style={{ color: SLATE }}>{label}</label><NumInput value={r[key]} onChange={(v) => onChange({ [key]: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+  );
+  if (r.type === 'health') {
+    return (
+      <>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          {numField('IPD/ปี', 'ipdLimit', true)}
+          {numField('OPD/ปี', 'opdLimit', true)}
+          {numField('ค่าห้อง/คืน', 'roomLimit', true)}
+          {numField('ค่าแพทย์/วัน', 'doctorLimit', true)}
+          {numField('ICU/คืน', 'icuLimit', true)}
+          {numField('ค่าผ่าตัด', 'surgeryLimit', true)}
+          {numField('ER/ครั้ง', 'erLimit', true)}
+          {numField('รถพยาบาล', 'ambulanceLimit', true)}
+          {numField('มะเร็ง (ก้อน)', 'cancerLimit', true)}
+          {numField('ล้างไต', 'dialysisLimit', true)}
+          {numField('MRI/CT', 'mriCtLimit', true)}
+          {numField('Deductible', 'deductible', true)}
+        </div>
+        <div className="mb-2"><label className="text-[9px]" style={{ color: SLATE }}>Copayment ผู้เอาประกันจ่ายเอง (%)</label><NumInput value={r.copaymentPct} onChange={(v) => onChange({ copaymentPct: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+      </>
+    );
+  }
+  if (r.type === 'daily_cash') {
+    return <div className="mb-2"><label className="text-[9px]" style={{ color: SLATE }}>ชดเชยรายวัน (บาท/วัน)</label><NumInput value={r.dailyCashAmount} onChange={(v) => onChange({ dailyCashAmount: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>;
+  }
+  if (r.type === 'life') {
+    return (
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        {numField('เสียชีวิตจากอุบัติเหตุ (เพิ่มเติม)', 'deathAccidentBenefit', true)}
+        {numField('ทุพพลภาพ', 'disabilityBenefit', true)}
+        {numField('เงินคืนระหว่างสัญญา', 'cashBackAmount', true)}
+        {numField('มูลค่าเวนคืนปัจจุบัน', 'surrenderValue', true)}
+        {numField('เงินครบกำหนดสัญญา', 'maturityBenefit', false)}
+      </div>
+    );
+  }
+  if (r.type === 'critical') {
+    return (
+      <>
+        <label className="text-[9px]" style={{ color: SLATE }}>โรค/ภาวะที่คุ้มครอง</label>
+        <textarea value={r.coveredDiseases || ''} onChange={(e) => onChange({ coveredDiseases: e.target.value })} rows={2} placeholder="เช่น มะเร็งระยะลุกลาม, กล้ามเนื้อหัวใจตายเฉียบพลัน..." className="rounded px-2 py-1 text-xs w-full mt-0.5 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <label className="text-[9px]" style={{ color: SLATE }}>เงื่อนไขการวินิจฉัย</label>
+        <textarea value={r.diagnosisCondition || ''} onChange={(e) => onChange({ diagnosisCondition: e.target.value })} rows={2} className="rounded px-2 py-1 text-xs w-full mt-0.5 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[9px]" style={{ color: SLATE }}>จ่ายแบบ</label>
+            <select value={r.payoutType || 'single'} onChange={(e) => onChange({ payoutType: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
+              <option value="single">ครั้งเดียวจบ</option><option value="multiple">จ่ายได้หลายครั้ง</option>
+            </select>
+          </div>
+          <div><label className="text-[9px]" style={{ color: SLATE }}>หลังเคลมแล้ว</label>
+            <select value={r.continuesAfterClaim || 'no'} onChange={(e) => onChange({ continuesAfterClaim: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
+              <option value="no">สัญญาสิ้นสุด</option><option value="yes">คุ้มครองต่อ</option>
+            </select>
+          </div>
+        </div>
+      </>
+    );
+  }
+  if (r.type === 'car') {
+    return (
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <div><label className="text-[9px]" style={{ color: SLATE }}>ทะเบียนรถ</label><input value={r.vehiclePlate || ''} onChange={(e) => onChange({ vehiclePlate: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+        <div><label className="text-[9px]" style={{ color: SLATE }}>ชั้นประกัน</label>
+          <select value={r.insuranceClass || '1'} onChange={(e) => onChange({ insuranceClass: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
+            <option value="1">ชั้น 1</option><option value="2+">ชั้น 2+</option><option value="3+">ชั้น 3+</option><option value="2">ชั้น 2</option><option value="3">ชั้น 3</option>
+          </select>
+        </div>
+        {numField('ค่าเสียหายส่วนแรก', 'carDeductible', true)}
+        <div><label className="text-[9px]" style={{ color: SLATE }}>รถหาย/ไฟไหม้</label>
+          <select value={r.theftFireCoverage || 'no'} onChange={(e) => onChange({ theftFireCoverage: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
+            <option value="no">ไม่คุ้มครอง</option><option value="yes">คุ้มครอง</option>
+          </select>
+        </div>
+        {numField('คุ้มครองคู่กรณี', 'thirdPartyCoverage', true)}
+        <div><label className="text-[9px]" style={{ color: SLATE }}>พ.ร.บ.</label><input value={r.compulsoryInsurance || ''} onChange={(e) => onChange({ compulsoryInsurance: e.target.value })} placeholder="เลขที่/วันหมดอายุ" className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+        <div><label className="text-[9px]" style={{ color: SLATE }}>ซ่อม</label>
+          <select value={r.garageType || 'center'} onChange={(e) => onChange({ garageType: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
+            <option value="center">ศูนย์</option><option value="garage">อู่</option>
+          </select>
+        </div>
+        <div><label className="text-[9px]" style={{ color: SLATE }}>เบอร์แจ้งเหตุ</label><input value={r.emergencyHotline || ''} onChange={(e) => onChange({ emergencyHotline: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+      </div>
+    );
+  }
+  return null;
+}
 const BENEFIT_ITEM_PRESETS = ['ค่าห้อง/ค่าอาหาร (ผู้ป่วยใน)', 'ค่าแพทย์ตรวจรักษา', 'ค่ายา/เวชภัณฑ์กลับบ้าน', 'ค่าผ่าตัด', 'ค่าตรวจสุขภาพ/วัคซีนประจำปี', 'ผลประโยชน์สูงสุดต่อปีกรมธรรม์'];
 function RiderBenefitItems({ items, onChange }) {
   const [expanded, setExpanded] = useState(false);
@@ -5423,6 +5616,7 @@ function InsuranceAddPolicyFlow({ onClose, onAddPolicy, onSelect }) {
 function InsurancePolicyReviewForm({ draft, setDraft, onSave, category }) {
   function setField(k, v) { setDraft({ ...draft, [k]: v }); }
   function setRiderField(idx, k, v) { const riders = [...draft.riders]; riders[idx] = { ...riders[idx], [k]: v }; setDraft({ ...draft, riders }); }
+  function setRiderPatch(idx, patch) { const riders = [...draft.riders]; riders[idx] = { ...riders[idx], ...patch }; setDraft({ ...draft, riders }); }
   function addRiderRow() { setDraft({ ...draft, riders: [...(draft.riders || []), { name: '', type: category, sumInsured: 0, deathBenefit: 0, premiumAmount: 0, taxDeductible: 'no', notes: '', benefitItems: [] }] }); }
   function removeRiderRow(idx) { setDraft({ ...draft, riders: draft.riders.filter((_, i) => i !== idx) }); }
   const partialErrors = draft._partialErrors || [];
@@ -5471,17 +5665,7 @@ function InsurancePolicyReviewForm({ draft, setDraft, onSave, category }) {
               <div><label className="text-[9px]" style={{ color: SLATE }}>ทุนประกัน/ผลประโยชน์หลัก</label><NumInput value={r.sumInsured} onChange={(v) => setRiderField(idx, 'sumInsured', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
               <div><label className="text-[9px]" style={{ color: SLATE }}>ผลประโยชน์กรณีเสียชีวิต</label><NumInput value={r.deathBenefit} onChange={(v) => setRiderField(idx, 'deathBenefit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
             </div>
-            {r.type === 'health' && (
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <div><label className="text-[9px]" style={{ color: SLATE }}>IPD/ปี</label><NumInput value={r.ipdLimit} onChange={(v) => setRiderField(idx, 'ipdLimit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-                <div><label className="text-[9px]" style={{ color: SLATE }}>OPD/ปี</label><NumInput value={r.opdLimit} onChange={(v) => setRiderField(idx, 'opdLimit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-                <div><label className="text-[9px]" style={{ color: SLATE }}>ค่าห้อง/คืน</label><NumInput value={r.roomLimit} onChange={(v) => setRiderField(idx, 'roomLimit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-                <div><label className="text-[9px]" style={{ color: SLATE }}>ค่าแพทย์/วัน</label><NumInput value={r.doctorLimit} onChange={(v) => setRiderField(idx, 'doctorLimit', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-              </div>
-            )}
-            {r.type === 'daily_cash' && (
-              <div className="mb-2"><label className="text-[9px]" style={{ color: SLATE }}>ชดเชยรายวัน (บาท/วัน)</label><NumInput value={r.dailyCashAmount} onChange={(v) => setRiderField(idx, 'dailyCashAmount', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-            )}
+            <RiderExtraFields r={r} onChange={(patch) => setRiderPatch(idx, patch)} />
             <label className="text-[9px]" style={{ color: SLATE }}>รายละเอียดผลประโยชน์ (แยกรายการ)</label>
             <RiderBenefitItems items={r.benefitItems} onChange={(items) => setRiderField(idx, 'benefitItems', items)} />
             <div className="mb-2">
@@ -5554,17 +5738,7 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
               <div><label className="text-[9px]" style={{ color: SLATE }}>ทุนประกัน/ผลประโยชน์หลัก</label><NumInput value={r.sumInsured} onChange={(v) => onUpdateRider(p.id, r.id, { sumInsured: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
               <div><label className="text-[9px]" style={{ color: SLATE }}>ผลประโยชน์กรณีเสียชีวิต</label><NumInput value={r.deathBenefit} onChange={(v) => onUpdateRider(p.id, r.id, { deathBenefit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
             </div>
-            {r.type === 'health' && (
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <div><label className="text-[9px]" style={{ color: SLATE }}>IPD/ปี</label><NumInput value={r.ipdLimit} onChange={(v) => onUpdateRider(p.id, r.id, { ipdLimit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-                <div><label className="text-[9px]" style={{ color: SLATE }}>OPD/ปี</label><NumInput value={r.opdLimit} onChange={(v) => onUpdateRider(p.id, r.id, { opdLimit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-                <div><label className="text-[9px]" style={{ color: SLATE }}>ค่าห้อง/คืน</label><NumInput value={r.roomLimit} onChange={(v) => onUpdateRider(p.id, r.id, { roomLimit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-                <div><label className="text-[9px]" style={{ color: SLATE }}>ค่าแพทย์/วัน</label><NumInput value={r.doctorLimit} onChange={(v) => onUpdateRider(p.id, r.id, { doctorLimit: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-              </div>
-            )}
-            {r.type === 'daily_cash' && (
-              <div className="mb-2"><label className="text-[9px]" style={{ color: SLATE }}>ชดเชยรายวัน (บาท/วัน)</label><NumInput value={r.dailyCashAmount} onChange={(v) => onUpdateRider(p.id, r.id, { dailyCashAmount: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
-            )}
+            <RiderExtraFields r={r} onChange={(patch) => onUpdateRider(p.id, r.id, patch)} />
             <label className="text-[9px]" style={{ color: SLATE }}>รายละเอียดผลประโยชน์ (แยกรายการ)</label>
             <RiderBenefitItems items={r.benefitItems} onChange={(items) => onUpdateRider(p.id, r.id, { benefitItems: items })} />
             <div className="mb-2">
@@ -5595,9 +5769,29 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
   );
 }
 
+function CoverageRow({ r, value, onJump }) {
+  return (
+    <button onClick={() => onJump(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}>
+      <span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(value)}</span>
+    </button>
+  );
+}
+function CoverageCard({ title, riders, field, onJump, totalLabel, totalMode }) {
+  const list = riders.filter((r) => Number(r[field]) > 0);
+  if (list.length === 0) return null;
+  const total = totalMode === 'max' ? Math.max(0, ...list.map((r) => Number(r[field]) || 0)) : list.reduce((s, r) => s + Number(r[field] || 0), 0);
+  return (
+    <Card>
+      <p className="text-sm font-bold mb-3" style={{ color: INK }}>{title}</p>
+      {list.map((r) => <CoverageRow key={r.id} r={r} value={r[field]} onJump={onJump} />)}
+      <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">{totalLabel}</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(total)}</p></div>
+    </Card>
+  );
+}
 function InsuranceCoverageSection({ policies, onJumpToPolicy }) {
   const [scenario, setScenario] = useState('hospital');
   const riders = allRiders(policies);
+  const healthRiders = riders.filter((r) => r.type === 'health');
   return (
     <div>
       <div className="grid grid-cols-3 gap-2 mb-4">
@@ -5608,40 +5802,91 @@ function InsuranceCoverageSection({ policies, onJumpToPolicy }) {
         ))}
       </div>
       {scenario === 'death' && (
-        <Card>
-          <p className="text-sm font-bold mb-3" style={{ color: INK }}>💀 ผลประโยชน์กรณีเสียชีวิต</p>
-          {riders.filter((r) => Number(r.deathBenefit) > 0).map((r) => (
-            <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(r.deathBenefit)}</span></button>
-          ))}
-          <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">รวมทั้งหมด</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(riders.reduce((s, r) => s + Number(r.deathBenefit || 0), 0))}</p></div>
-        </Card>
+        <>
+          <Card>
+            <p className="text-sm font-bold mb-3" style={{ color: INK }}>💀 ผลประโยชน์กรณีเสียชีวิต</p>
+            {riders.filter((r) => Number(r.deathBenefit) > 0).map((r) => <CoverageRow key={r.id} r={r} value={r.deathBenefit} onJump={onJumpToPolicy} />)}
+            <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">รวมทั้งหมด</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(riders.reduce((s, r) => s + Number(r.deathBenefit || 0), 0))}</p></div>
+          </Card>
+          <CoverageCard title="🚑 เสียชีวิตจากอุบัติเหตุ (เพิ่มเติม)" riders={riders} field="deathAccidentBenefit" onJump={onJumpToPolicy} totalLabel="รวมทั้งหมด" />
+          <CoverageCard title="🦽 ทุพพลภาพถาวร" riders={riders} field="disabilityBenefit" onJump={onJumpToPolicy} totalLabel="รวมทั้งหมด" />
+          <CoverageCard title="💰 เงินคืนระหว่างสัญญา" riders={riders} field="cashBackAmount" onJump={onJumpToPolicy} totalLabel="รวมทั้งหมด" />
+          <CoverageCard title="📜 มูลค่าเวนคืนปัจจุบัน" riders={riders} field="surrenderValue" onJump={onJumpToPolicy} totalLabel="รวมทั้งหมด" />
+          <CoverageCard title="🎁 เงินครบกำหนดสัญญา" riders={riders} field="maturityBenefit" onJump={onJumpToPolicy} totalLabel="รวมทั้งหมด" />
+        </>
       )}
       {(scenario === 'hospital' || scenario === 'opd') && (
         <>
           <Card>
             <p className="text-sm font-bold mb-3" style={{ color: INK }}>🛏️ ค่าห้อง/คืน</p>
-            {riders.filter((r) => Number(r.roomLimit) > 0).map((r) => <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(r.roomLimit)}</span></button>)}
+            {riders.filter((r) => Number(r.roomLimit) > 0).map((r) => <CoverageRow key={r.id} r={r} value={r.roomLimit} onJump={onJumpToPolicy} />)}
             <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">รวมสูงสุด/คืน</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(riders.reduce((s, r) => s + Number(r.roomLimit || 0), 0))}</p></div>
           </Card>
           <Card>
             <p className="text-sm font-bold mb-3" style={{ color: INK }}>💊 วงเงิน{scenario === 'hospital' ? 'ค่ารักษาต่อปี (IPD)' : 'OPD ต่อปี'}</p>
-            {riders.filter((r) => Number(scenario === 'hospital' ? r.ipdLimit : r.opdLimit) > 0).map((r) => <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(scenario === 'hospital' ? r.ipdLimit : r.opdLimit)}</span></button>)}
+            {riders.filter((r) => Number(scenario === 'hospital' ? r.ipdLimit : r.opdLimit) > 0).map((r) => <CoverageRow key={r.id} r={r} value={scenario === 'hospital' ? r.ipdLimit : r.opdLimit} onJump={onJumpToPolicy} />)}
             <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">วงเงินสูงสุด</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(Math.max(0, ...riders.map((r) => Number(scenario === 'hospital' ? r.ipdLimit : r.opdLimit) || 0)))}</p></div>
           </Card>
+          {scenario === 'hospital' && (
+            <>
+              <CoverageCard title="🏥 ICU/คืน" riders={riders} field="icuLimit" onJump={onJumpToPolicy} totalLabel="รวมสูงสุด/คืน" />
+              <CoverageCard title="🔪 ค่าผ่าตัด" riders={riders} field="surgeryLimit" onJump={onJumpToPolicy} totalLabel="รวมสูงสุด" />
+              <CoverageCard title="🚨 ER (ฉุกเฉิน)" riders={riders} field="erLimit" onJump={onJumpToPolicy} totalLabel="รวมสูงสุด/ครั้ง" />
+              <CoverageCard title="🚑 รถพยาบาล" riders={riders} field="ambulanceLimit" onJump={onJumpToPolicy} totalLabel="รวมสูงสุด" />
+            </>
+          )}
+          {riders.filter((r) => Number(r.deductible) > 0 || Number(r.copaymentPct) > 0).length > 0 && (
+            <Card>
+              <p className="text-xs font-semibold mb-2" style={{ color: WARN }}>⚠️ ต้องจ่ายเองบางส่วน</p>
+              {riders.filter((r) => Number(r.deductible) > 0).map((r) => <p key={`d-${r.id}`} className="text-[11px] mb-1" style={{ color: SLATE }}>{r.name || r.policyName} — Deductible จ่ายเอง ฿{fmt(r.deductible)}</p>)}
+              {riders.filter((r) => Number(r.copaymentPct) > 0).map((r) => <p key={`c-${r.id}`} className="text-[11px] mb-1" style={{ color: SLATE }}>{r.name || r.policyName} — Copayment {r.copaymentPct}%</p>)}
+            </Card>
+          )}
         </>
       )}
       {scenario === 'critical' && (
+        <>
+          <Card>
+            <p className="text-sm font-bold mb-3" style={{ color: INK }}>🧬 เงินก้อนที่ได้รับ (เจอจ่ายจบ/โรคร้ายแรง)</p>
+            {riders.filter((r) => r.type === 'critical').map((r) => <CoverageRow key={r.id} r={r} value={r.sumInsured} onJump={onJumpToPolicy} />)}
+            <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">รวมทั้งหมด</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(riders.filter((r) => r.type === 'critical').reduce((s, r) => s + Number(r.sumInsured || 0), 0))}</p></div>
+          </Card>
+          <CoverageCard title="🎗️ ค่ารักษามะเร็งที่เบิกได้ (จากประกันสุขภาพ)" riders={healthRiders} field="cancerLimit" onJump={onJumpToPolicy} totalLabel="วงเงินสูงสุด" totalMode="max" />
+          {riders.filter((r) => r.type === 'critical' && (r.coveredDiseases || r.diagnosisCondition || r.payoutType || r.continuesAfterClaim)).map((r) => (
+            <Card key={`detail-${r.id}`}>
+              <p className="text-xs font-semibold mb-1" style={{ color: INK }}>{r.name || r.policyName}</p>
+              {r.coveredDiseases && <p className="text-[11px] mb-1" style={{ color: SLATE }}>โรคที่คุ้มครอง: {r.coveredDiseases}</p>}
+              {r.diagnosisCondition && <p className="text-[11px] mb-1" style={{ color: SLATE }}>เงื่อนไขวินิจฉัย: {r.diagnosisCondition}</p>}
+              <p className="text-[11px]" style={{ color: SLATE }}>{r.payoutType === 'multiple' ? 'จ่ายได้หลายครั้ง' : 'จ่ายครั้งเดียวจบ'} · {r.continuesAfterClaim === 'yes' ? 'เคลมแล้วยังคุ้มครองต่อ' : 'เคลมแล้วสัญญาสิ้นสุด'}</p>
+            </Card>
+          ))}
+        </>
+      )}
+      {scenario === 'accident' && (
         <Card>
-          <p className="text-sm font-bold mb-3" style={{ color: INK }}>🧬 โรคร้ายแรง</p>
-          {riders.filter((r) => r.type === 'critical').map((r) => <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(r.sumInsured)}</span></button>)}
-          <div className="flex justify-between mt-2 pt-2" style={{ borderTop: `2px solid ${INK}` }}><p className="text-sm font-bold">รวมทั้งหมด</p><p className="text-lg font-bold" style={{ color: GOOD }}>฿{fmt(riders.filter((r) => r.type === 'critical').reduce((s, r) => s + Number(r.sumInsured || 0), 0))}</p></div>
+          <p className="text-sm font-bold mb-3" style={{ color: INK }}>🚑 อุบัติเหตุ</p>
+          {riders.filter((r) => r.type === 'accident').map((r) => <CoverageRow key={r.id} r={r} value={r.sumInsured} onJump={onJumpToPolicy} />)}
         </Card>
       )}
-      {(scenario === 'accident' || scenario === 'car') && (
-        <Card>
-          <p className="text-sm font-bold mb-3" style={{ color: INK }}>{scenario === 'accident' ? '🚑 อุบัติเหตุ' : '🚗 รถยนต์'}</p>
-          {riders.filter((r) => r.type === (scenario === 'accident' ? 'accident' : 'other') || (scenario === 'car' && r.type === 'other')).map((r) => <button key={r.id} onClick={() => onJumpToPolicy(r.policyId)} className="w-full flex justify-between text-sm py-2" style={{ borderTop: `1px solid ${BORDER}` }}><span style={{ color: SLATE }}>{r.name || r.policyName}</span><span className="font-semibold">฿{fmt(r.sumInsured)}</span></button>)}
-        </Card>
+      {scenario === 'car' && (
+        <>
+          {riders.filter((r) => r.type === 'car').map((r) => (
+            <Card key={r.id}>
+              <button onClick={() => onJumpToPolicy(r.policyId)} className="w-full text-left mb-2"><p className="text-sm font-bold" style={{ color: INK }}>🚗 {r.name || r.policyName} {r.vehiclePlate ? `· ${r.vehiclePlate}` : ''}</p></button>
+              <div className="grid grid-cols-2 gap-y-1 text-[11px]" style={{ color: SLATE }}>
+                {r.insuranceClass && <p>ชั้นประกัน: {r.insuranceClass}</p>}
+                {Number(r.sumInsured) > 0 && <p>ทุนประกัน: ฿{fmt(r.sumInsured)}</p>}
+                {Number(r.carDeductible) > 0 && <p>ค่าเสียหายส่วนแรก: ฿{fmt(r.carDeductible)}</p>}
+                {r.theftFireCoverage && <p>รถหาย/ไฟไหม้: {r.theftFireCoverage === 'yes' ? 'คุ้มครอง' : 'ไม่คุ้มครอง'}</p>}
+                {Number(r.thirdPartyCoverage) > 0 && <p>คุ้มครองคู่กรณี: ฿{fmt(r.thirdPartyCoverage)}</p>}
+                {r.compulsoryInsurance && <p>พ.ร.บ.: {r.compulsoryInsurance}</p>}
+                {r.garageType && <p>ซ่อม: {r.garageType === 'center' ? 'ศูนย์' : 'อู่'}</p>}
+                {r.emergencyHotline && <p>เบอร์แจ้งเหตุ: {r.emergencyHotline}</p>}
+              </div>
+            </Card>
+          ))}
+          {riders.filter((r) => r.type === 'car').length === 0 && <Card><p className="text-xs text-center py-4" style={{ color: SLATE }}>ยังไม่มีกรมธรรม์รถยนต์บันทึกไว้</p></Card>}
+        </>
       )}
       {riders.filter((r) => r.notes).length > 0 && (
         <Card>
