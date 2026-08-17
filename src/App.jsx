@@ -253,8 +253,9 @@ function holdingCAGR(h) {
   return (Math.pow(value / basis, 1 / years) - 1) * 100;
 }
 function accountValueTHB(a) {
-  if (a.holdings && a.holdings.length > 0) return a.holdings.reduce((s, h) => s + holdingMarketValueTHB(h), 0);
-  return Number(a.value || 0);
+  const holdingsValue = (a.holdings && a.holdings.length > 0) ? a.holdings.reduce((s, h) => s + holdingMarketValueTHB(h), 0) : Number(a.value || 0);
+  const cashTHB = a.category === 'dime' ? Number(a.cashBalance || 0) * Number(a.cashBalanceFx || 36) : Number(a.cashBalance || 0);
+  return holdingsValue + cashTHB;
 }
 
 function NumInput({ value, onChange, className, style, placeholder }) {
@@ -2798,6 +2799,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const totalGain = totalValue - totalCost;
   const displayValue = holdings.length > 0 ? totalValue : a.value;
   const currency = a.category === 'dime' ? 'USD' : 'THB';
+  const cashTHB = currency === 'USD' ? Number(a.cashBalance || 0) * Number(a.cashBalanceFx || 36) : Number(a.cashBalance || 0);
 
   const portFileRef = useRef(null);
   const [portScanning, setPortScanning] = useState(false);
@@ -3103,8 +3105,19 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           )}
         </div>
       )}
-      <p className="text-lg font-semibold mt-1">฿{fmt(displayValue)}</p>
+      <p className="text-lg font-semibold mt-1">฿{fmt(displayValue + cashTHB)}</p>
       {holdings.length > 0 && totalCost > 0 && <p className="text-xs mb-2" style={{ color: totalGain >= 0 ? GOOD : BAD }}>ต้นทุนรวม ฿{fmt(totalCost)} · {totalGain >= 0 ? '+' : ''}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</p>}
+      {holdings.length > 0 && (
+        <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-2">
+          <p className="text-[10px] mb-1" style={{ color: SLATE }}>💵 เงินสดในบัญชี (Cash Balance)</p>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center flex-1"><span className="text-sm mr-1">{currency === 'USD' ? '$' : '฿'}</span><NumInput value={a.cashBalance} onChange={(v) => onUpdate(a.id, { cashBalance: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="0" /></div>
+            {currency === 'USD' && <div className="flex items-center" style={{ width: 90 }}><span className="text-[10px] mr-1" style={{ color: SLATE }}>FX</span><NumInput value={a.cashBalanceFx} onChange={(v) => onUpdate(a.id, { cashBalanceFx: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="36" /></div>}
+          </div>
+          {onScanValue && <div className="mt-1"><ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { cashBalance: v })} /></div>}
+          {cashTHB > 0 && currency === 'USD' && <p className="text-[10px] mt-1" style={{ color: SLATE }}>≈ ฿{fmt(cashTHB)}</p>}
+        </div>
+      )}
       {holdings.length === 0 && (
         <>
           <div className="flex items-center mt-1 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={a.value} onChange={(v) => onUpdate(a.id, { value: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: SLATE }} placeholder="มูลค่ารวม (ถ้ายังไม่แยกรายตัว)" /></div>
