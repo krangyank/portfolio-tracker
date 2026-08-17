@@ -1125,7 +1125,7 @@ export default function App() {
   }
   function addInsuranceRider(policyId, entry) {
     const p = insurancePolicies.find((x) => x.id === policyId);
-    const rider = { id: uid(), name: '', type: 'life', sumInsured: 0, deathBenefit: 0, taxDeductible: 'no', notes: '', ...entry };
+    const rider = { id: uid(), name: '', type: 'life', sumInsured: 0, deathBenefit: 0, taxDeductible: 'no', notes: '', benefitItems: [], ...entry };
     updateInsurancePolicy(policyId, { riders: [...(p.riders || []), rider] });
   }
   function updateInsuranceRider(policyId, riderId, patch) {
@@ -2336,10 +2336,21 @@ async function scanInsurancePolicyPage(file) {
 - 1 กรมธรรม์อาจมีทั้งสัญญาหลักและสัญญาเพิ่มเติมหลายรายการปนกัน ให้แยกเป็นรายการละ 1 สัญญา
 - หมวดผลประโยชน์ที่เป็น "ตามที่จ่ายจริง" ไม่มีเพดานตายตัว ให้ใส่ notes อธิบายแทนตัวเลข
 - เงื่อนไขซับซ้อน (ระยะรอคอย, เงื่อนไขเลือกอย่างใดอย่างหนึ่ง ฯลฯ) ให้สรุปสั้นๆ ใส่ใน notes
+- ถ้าภาพเป็นตารางรายการผลประโยชน์แยกย่อย (เช่น หมวดที่ 1 ค่าห้อง, หมวดที่ 2 ค่าแพทย์ ฯลฯ) แม้จะไม่มีชื่อสัญญา/ทุนประกัน/เบี้ยอยู่ในภาพนี้เลยก็ตาม ให้ยังคงส่งกลับเป็น 1 rider (name อาจเป็น null ถ้าไม่มีในภาพ) พร้อมใส่รายการเหล่านั้นลงใน benefitItems ทุกแถวที่อ่านได้ ห้ามทิ้งข้อมูลเพียงเพราะไม่มีชื่อสัญญา/ทุนประกันในภาพนี้
+- แต่ละแถวในตารางผลประโยชน์ = 1 รายการใน benefitItems: label คือชื่อรายการ (ตัดเลขหมวดออกได้), value คือจำนวนเงิน/เงื่อนไข (เช่น "6,000 ต่อวัน" หรือ "ตามที่จ่ายจริง"), maxCount คือจำนวนครั้ง/วันสูงสุดถ้ามีระบุ (เช่น "15 วัน") ไม่มีให้ใส่ null
 ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ:
-{"company":"","policyNumber":"","planName":"","insuredName":"","startDate":"YYYY-MM-DD หรือ null","endDate":"YYYY-MM-DD หรือ null","premiumAmount":ตัวเลขหรือnull,"premiumFrequency":"year หรือ month หรือ null","riders":[{"name":"ชื่อสัญญาหลักหรือสัญญาเพิ่มเติม","type":"life หรือ health หรือ critical หรือ accident หรือ daily_cash หรือ other","sumInsured":ตัวเลขหรือnull,"deathBenefit":ตัวเลขหรือnull,"premiumAmount":ตัวเลขหรือnull,"taxDeductible":"yes หรือ no หรือ partial หรือ null","ipdLimit":ตัวเลขหรือnull,"opdLimit":ตัวเลขหรือnull,"roomLimit":ตัวเลขหรือnull,"doctorLimit":ตัวเลขหรือnull,"surgeryLimit":ตัวเลขหรือnull,"dailyCashAmount":ตัวเลขหรือnull,"notes":"ข้อความสรุปเงื่อนไขสำคัญ หรือ ตามที่จ่ายจริง"}]}`;
+{"company":"","policyNumber":"","planName":"","insuredName":"","startDate":"YYYY-MM-DD หรือ null","endDate":"YYYY-MM-DD หรือ null","premiumAmount":ตัวเลขหรือnull,"premiumFrequency":"year หรือ month หรือ null","riders":[{"name":"ชื่อสัญญาหลักหรือสัญญาเพิ่มเติม หรือ null ถ้าไม่ปรากฏในภาพนี้","type":"life หรือ health หรือ critical หรือ accident หรือ daily_cash หรือ other","sumInsured":ตัวเลขหรือnull,"deathBenefit":ตัวเลขหรือnull,"premiumAmount":ตัวเลขหรือnull,"taxDeductible":"yes หรือ no หรือ partial หรือ null","ipdLimit":ตัวเลขหรือnull,"opdLimit":ตัวเลขหรือnull,"roomLimit":ตัวเลขหรือnull,"doctorLimit":ตัวเลขหรือnull,"surgeryLimit":ตัวเลขหรือnull,"dailyCashAmount":ตัวเลขหรือnull,"notes":"ข้อความสรุปเงื่อนไขสำคัญ หรือ ตามที่จ่ายจริง","benefitItems":[{"label":"ชื่อรายการผลประโยชน์","value":"จำนวนเงิน/เงื่อนไข เช่น 6,000 ต่อวัน","maxCount":"จำนวนสูงสุด เช่น 15 วัน หรือ null"}]}]}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
+}
+function mergeBenefitItems(existing, incoming) {
+  const list = [...(existing || [])];
+  (incoming || []).forEach((it) => {
+    if (!it || (!it.label && !it.value)) return;
+    const dup = list.find((x) => x.label && it.label && x.label.trim().toLowerCase() === it.label.trim().toLowerCase());
+    if (!dup) list.push({ id: uid(), label: it.label || '', value: it.value || '', maxCount: it.maxCount || '' });
+  });
+  return list;
 }
 async function scanInsurancePolicyMultiPhoto(files) {
   const merged = { company: '', policyNumber: '', planName: '', insuredName: '', startDate: '', endDate: '', premiumAmount: 0, premiumFrequency: 'year', riders: [] };
@@ -2350,9 +2361,20 @@ async function scanInsurancePolicyMultiPhoto(files) {
       ['company', 'policyNumber', 'planName', 'insuredName', 'startDate', 'endDate', 'premiumFrequency'].forEach((k) => { if (page[k] && !merged[k]) merged[k] = page[k]; });
       if (page.premiumAmount && !merged.premiumAmount) merged.premiumAmount = page.premiumAmount;
       (page.riders || []).forEach((r) => {
-        const existingIdx = merged.riders.findIndex((x) => x.name && r.name && x.name.trim().toLowerCase() === r.name.trim().toLowerCase());
-        if (existingIdx >= 0) merged.riders[existingIdx] = { ...merged.riders[existingIdx], ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null && v !== undefined && v !== '')) };
-        else merged.riders.push(r);
+        let existingIdx = -1;
+        if (r.name) {
+          existingIdx = merged.riders.findIndex((x) => x.name && x.name.trim().toLowerCase() === r.name.trim().toLowerCase());
+        } else if (r.type) {
+          // หน้าตารางผลประโยชน์แยกย่อยมักไม่มีชื่อสัญญากำกับซ้ำ ให้รวมเข้ากับสัญญาประเภทเดียวกันที่เจอล่าสุด
+          for (let i = merged.riders.length - 1; i >= 0; i--) { if (merged.riders[i].type === r.type) { existingIdx = i; break; } }
+        }
+        if (existingIdx >= 0) {
+          const prev = merged.riders[existingIdx];
+          const patch = Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== 'benefitItems' && v !== null && v !== undefined && v !== ''));
+          merged.riders[existingIdx] = { ...prev, ...patch, benefitItems: mergeBenefitItems(prev.benefitItems, r.benefitItems) };
+        } else {
+          merged.riders.push({ ...r, benefitItems: mergeBenefitItems([], r.benefitItems) });
+        }
       });
     } catch (e) { console.error('scanInsurancePolicyPage failed for one photo', e); }
   }
@@ -5149,6 +5171,50 @@ const RIDER_TYPES = [
   { id: 'other', label: 'อื่นๆ' },
 ];
 const INSURANCE_OWNERS = [{ id: 'me', label: 'ผม' }, { id: 'spouse', label: 'ภรรยา' }, { id: 'car', label: 'รถยนต์' }];
+const BENEFIT_ITEM_PRESETS = ['ค่าห้อง/ค่าอาหาร (ผู้ป่วยใน)', 'ค่าแพทย์ตรวจรักษา', 'ค่ายา/เวชภัณฑ์กลับบ้าน', 'ค่าผ่าตัด', 'ค่าตรวจสุขภาพ/วัคซีนประจำปี', 'ผลประโยชน์สูงสุดต่อปีกรมธรรม์'];
+function RiderBenefitItems({ items, onChange }) {
+  const [expanded, setExpanded] = useState(false);
+  const list = items || [];
+  function addItem(label) { onChange([...list, { id: uid(), label: label || '', value: '', maxCount: '' }]); setExpanded(true); }
+  function updateItem(id, patch) { onChange(list.map((it) => (it.id === id ? { ...it, ...patch } : it))); }
+  function removeItem(id) { onChange(list.filter((it) => it.id !== id)); }
+  const highlight = list[0];
+  return (
+    <div className="mb-2">
+      {list.length > 0 && !expanded && (
+        <button onClick={() => setExpanded(true)} className="w-full text-left text-[10px] px-2 py-1.5 rounded" style={{ background: 'white', border: `1px solid ${BORDER}`, color: SLATE }}>
+          {highlight.label || 'ผลประโยชน์'}: <span style={{ color: INK, fontWeight: 600 }}>{highlight.value || '-'}</span>
+          {list.length > 1 ? ` · ดูรายละเอียดผลประโยชน์ทั้งหมด (${list.length}) ▾` : ' · ดูรายละเอียด ▾'}
+        </button>
+      )}
+      {list.length === 0 && !expanded && (
+        <button onClick={() => setExpanded(true)} className="text-[10px]" style={{ color: BRASS }}>+ เพิ่มรายละเอียดผลประโยชน์</button>
+      )}
+      {expanded && (
+        <div style={{ background: 'white', border: `1px solid ${BORDER}`, borderRadius: 10 }} className="p-2 mt-1">
+          <div className="flex justify-between items-center mb-1.5">
+            <p className="text-[10px] font-semibold" style={{ color: SLATE }}>รายละเอียดผลประโยชน์</p>
+            <button onClick={() => setExpanded(false)} className="text-[10px]" style={{ color: BRASS }}>ย่อ ▴</button>
+          </div>
+          {list.map((it) => (
+            <div key={it.id} className="flex gap-1 items-center mb-1">
+              <input value={it.label} onChange={(e) => updateItem(it.id, { label: e.target.value })} placeholder="รายการ" className="rounded px-1.5 py-1 text-[10px]" style={{ border: `1px solid ${BORDER}`, width: '38%' }} />
+              <input value={it.value} onChange={(e) => updateItem(it.id, { value: e.target.value })} placeholder="ผลประโยชน์ (บาท)" className="rounded px-1.5 py-1 text-[10px]" style={{ border: `1px solid ${BORDER}`, width: '30%' }} />
+              <input value={it.maxCount} onChange={(e) => updateItem(it.id, { maxCount: e.target.value })} placeholder="จำนวนสูงสุด" className="rounded px-1.5 py-1 text-[10px]" style={{ border: `1px solid ${BORDER}`, width: '22%' }} />
+              <button onClick={() => removeItem(it.id)}><Trash2 size={12} color={BAD} /></button>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-1 mt-1.5 mb-1">
+            {BENEFIT_ITEM_PRESETS.filter((p) => !list.some((it) => it.label === p)).map((p) => (
+              <button key={p} onClick={() => addItem(p)} className="text-[9px] rounded-full px-2 py-1" style={{ background: PAPER_DIM, color: INK }}>+ {p}</button>
+            ))}
+          </div>
+          <button onClick={() => addItem('')} className="text-[10px]" style={{ color: BRASS }}>+ เพิ่มรายการเอง</button>
+        </div>
+      )}
+    </div>
+  );
+}
 const INSURANCE_SCENARIOS = [
   { id: 'hospital', label: 'เข้า รพ.', emoji: '🏥' },
   { id: 'opd', label: 'OPD', emoji: '🩺' },
@@ -5294,7 +5360,7 @@ function InsuranceAddPolicyFlow({ onClose, onAddPolicy, onSelect }) {
     finally { setScanning(false); }
   }
   function startManual() {
-    setDraft({ company: '', policyNumber: '', planName: '', insuredName: '', startDate: '', endDate: '', premiumAmount: 0, premiumFrequency: 'year', riders: [{ name: '', type: category, sumInsured: 0, deathBenefit: 0, premiumAmount: 0, taxDeductible: 'no', notes: '' }] });
+    setDraft({ company: '', policyNumber: '', planName: '', insuredName: '', startDate: '', endDate: '', premiumAmount: 0, premiumFrequency: 'year', riders: [{ name: '', type: category, sumInsured: 0, deathBenefit: 0, premiumAmount: 0, taxDeductible: 'no', notes: '', benefitItems: [] }] });
     setStep(3);
   }
   function saveAll() {
@@ -5348,7 +5414,7 @@ function InsuranceAddPolicyFlow({ onClose, onAddPolicy, onSelect }) {
 function InsurancePolicyReviewForm({ draft, setDraft, onSave, category }) {
   function setField(k, v) { setDraft({ ...draft, [k]: v }); }
   function setRiderField(idx, k, v) { const riders = [...draft.riders]; riders[idx] = { ...riders[idx], [k]: v }; setDraft({ ...draft, riders }); }
-  function addRiderRow() { setDraft({ ...draft, riders: [...(draft.riders || []), { name: '', type: category, sumInsured: 0, deathBenefit: 0, premiumAmount: 0, taxDeductible: 'no', notes: '' }] }); }
+  function addRiderRow() { setDraft({ ...draft, riders: [...(draft.riders || []), { name: '', type: category, sumInsured: 0, deathBenefit: 0, premiumAmount: 0, taxDeductible: 'no', notes: '', benefitItems: [] }] }); }
   function removeRiderRow(idx) { setDraft({ ...draft, riders: draft.riders.filter((_, i) => i !== idx) }); }
   return (
     <div>
@@ -5400,6 +5466,8 @@ function InsurancePolicyReviewForm({ draft, setDraft, onSave, category }) {
             {r.type === 'daily_cash' && (
               <div className="mb-2"><label className="text-[9px]" style={{ color: SLATE }}>ชดเชยรายวัน (บาท/วัน)</label><NumInput value={r.dailyCashAmount} onChange={(v) => setRiderField(idx, 'dailyCashAmount', v)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
             )}
+            <label className="text-[9px]" style={{ color: SLATE }}>รายละเอียดผลประโยชน์ (แยกรายการ)</label>
+            <RiderBenefitItems items={r.benefitItems} onChange={(items) => setRiderField(idx, 'benefitItems', items)} />
             <div className="mb-2">
               <label className="text-[9px]" style={{ color: SLATE }}>ลดหย่อนภาษีได้</label>
               <select value={r.taxDeductible || 'no'} onChange={(e) => setRiderField(idx, 'taxDeductible', e.target.value)} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
@@ -5481,6 +5549,8 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
             {r.type === 'daily_cash' && (
               <div className="mb-2"><label className="text-[9px]" style={{ color: SLATE }}>ชดเชยรายวัน (บาท/วัน)</label><NumInput value={r.dailyCashAmount} onChange={(v) => onUpdateRider(p.id, r.id, { dailyCashAmount: v })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }} /></div>
             )}
+            <label className="text-[9px]" style={{ color: SLATE }}>รายละเอียดผลประโยชน์ (แยกรายการ)</label>
+            <RiderBenefitItems items={r.benefitItems} onChange={(items) => onUpdateRider(p.id, r.id, { benefitItems: items })} />
             <div className="mb-2">
               <label className="text-[9px]" style={{ color: SLATE }}>ลดหย่อนภาษีได้</label>
               <select value={r.taxDeductible || 'no'} onChange={(e) => onUpdateRider(p.id, r.id, { taxDeductible: e.target.value })} className="rounded px-2 py-1 text-xs w-full mt-0.5" style={{ border: `1px solid ${BORDER}` }}>
