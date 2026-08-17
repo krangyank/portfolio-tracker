@@ -17,7 +17,7 @@ export default async function handler(req, res) {
       messages: [{ role: 'user', content }],
     };
     if (webSearch) {
-      body.tools = [{ type: 'web_search_20250305', name: 'web_search' }];
+      body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }];
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -31,7 +31,22 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json();
+
+    // Anthropic ตอบ error กลับมาแบบ { type: "error", error: { type, message } } — เดิมโค้ดนี้เงียบไว้ ทำให้ client เห็นแค่ "ไม่พบ JSON" โดยไม่รู้สาเหตุจริง
+    if (data.type === 'error' || data.error) {
+      const msg = (data.error && data.error.message) || 'Anthropic API error (ไม่ทราบรายละเอียด)';
+      res.status(200).json({ error: msg });
+      return;
+    }
+
     const text = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+
+    // ถ้าเปิด web search แต่ไม่มีข้อความตอบกลับเลย (เช่น ยังไม่ได้เปิดใช้ Web search ใน Anthropic Console ขององค์กร) ให้แจ้งสาเหตุที่เป็นไปได้แทนการส่งค่าว่างเงียบๆ
+    if (!text && webSearch) {
+      res.status(200).json({ error: 'AI ไม่ได้ตอบข้อความกลับมา (ถ้าเพิ่งเปิดใช้ฟีเจอร์ค้นเว็บ ให้เช็คว่าเปิด "Web search" ใน Anthropic Console ขององค์กรแล้วหรือยัง — Settings > ฟีเจอร์นี้ปิดอยู่โดย default)' });
+      return;
+    }
+
     res.status(200).json({ text });
   } catch (e) {
     res.status(500).json({ error: e.message });
