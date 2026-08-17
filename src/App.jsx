@@ -2336,9 +2336,10 @@ async function scanInsurancePolicyPage(file) {
 - 1 กรมธรรม์อาจมีทั้งสัญญาหลักและสัญญาเพิ่มเติมหลายรายการปนกัน ให้แยกเป็นรายการละ 1 สัญญา
 - หมวดผลประโยชน์ที่เป็น "ตามที่จ่ายจริง" ไม่มีเพดานตายตัว ให้ใส่ notes อธิบายแทนตัวเลข
 - เงื่อนไขซับซ้อน (ระยะรอคอย, เงื่อนไขเลือกอย่างใดอย่างหนึ่ง ฯลฯ) ให้สรุปสั้นๆ ใส่ใน notes
-- ถ้าภาพเป็นตารางรายการผลประโยชน์แยกย่อย (เช่น หมวดที่ 1 ค่าห้อง, หมวดที่ 2 ค่าแพทย์ ฯลฯ) แม้จะไม่มีชื่อสัญญา/ทุนประกัน/เบี้ยอยู่ในภาพนี้เลยก็ตาม ให้ยังคงส่งกลับเป็น 1 rider (name อาจเป็น null ถ้าไม่มีในภาพ) พร้อมใส่รายการเหล่านั้นลงใน benefitItems ทุกแถวที่อ่านได้ ห้ามทิ้งข้อมูลเพียงเพราะไม่มีชื่อสัญญา/ทุนประกันในภาพนี้
-- แต่ละแถวในตารางผลประโยชน์ = 1 รายการใน benefitItems: label คือชื่อรายการ (ตัดเลขหมวดออกได้), value คือจำนวนเงิน/เงื่อนไข (เช่น "6,000 ต่อวัน" หรือ "ตามที่จ่ายจริง"), maxCount คือจำนวนครั้ง/วันสูงสุดถ้ามีระบุ (เช่น "15 วัน") ไม่มีให้ใส่ null
-ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ:
+- ถ้าภาพเป็นตารางรายการผลประโยชน์แยกย่อย (เช่น หมวดที่ 1 ค่าห้อง, หมวดที่ 2 ค่าแพทย์ ฯลฯ) แม้จะไม่มีชื่อสัญญา/ทุนประกัน/เบี้ยอยู่ในภาพนี้เลยก็ตาม ให้ยังคงส่งกลับเป็น 1 rider (name อาจเป็น null ถ้าไม่มีในภาพ) พร้อมใส่รายการเหล่านั้นลงใน benefitItems ที่อ่านได้ ห้ามทิ้งข้อมูลเพียงเพราะไม่มีชื่อสัญญา/ทุนประกันในภาพนี้
+- แต่ละแถวในตารางผลประโยชน์ = 1 รายการใน benefitItems: label คือชื่อรายการ (ตัดเลขหมวดออกได้ ให้สั้นกระชับ ไม่เกิน 6 คำ), value คือจำนวนเงิน/เงื่อนไข (เช่น "6,000 ต่อวัน" หรือ "ตามที่จ่ายจริง"), maxCount คือจำนวนครั้ง/วันสูงสุดถ้ามีระบุ (เช่น "15 วัน") ไม่มีให้ใส่ null
+- เอาเฉพาะรายการที่สำคัญที่สุดไม่เกิน 8 รายการต่อสัญญาต่อภาพ (ถ้าตารางมีมากกว่านั้น เลือกเฉพาะรายการที่มีตัวเลขชัดเจน ข้ามรายการรองที่ซ้ำซ้อนกัน) เพื่อให้คำตอบไม่ยาวเกินไป
+ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น ห้ามมีคำอธิบายก่อน/หลัง JSON ห้ามขึ้นบรรทัดใหม่โดยไม่จำเป็น ตอบให้กระชับที่สุด รูปแบบ:
 {"company":"","policyNumber":"","planName":"","insuredName":"","startDate":"YYYY-MM-DD หรือ null","endDate":"YYYY-MM-DD หรือ null","premiumAmount":ตัวเลขหรือnull,"premiumFrequency":"year หรือ month หรือ null","riders":[{"name":"ชื่อสัญญาหลักหรือสัญญาเพิ่มเติม หรือ null ถ้าไม่ปรากฏในภาพนี้","type":"life หรือ health หรือ critical หรือ accident หรือ daily_cash หรือ other","sumInsured":ตัวเลขหรือnull,"deathBenefit":ตัวเลขหรือnull,"premiumAmount":ตัวเลขหรือnull,"taxDeductible":"yes หรือ no หรือ partial หรือ null","ipdLimit":ตัวเลขหรือnull,"opdLimit":ตัวเลขหรือnull,"roomLimit":ตัวเลขหรือnull,"doctorLimit":ตัวเลขหรือnull,"surgeryLimit":ตัวเลขหรือnull,"dailyCashAmount":ตัวเลขหรือnull,"notes":"ข้อความสรุปเงื่อนไขสำคัญ หรือ ตามที่จ่ายจริง","benefitItems":[{"label":"ชื่อรายการผลประโยชน์","value":"จำนวนเงิน/เงื่อนไข เช่น 6,000 ต่อวัน","maxCount":"จำนวนสูงสุด เช่น 15 วัน หรือ null"}]}]}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
@@ -2354,10 +2355,13 @@ function mergeBenefitItems(existing, incoming) {
 }
 async function scanInsurancePolicyMultiPhoto(files) {
   const merged = { company: '', policyNumber: '', planName: '', insuredName: '', startDate: '', endDate: '', premiumAmount: 0, premiumFrequency: 'year', riders: [] };
+  const errors = [];
+  let successCount = 0;
   for (const file of files) {
     try {
       const page = await scanInsurancePolicyPage(file);
-      if (!page) continue;
+      if (!page) { errors.push(`${file.name}: ไม่มีข้อมูลตอบกลับ`); continue; }
+      successCount++;
       ['company', 'policyNumber', 'planName', 'insuredName', 'startDate', 'endDate', 'premiumFrequency'].forEach((k) => { if (page[k] && !merged[k]) merged[k] = page[k]; });
       if (page.premiumAmount && !merged.premiumAmount) merged.premiumAmount = page.premiumAmount;
       (page.riders || []).forEach((r) => {
@@ -2376,8 +2380,13 @@ async function scanInsurancePolicyMultiPhoto(files) {
           merged.riders.push({ ...r, benefitItems: mergeBenefitItems([], r.benefitItems) });
         }
       });
-    } catch (e) { console.error('scanInsurancePolicyPage failed for one photo', e); }
+    } catch (e) {
+      console.error('scanInsurancePolicyPage failed for one photo', e);
+      errors.push(`${file.name || 'รูป'}: ${e.message || 'อ่านไม่สำเร็จ'}`);
+    }
   }
+  if (successCount === 0 && errors.length > 0) throw new Error(errors.join(' | '));
+  merged._partialErrors = errors; // เก็บไว้เผื่อบางรูปอ่านไม่ผ่านแต่บางรูปผ่าน จะได้เตือนได้โดยไม่บล็อกทั้งหมด
   return merged;
 }
 
@@ -5416,9 +5425,16 @@ function InsurancePolicyReviewForm({ draft, setDraft, onSave, category }) {
   function setRiderField(idx, k, v) { const riders = [...draft.riders]; riders[idx] = { ...riders[idx], [k]: v }; setDraft({ ...draft, riders }); }
   function addRiderRow() { setDraft({ ...draft, riders: [...(draft.riders || []), { name: '', type: category, sumInsured: 0, deathBenefit: 0, premiumAmount: 0, taxDeductible: 'no', notes: '', benefitItems: [] }] }); }
   function removeRiderRow(idx) { setDraft({ ...draft, riders: draft.riders.filter((_, i) => i !== idx) }); }
+  const partialErrors = draft._partialErrors || [];
   return (
     <div>
       <div className="ai-banner" style={{ background: '#FFF6E5', border: '1px solid #E7D0A0', borderRadius: 12, padding: '10px 12px', fontSize: 11.5, color: '#8a6d1f', marginBottom: 12 }}>🤖 เช็คความถูกต้องก่อนบันทึก แก้ไขได้ทุกช่อง — ช่องที่ไม่พบข้อมูลในรูปจะว่างไว้ ไม่ได้เดา</div>
+      {partialErrors.length > 0 && (
+        <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: '#991B1B', marginBottom: 12 }}>
+          ⚠️ อ่านไม่สำเร็จบางรูป ({partialErrors.length}):
+          {partialErrors.map((e, i) => <div key={i} style={{ marginTop: 3 }}>• {e}</div>)}
+        </div>
+      )}
       <Card>
         <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>ข้อมูลกรมธรรม์</p>
         <label className="text-[10px]" style={{ color: SLATE }}>บริษัทประกัน</label>
