@@ -5,7 +5,7 @@ import {
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
   Dog, Scale, Syringe, Shield, Bug, Stethoscope, Eye, EyeOff, Search, Upload,
-  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper,
+  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper, Rss,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
@@ -1683,7 +1683,7 @@ export default function App() {
       )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ข่าว', icon: Newspaper }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ข่าว', icon: Rss }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
             <t.icon size={17} color={tab === t.id ? '#FFFFFF' : '#94A3B8'} /><span className="text-[8px]" style={{ color: tab === t.id ? '#FFFFFF' : '#94A3B8' }}>{t.label}</span>
           </button>
@@ -2340,7 +2340,9 @@ async function scanSellTransaction(file) {
 async function scanYieldTechHistory(file, symbols) {
   const base64 = await readFileAsBase64(file);
   const symbolHint = (symbols && symbols.length > 0) ? `\nชื่อกองทุน/หุ้นที่มีอยู่ในพอร์ต: ${symbols.join(', ')} — จับคู่ชื่อที่อ่านได้กับรายการนี้ให้ใกล้เคียงที่สุด` : '';
-  const prompt = `นี่คือภาพประวัติรายการตัด YieldTech (ถอนแบบไม่กินทุน) จากแอปการลงทุน อาจมีหลายกองทุนปนกันในภาพเดียว อ่านทุกรายการที่เป็น "ขาย (YIELDTECH)" เท่านั้น (ไม่เอารายการซื้อ/ขายปกติ)${symbolHint}
+  const prompt = `นี่คือภาพเกี่ยวกับการตัด/ขายกองทุนแบบไม่กินทุน (คล้าย YieldTech) จากแอปการลงทุน อาจเป็นได้ 2 แบบ:
+1) ตารางประวัติหลายรายการปนกัน — อ่านทุกแถวที่เป็น "ขาย (YIELDTECH)" เท่านั้น (ไม่เอารายการซื้อ/ขายปกติ)
+2) หน้าจอ "ยืนยันคำสั่งขาย" รายการเดียว (เช่นจากแอป Dime! ที่ผู้ใช้ขายหน่วยลงทุนด้วยตัวเองเพื่อถอนเงินแบบไม่กินทุน เพราะแพลตฟอร์มนี้ไม่มีฟังก์ชันตัดอัตโนมัติ) — ให้อ่านเป็น 1 รายการ โดยเอามูลค่าเงินที่ขาย (บาท), วันที่คำสั่งมีผล/วันที่ขาย (ถ้าเป็นปี พ.ศ. ให้แปลงเป็น ค.ศ. โดยลบ 543), และชื่อกองทุน/สัญลักษณ์ที่ขาย${symbolHint}
 ตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"symbol":"ชื่อกองทุน/หุ้น","amount":จำนวนเงินที่ตัด(ตัวเลขบวกไม่มีคอมมา ไม่ต้องใส่เครื่องหมายลบ),"date":"YYYY-MM-DD"}]`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
@@ -3040,7 +3042,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           <p className="text-[11px] font-semibold mb-1.5" style={{ color: SLATE }}>YieldTech (ถอนแบบไม่กินทุน)</p>
           <p className="text-[10px] mb-2" style={{ color: SLATE }}>ตั้งค่ายอดถอน/วันตัดได้แยกตามกองทุนแต่ละตัว — เปิดหุ้น/กองทุนแต่ละตัวด้านล่างเพื่อตั้งค่า</p>
           <input ref={ytFileRef} type="file" accept="image/*" onChange={handleYieldTechPhoto} className="hidden" />
-          <button onClick={() => ytFileRef.current && ytFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-2">{ytScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />}{ytScanning ? 'กำลังอ่านรูป...' : 'แปะรูปประวัติการตัด YieldTech (แยกกองทุนให้อัตโนมัติ)'}</button>
+          <button onClick={() => ytFileRef.current && ytFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-2">{ytScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />}{ytScanning ? 'กำลังอ่านรูป...' : 'แปะรูปตัด/ขาย YieldTech (ตารางประวัติ หรือรูปยืนยันการขายรายการเดียวก็ได้)'}</button>
           {ytScanError && <p className="text-[11px] mt-1.5" style={{ color: BAD }}>{ytScanError}</p>}
           {ytDraft && (
             <div className="mt-2">
@@ -5448,7 +5450,7 @@ function InsuranceTab({ policies, claims, onAddPolicy, onUpdatePolicy, onRemoveP
       </div>
       <div className="flex gap-2 mb-4">
         {[{ id: 'all', l: 'ทั้งหมด' }, ...INSURANCE_OWNERS].map((o) => (
-          <button key={o.id} onClick={() => setOwnerFilter(o.id)} style={{ background: ownerFilter === o.id ? BRASS : PAPER_DIM, color: ownerFilter === o.id ? 'white' : SLATE }} className="rounded-full px-3 py-1.5 text-xs">{o.l}</button>
+          <button key={o.id} onClick={() => setOwnerFilter(o.id)} style={{ background: ownerFilter === o.id ? BRASS : PAPER_DIM, color: ownerFilter === o.id ? 'white' : SLATE }} className="rounded-full px-3 py-1.5 text-xs">{o.l || o.label}</button>
         ))}
       </div>
 
