@@ -43,7 +43,7 @@ const TAB_MASCOTS = {
   dashboard: { emoji: '💰', bg: '#FDE6D3', photo: 'https://images.unsplash.com/photo-1580519542036-c47de6196ba5?w=200&h=200&fit=crop' },
   accounts: { emoji: '🪙', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1621981386829-9b458a2cddde?w=200&h=200&fit=crop' },
   savings: { emoji: '🐷', bg: '#FDE6D3', photo: 'https://images.unsplash.com/photo-1579621970588-a35d0e7ab9b6?w=200&h=200&fit=crop' },
-  income: { emoji: '🌱', bg: '#DCF3E4', photo: 'https://images.unsplash.com/photo-1579621970795-87facc2f976d?w=200&h=200&fit=crop' },
+  income: { emoji: '📰', bg: '#F3E9DC' },
   expenses: { emoji: '🛍️', bg: '#FBE3E1', photo: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=200&h=200&fit=crop' },
   pets: { emoji: '🐶', bg: '#EFE7FE' },
   realestate: { emoji: '🏡', bg: '#DDF4F4' },
