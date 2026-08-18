@@ -159,6 +159,17 @@ async function askServer(promptText, imageBase64, mediaType, webSearch) {
   return data.text || '';
 }
 
+// ส่งข้อความแจ้งเตือนเข้ากลุ่ม LINE — เป็น fire-and-forget เสมอ ไม่บล็อก UI และไม่โยน error ออกไปให้ผู้ใช้เห็น
+// เพราะการแจ้งเตือนพัง (เช่น ยังไม่ตั้งค่า LINE_GROUP_ID) ไม่ควรทำให้การบันทึกรายการหลักใช้งานไม่ได้
+function sendLineNotify(message) {
+  fetch('/api/line-notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  }).catch((e) => console.error('sendLineNotify failed', e));
+}
+
+
 function ensureGsiLoaded() {
   return new Promise((resolve, reject) => {
     if (window.google && window.google.accounts && window.google.accounts.oauth2) { resolve(); return; }
@@ -911,7 +922,12 @@ export default function App() {
   const updateIncome = (id, patch) => persist({ ...state, income: income.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
   const addIncome = () => persist({ ...state, income: [...income, { id: uid(), name: 'แหล่งรายได้ใหม่', amount: 0, tag: 'other' }] });
   const removeIncome = (id) => persist({ ...state, income: income.filter((i) => i.id !== id) });
-  const addContribution = (entry) => persistAppend('contributions', { id: uid(), ...entry });
+  const addContribution = (entry) => {
+    persistAppend('contributions', { id: uid(), ...entry });
+    const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || '';
+    const srcLabel = { us_div: 'ปันผลหุ้นสหรัฐฯ', thai_div: 'ปันผลหุ้นไทย', yieldtech: 'YieldTech', rental: 'ค่าเช่า' }[entry.source] || entry.source || 'เงินเข้า';
+    sendLineNotify(`💰 เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}): ฿${Number(entry.amount || 0).toLocaleString()}`);
+  };
   const removeContribution = (id) => persist({ ...state, contributions: contributions.filter((c) => c.id !== id) });
   const updateContribution = (id, patch) => persist({ ...state, contributions: contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const changeTargetDate = (d) => persist({ ...state, targetDate: d });
@@ -964,6 +980,8 @@ export default function App() {
     const sellRecord = { id: uid(), date: entry.date, shares: entry.shares, price: entry.price, amount: entry.amount, gain, currency: h.currency };
     const newShares = Math.max(0, Number(h.shares || 0) - Number(entry.shares || 0));
     updateHolding(accountId, holdingId, { shares: newShares, sells: [sellRecord, ...(h.sells || [])] });
+    const gainLabel = gain >= 0 ? `กำไร +฿${gain.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : `ขาดทุน -฿${Math.abs(gain).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    sendLineNotify(`📉 ขาย ${h.symbol || h.name} (${acc.name}): ${entry.shares} หน่วย ได้ ฿${Number(entry.amount || 0).toLocaleString()} — ${gainLabel}`);
   }
   function removeSell(accountId, holdingId, sellId) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -1004,6 +1022,8 @@ export default function App() {
     });
     updateAccount(accountId, { holdings: nextHoldings });
     contributionsToAdd.forEach((c) => addContribution(c));
+    const noReinvestTotal = entries.filter((e) => !e.reinvestAccountId).reduce((s, e) => s + Number(e.amount || 0), 0);
+    if (noReinvestTotal > 0) sendLineNotify(`💵 ตัด YieldTech ${acc.name}: ${entries.length} รายการ รวม ฿${noReinvestTotal.toLocaleString()}`);
   }
   // แปะรูปประวัติคำสั่งซื้อ-ขายที่มีหลายกองทุนปนกันในภาพเดียว — บันทึกซื้อเพิ่ม/ขายให้ทุกกองทุนที่จับคู่ไว้พร้อมกันในการเขียนครั้งเดียว
   function recordBuySellBatch(accountId, entries) {
@@ -1053,6 +1073,12 @@ export default function App() {
       return applyEntries(blank, matches);
     });
     updateAccount(accountId, { holdings: [...nextHoldings, ...newHoldings] });
+    const buysN = entries.filter((e) => e.type !== 'sell');
+    const sellsN = entries.filter((e) => e.type === 'sell');
+    const parts = [];
+    if (buysN.length) parts.push(`ซื้อ ${buysN.length} รายการ รวม ฿${buysN.reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`);
+    if (sellsN.length) parts.push(`ขาย ${sellsN.length} รายการ รวม ฿${sellsN.reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`);
+    if (parts.length) sendLineNotify(`📊 อัพเดตพอร์ต ${acc.name}: ${parts.join(' · ')}`);
   }
   function recordYieldTechWithdrawal(accountId, holdingId, { amount, date, reinvestAccountId, sharesOverride }) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -1070,6 +1096,7 @@ export default function App() {
     patch.yieldTechHistory = [{ id: uid(), date, amount: Number(amount), reinvestAccountId: reinvestAccountId || undefined, estimatedShares: estimatedShares || undefined }, ...(h.yieldTechHistory || [])];
     updateHolding(accountId, holdingId, patch);
     if (reinvestAccountId) addContribution({ date, amount: Number(amount), source: 'yieldtech', accountId: reinvestAccountId });
+    else sendLineNotify(`💵 ตัด YieldTech ${h.symbol || h.name} (${acc.name}): ฿${Number(amount || 0).toLocaleString()}`);
   }
   function updateBuy(accountId, holdingId, buyId, patch) {
     const acc = accounts.find((a) => a.id === accountId);
