@@ -4044,7 +4044,20 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
             { key: 'source', label: 'แหล่งที่มา', type: 'select', options: SOURCES.map((s) => ({ value: s.id, label: s.label })) },
             { key: 'accountId', label: 'บัญชีปลายทาง', type: 'select-custom', options: accounts.map((a) => ({ value: a.id, label: a.name })), customList: customDestinationList, onAddCustom: onAddCustomDestination },
           ]}
-          onSave={(v) => { onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId }); setEditing(null); }}
+          onSave={(v) => {
+            const oldAcc = accounts.find((a) => a.id === editing.accountId);
+            const newAcc = accounts.find((a) => a.id === v.accountId);
+            const oldSrc = SOURCES.find((s) => s.id === editing.source)?.label || editing.source;
+            const newSrc = SOURCES.find((s) => s.id === v.source)?.label || v.source;
+            const changed = [];
+            if (Number(editing.amount || 0) !== Number(v.amount || 0)) changed.push(`ยอด ฿${Number(editing.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
+            if (editing.accountId !== v.accountId) changed.push(`ปลายทาง ${oldAcc?.name || editing.accountId || '-'} → ${newAcc?.name || v.accountId || '-'}`);
+            if (editing.source !== v.source) changed.push(`แหล่งที่มา ${oldSrc} → ${newSrc}`);
+            if (editing.date !== v.date) changed.push(`วันที่ ${formatDateDMY(editing.date)} → ${formatDateDMY(v.date)}`);
+            if (changed.length) sendLineNotify(`✏️ แก้ไขเงินเข้า (${newSrc}): ${changed.join(' · ')}`);
+            onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId });
+            setEditing(null);
+          }}
         />
       )}
     </div>
