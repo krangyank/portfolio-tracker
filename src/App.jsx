@@ -924,6 +924,7 @@ export default function App() {
   const removeIncome = (id) => persist({ ...state, income: income.filter((i) => i.id !== id) });
   const addContribution = (entry) => {
     persistAppend('contributions', { id: uid(), ...entry });
+    if (entry.source === 'rental') return; // มีข้อความแจ้งเตือนเฉพาะทางที่ addRentInstallment ส่งให้แล้ว (บอกชื่อบ้าน+ยอดขาด) กันส่งซ้ำ
     const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || '';
     const srcLabel = { us_div: 'ปันผลหุ้นสหรัฐฯ', thai_div: 'ปันผลหุ้นไทย', yieldtech: 'YieldTech', rental: 'ค่าเช่า' }[entry.source] || entry.source || 'เงินเข้า';
     sendLineNotify(`💰 เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}): ฿${Number(entry.amount || 0).toLocaleString()}`);
@@ -1270,7 +1271,13 @@ export default function App() {
     const totalPaid = installments.reduce((s, it) => s + Number(it.amount || 0), 0);
     const paid = cur.manualConfirm || totalPaid >= Number(p.rent || 0);
     updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid, date: paid ? (cur.date || entry.date) : cur.date } } });
-    if (entry.accountId) addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId });
+    if (entry.accountId) {
+      addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId });
+      const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || '';
+      const shortfall = Number(p.rent || 0) - totalPaid;
+      const shortfallNote = shortfall > 0 ? ` (ยังขาดอีก ฿${shortfall.toLocaleString()} จากยอดเต็ม ฿${Number(p.rent || 0).toLocaleString()})` : '';
+      sendLineNotify(`🏠 รับค่าเช่า ${p.name} ฿${Number(entry.amount || 0).toLocaleString()} → ฝากเข้าบัญชี ${accName}${shortfallNote}`);
+    }
   }
   function removeRentInstallment(propertyId, ymKey, installmentId) {
     const p = properties.find((x) => x.id === propertyId);
@@ -2910,9 +2917,13 @@ function DimeCashScanButton({ onApply }) {
 function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue }) {
   const gain = a.value - basis;
   const showInterest = INTEREST_CATEGORIES.includes(a.category);
+  const isCooperative = a.category === 'cooperative';
   const [showInterestHistory, setShowInterestHistory] = useState(false);
   const [interestAmount, setInterestAmount] = useState(0);
   const [interestDate, setInterestDate] = useState(new Date().toISOString().slice(0, 10));
+  const [txAmount, setTxAmount] = useState(0);
+  const [txDate, setTxDate] = useState(new Date().toISOString().slice(0, 10));
+  const [showTxHistory, setShowTxHistory] = useState(false);
   const estimatedAnnualInterest = showInterest ? Number(a.value || 0) * Number(a.interestRate || 0) / 100 : 0;
   function recordInterest() {
     if (!interestAmount) return;
@@ -2920,12 +2931,45 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
     onUpdate(a.id, { interestHistory: [{ id: uid(), date: interestDate, amount: interestAmount }, ...history] });
     setInterestAmount(0);
   }
+  function recordDeposit() {
+    if (!txAmount) return;
+    const history = a.cashFlowHistory || [];
+    onUpdate(a.id, { value: Number(a.value || 0) + Number(txAmount), cashFlowHistory: [{ id: uid(), type: 'deposit', date: txDate, amount: txAmount }, ...history] });
+    sendLineNotify(`💰 ฝากเงินเข้า ${a.name}: ฿${Number(txAmount).toLocaleString()}`);
+    setTxAmount(0);
+  }
+  function recordWithdraw() {
+    if (!txAmount) return;
+    const history = a.cashFlowHistory || [];
+    onUpdate(a.id, { value: Math.max(0, Number(a.value || 0) - Number(txAmount)), cashFlowHistory: [{ id: uid(), type: 'withdraw', date: txDate, amount: txAmount }, ...history] });
+    sendLineNotify(`💸 ถอนเงินจาก ${a.name}: ฿${Number(txAmount).toLocaleString()}`);
+    setTxAmount(0);
+  }
   return (
     <Card>
       <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} />{a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}<button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
       <div className="flex items-center mt-2 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={a.value} onChange={(v) => onUpdate(a.id, { value: v })} className="text-lg font-semibold flex-1 outline-none" style={{ border: 'none' }} /></div>
       {basis > 0 && <p className="text-xs mb-2" style={{ color: gain >= 0 ? GOOD : BAD }}>ต้นทุนสะสม ฿{fmt(basis)} · {gain >= 0 ? '+' : ''}฿{fmt(gain)}</p>}
       {onScanValue && <ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { value: v })} />}
+      {isCooperative && (
+        <div style={{ borderTop: '1px solid #E7EAF0', background: PAPER_DIM, borderRadius: 10 }} className="mt-3 pt-3 px-2 pb-2">
+          <p className="text-[10px] mb-1" style={{ color: SLATE }}>💰 ฝาก-ถอนเงิน</p>
+          <div className="flex gap-2 mb-2">
+            <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+            <NumInput value={txAmount} onChange={setTxAmount} placeholder="จำนวนเงิน" className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+          </div>
+          <div className="flex gap-2 mb-1">
+            <button onClick={recordDeposit} style={{ background: GOOD }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ฝากเงิน</button>
+            <button onClick={recordWithdraw} style={{ background: BAD }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ถอนเงิน</button>
+          </div>
+          {(a.cashFlowHistory || []).length > 0 && (
+            <button onClick={() => setShowTxHistory(!showTxHistory)} className="text-[11px]" style={{ color: BRASS }}>{showTxHistory ? 'ซ่อนประวัติ' : `ดูประวัติฝาก-ถอน (${(a.cashFlowHistory || []).length})`}</button>
+          )}
+          {showTxHistory && (a.cashFlowHistory || []).map((h) => (
+            <div key={h.id} className="flex justify-between text-xs mt-1"><span>{h.date} · {h.type === 'deposit' ? 'ฝาก' : 'ถอน'}</span><span style={{ color: h.type === 'deposit' ? GOOD : BAD }}>{h.type === 'deposit' ? '+' : '-'}฿{fmt(h.amount)}</span></div>
+          ))}
+        </div>
+      )}
       {showInterest && (
         <div style={{ borderTop: '1px solid #E7EAF0' }} className="mt-3 pt-3">
           <div className="grid grid-cols-2 gap-2 mb-2">
