@@ -29,6 +29,15 @@ function nextCardDueDateStr(dueDay) {
   return due.toISOString().slice(0, 10);
 }
 
+// เหมือนกับ nextCardDueDateStr แต่ใช้กับวันตัดยอด (statementDay) แทนวันครบกำหนดจ่าย
+function nextStatementDateStr(statementDay) {
+  return nextCardDueDateStr(statementDay);
+}
+
+function ymKeyFor(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
 async function pushLine(message) {
   const target = process.env.LINE_GROUP_ID;
   if (!target) { console.error('cron-reminders: ไม่มี LINE_GROUP_ID ตั้งไว้'); return; }
@@ -58,10 +67,39 @@ export default async function handler(req, res) {
       if (dl === 0 || dl === 1) lines.push(`💳 ${label(dl)}ครบกำหนดจ่ายบัตร ${c.bankName || ''} ${c.cardName || ''}${c.last4 ? ` (...${c.last4})` : ''}`);
     });
 
+    // วันตัดยอดบัตรเครดิต (statement date) — คนละอันกับวันครบกำหนดจ่าย
+    (data.creditCards || []).forEach((c) => {
+      if (!c.statementDay) return;
+      const dl = daysUntil(nextStatementDateStr(c.statementDay));
+      if (dl === 0 || dl === 1) lines.push(`📅 ${label(dl)}วันตัดยอดบัตร ${c.bankName || ''} ${c.cardName || ''}${c.last4 ? ` (...${c.last4})` : ''}`);
+    });
+
     // กรมธรรม์ใกล้ต่ออายุ
     (data.insurancePolicies || []).forEach((p) => {
       const dl = daysUntil(p.endDate);
       if (dl === 0 || dl === 1) lines.push(`📄 ${label(dl)}กรมธรรม์ครบกำหนด: ${p.company || ''} ${p.planName || ''}`);
+    });
+
+    // สัญญาเช่าใกล้หมดอายุ + ค่าเช่าจ่ายไม่ครบยอด (เตือนซ้ำ 7 วันหลังวันครบกำหนดจ่าย ถ้ายังไม่ครบ)
+    const today = new Date();
+    (data.properties || []).forEach((p) => {
+      const dlContract = daysUntil(p.contractEndDate);
+      if (dlContract === 0 || dlContract === 1) lines.push(`📝 ${label(dlContract)}สัญญาเช่าครบกำหนด: ${p.name || ''}${p.tenantName ? ` (ผู้เช่า: ${p.tenantName})` : ''}`);
+
+      if (p.status === 'occupied' && p.rentDueDay) {
+        const dueThisMonth = new Date(today.getFullYear(), today.getMonth(), Number(p.rentDueDay));
+        const dlDue = Math.round((dueThisMonth - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / (24 * 3600 * 1000));
+        if (dlDue === -7) {
+          const ymKey = ymKeyFor(dueThisMonth);
+          const pay = (p.payments || {})[ymKey] || {};
+          const totalPaid = Number(pay.amount || 0);
+          const rentAmount = Number(p.rent || 0);
+          if (!pay.paid && totalPaid < rentAmount) {
+            const shortfall = rentAmount - totalPaid;
+            lines.push(`🏠 ${p.name || ''} ค่าเช่ายังไม่ครบยอด (ขาดอีก ฿${shortfall.toLocaleString()} จากยอดเต็ม ฿${rentAmount.toLocaleString()}) ผู้เช่า: ${p.tenantName || '-'}`);
+          }
+        }
+      }
     });
 
     // นัดลูกๆ (ทั่วไป) + พบหมอ
