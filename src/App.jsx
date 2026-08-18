@@ -161,11 +161,14 @@ async function askServer(promptText, imageBase64, mediaType, webSearch) {
 
 // ส่งข้อความแจ้งเตือนเข้ากลุ่ม LINE — เป็น fire-and-forget เสมอ ไม่บล็อก UI และไม่โยน error ออกไปให้ผู้ใช้เห็น
 // เพราะการแจ้งเตือนพัง (เช่น ยังไม่ตั้งค่า LINE_GROUP_ID) ไม่ควรทำให้การบันทึกรายการหลักใช้งานไม่ได้
+// currentNotifyUser ถูกตั้งค่าจาก Tracker ทุกครั้งที่ user หรือชื่อที่ตั้งไว้ในตั้งค่าเปลี่ยน เพื่อให้ทุกข้อความแจ้งเตือน (ทุกจุดเรียกทั่วทั้งไฟล์) ต่อท้ายด้วย "โดยใคร" โดยไม่ต้องแก้ทีละจุด
+let currentNotifyUser = '';
 function sendLineNotify(message) {
+  const tagged = currentNotifyUser ? `${message}\n— โดย ${currentNotifyUser}` : message;
   fetch('/api/line-notify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message: tagged }),
   }).catch((e) => console.error('sendLineNotify failed', e));
 }
 
@@ -894,6 +897,10 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    currentNotifyUser = (state && state.notifyDisplayName) || (user && user.email) || '';
+  }, [state && state.notifyDisplayName, user]);
+
   const dailyPriceRefreshTriggered = useRef(false);
   useEffect(() => {
     function handleBeforeUnload(e) {
@@ -935,6 +942,7 @@ export default function App() {
   const changeGoal = (v) => persist({ ...state, goalNetWorth: v });
   const changeFinnhubKey = (v) => persist({ ...state, finnhubKey: v });
   const changeGoogleClientId = (v) => persist({ ...state, googleClientId: v });
+  const changeNotifyDisplayName = (v) => persist({ ...state, notifyDisplayName: v });
 
   function addHolding(accountId) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -1669,7 +1677,8 @@ export default function App() {
           googleClientId={state.googleClientId} onChangeGoogleClientId={changeGoogleClientId}
           googleToken={googleToken} onConnectCalendar={connectCalendar} onDisconnectCalendar={disconnectCalendar}
           calendarError={calendarError} reconnecting={reconnecting}
-          openToLastTab={state.openToLastTab} onChangeOpenToLastTab={(v) => persist({ ...state, openToLastTab: v })} />
+          openToLastTab={state.openToLastTab} onChangeOpenToLastTab={(v) => persist({ ...state, openToLastTab: v })}
+          notifyDisplayName={state.notifyDisplayName} userEmail={user && user.email} onChangeNotifyDisplayName={changeNotifyDisplayName} />
       )}
 
       {tab === 'dashboard' && (
@@ -1994,7 +2003,7 @@ function MedicalPhotoAttach({ record, onAddPhoto, onRemovePhoto }) {
   );
 }
 
-function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting, openToLastTab, onChangeOpenToLastTab }) {
+function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting, openToLastTab, onChangeOpenToLastTab, notifyDisplayName, userEmail, onChangeNotifyDisplayName }) {
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
@@ -2010,6 +2019,12 @@ function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChange
               <div style={{ background: 'white', left: openToLastTab ? 22 : 3, top: 3 }} className="w-5 h-5 rounded-full absolute transition-all" />
             </button>
           </div>
+        </div>
+
+        <div style={{ borderBottom: '1px solid #E7EAF0' }} className="pb-4 mb-4">
+          <p className="text-xs font-semibold mb-1" style={{ color: INK }}>ชื่อที่แสดงในแจ้งเตือน LINE</p>
+          <p className="text-[11px] mb-2" style={{ color: SLATE }}>ทุกข้อความแจ้งเตือนที่ยิงเข้ากลุ่ม LINE จะต่อท้ายด้วย "โดย {'{ชื่อนี้}'}" เพื่อให้รู้ว่าใครเป็นคนบันทึก/แก้ไข — ตั้งค่านี้แยกกันได้ในแต่ละเครื่อง (บัญชีของใคร ก็ตั้งชื่อของคนนั้น)</p>
+          <input type="text" value={notifyDisplayName || ''} onChange={(e) => onChangeNotifyDisplayName(e.target.value)} placeholder={userEmail ? `ค่าเริ่มต้น: ${userEmail}` : 'เช่น ทอมมี่'} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full" />
         </div>
 
         <p className="text-xs mb-2" style={{ color: SLATE }}>Finnhub API key (ฟรี) — ใช้สำหรับปุ่มรีเฟรชราคาหุ้นสหรัฐฯ สมัครที่ finnhub.io/register</p>
