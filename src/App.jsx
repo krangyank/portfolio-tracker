@@ -4049,12 +4049,14 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
             const newAcc = accounts.find((a) => a.id === v.accountId);
             const oldSrc = SOURCES.find((s) => s.id === editing.source)?.label || editing.source;
             const newSrc = SOURCES.find((s) => s.id === v.source)?.label || v.source;
+            const amountChanged = Number(editing.amount || 0) !== Number(v.amount || 0);
             const changed = [];
-            if (Number(editing.amount || 0) !== Number(v.amount || 0)) changed.push(`ยอด ฿${Number(editing.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
+            if (amountChanged) changed.push(`ยอด ฿${Number(editing.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
             if (editing.accountId !== v.accountId) changed.push(`ปลายทาง ${oldAcc?.name || editing.accountId || '-'} → ${newAcc?.name || v.accountId || '-'}`);
             if (editing.source !== v.source) changed.push(`แหล่งที่มา ${oldSrc} → ${newSrc}`);
             if (editing.date !== v.date) changed.push(`วันที่ ${formatDateDMY(editing.date)} → ${formatDateDMY(v.date)}`);
-            if (changed.length) sendLineNotify(`✏️ แก้ไขเงินเข้า (${newSrc}): ${changed.join(' · ')}`);
+            // ระบุยอดเงิน+วันที่ของรายการไว้เสมอ (ใช้ยอด/วันที่เดิมเป็นตัวบอกว่าแก้ "รายการไหน" เผื่อวันนั้นมีหลายรายการ) แล้วต่อด้วยรายละเอียดที่เปลี่ยน
+            if (changed.length) sendLineNotify(`✏️ แก้ไขเงินเข้า ฿${Number(editing.amount || 0).toLocaleString()} (${oldSrc}) วันที่ ${formatDateDMY(editing.date)}: ${changed.join(' · ')}`);
             onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId });
             setEditing(null);
           }}
