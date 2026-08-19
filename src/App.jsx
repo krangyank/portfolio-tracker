@@ -932,8 +932,8 @@ export default function App() {
   const addContribution = (entry) => {
     persistAppend('contributions', { id: uid(), ...entry });
     if (entry.source === 'rental') return; // มีข้อความแจ้งเตือนเฉพาะทางที่ addRentInstallment ส่งให้แล้ว (บอกชื่อบ้าน+ยอดขาด) กันส่งซ้ำ
-    const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || '';
-    const srcLabel = { us_div: 'ปันผลหุ้นสหรัฐฯ', thai_div: 'ปันผลหุ้นไทย', yieldtech: 'YieldTech', rental: 'ค่าเช่า' }[entry.source] || entry.source || 'เงินเข้า';
+    const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
+    const srcLabel = entry.source === 'yieldtech' ? 'YieldTech' : ((SOURCES.find((s) => s.id === entry.source) || {}).label || entry.source || 'เงินเข้า');
     sendLineNotify(`💰 เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}): ฿${Number(entry.amount || 0).toLocaleString()}`);
   };
   const removeContribution = (id) => persist({ ...state, contributions: contributions.filter((c) => c.id !== id) });
@@ -1281,7 +1281,7 @@ export default function App() {
     updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid, date: paid ? (cur.date || entry.date) : cur.date } } });
     if (entry.accountId) {
       addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId });
-      const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || '';
+      const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
       const shortfall = Number(p.rent || 0) - totalPaid;
       const shortfallNote = shortfall > 0 ? ` (ยังขาดอีก ฿${shortfall.toLocaleString()} จากยอดเต็ม ฿${Number(p.rent || 0).toLocaleString()})` : '';
       sendLineNotify(`🏠 รับค่าเช่า ${p.name} ฿${Number(entry.amount || 0).toLocaleString()} → ฝากเข้าบัญชี ${accName}${shortfallNote}`);
@@ -1294,6 +1294,28 @@ export default function App() {
     const totalPaid = installments.reduce((s, it) => s + Number(it.amount || 0), 0);
     const paid = cur.manualConfirm || totalPaid >= Number(p.rent || 0);
     updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid } } });
+  }
+  // แก้ไขงวดค่าเช่าที่บันทึกไปแล้ว — ถ้าเปลี่ยนบัญชีปลายทาง ย้ายรายการ "เงินเข้า" ที่ addRentInstallment สร้างไว้ให้ตรงกับบัญชีใหม่ด้วย (หาโดยจับคู่ source=rental + วันที่ + ยอดเดิม) แล้วแจ้งเตือน LINE บอกว่าเปลี่ยนอะไรไปบ้าง
+  function updateRentInstallment(propertyId, ymKey, installmentId, patch) {
+    const p = properties.find((x) => x.id === propertyId);
+    const cur = (p.payments || {})[ymKey] || {};
+    const old = (cur.installments || []).find((it) => it.id === installmentId);
+    if (!old) return;
+    const installments = (cur.installments || []).map((it) => (it.id === installmentId ? { ...it, ...patch } : it));
+    const totalPaid = installments.reduce((s, it) => s + Number(it.amount || 0), 0);
+    const paid = cur.manualConfirm || totalPaid >= Number(p.rent || 0);
+    updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid } } });
+    // ย้าย/อัพเดทรายการ "เงินเข้า" คู่กันที่สร้างไว้ตอนบันทึกครั้งแรก ให้ค่าตรงกับงวดที่แก้ไข
+    const linkedContribution = contributions.find((c) => c.source === 'rental' && c.date === old.date && Number(c.amount) === Number(old.amount) && c.accountId === old.accountId);
+    if (linkedContribution) updateContribution(linkedContribution.id, { date: patch.date !== undefined ? patch.date : old.date, amount: patch.amount !== undefined ? patch.amount : old.amount, accountId: patch.accountId !== undefined ? patch.accountId : old.accountId });
+    const oldAccName = (accounts.find((a) => a.id === old.accountId) || {}).name || old.accountId || '-';
+    const newAccountId = patch.accountId !== undefined ? patch.accountId : old.accountId;
+    const newAccName = (accounts.find((a) => a.id === newAccountId) || {}).name || newAccountId || '-';
+    const changed = [];
+    if (patch.amount !== undefined && Number(patch.amount) !== Number(old.amount)) changed.push(`ยอด ฿${Number(old.amount || 0).toLocaleString()} → ฿${Number(patch.amount || 0).toLocaleString()}`);
+    if (patch.accountId !== undefined && patch.accountId !== old.accountId) changed.push(`บัญชีปลายทาง ${oldAccName} → ${newAccName}`);
+    if (patch.date !== undefined && patch.date !== old.date) changed.push(`วันที่ ${formatDateDMY(old.date)} → ${formatDateDMY(patch.date)}`);
+    if (changed.length) sendLineNotify(`✏️ แก้ไขค่าเช่า ${p.name} ฿${Number(old.amount || 0).toLocaleString()} วันที่ ${formatDateDMY(old.date)}: ${changed.join(' · ')}`);
   }
   function setRentManualConfirm(propertyId, ymKey, confirmed) {
     const p = properties.find((x) => x.id === propertyId);
@@ -1720,7 +1742,7 @@ export default function App() {
           onTogglePayment={togglePayment} onAddTransaction={addPropertyTransaction} onRemoveTransaction={removePropertyTransaction}
           onAddRepair={addPropertyRepair} onRemoveRepair={removePropertyRepair} onAddPhoto={addPropertyPhoto} onRemovePhoto={removePropertyPhoto}
           onAddDocument={addPropertyDocument} onRemoveDocument={removePropertyDocument}
-          onAddRentInstallment={addRentInstallment} onRemoveRentInstallment={removeRentInstallment} onSetRentManualConfirm={setRentManualConfirm}
+          onAddRentInstallment={addRentInstallment} onRemoveRentInstallment={removeRentInstallment} onUpdateRentInstallment={updateRentInstallment} onSetRentManualConfirm={setRentManualConfirm}
           accounts={accounts}
           googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} onRefreshShared={refreshSharedData} onCurrentPhotoChange={setHeaderPhotoOverride} />
       )}
@@ -1756,7 +1778,7 @@ export default function App() {
   );
 }
 
-function Card({ children }) { return <div style={{ background: 'white', borderRadius: CARD_RADIUS, boxShadow: '0 2px 12px rgba(15,23,42,0.05)' }} className="p-4 mb-4">{children}</div>; }
+function Card({ children, style }) { return <div style={{ background: 'white', borderRadius: CARD_RADIUS, boxShadow: '0 2px 12px rgba(15,23,42,0.05)', ...style }} className="p-4 mb-4">{children}</div>; }
 
 // Popup แก้ไขรายการทั่วไป (ฟีเจอร์ O) — ใช้ร่วมกันทุก Tab ที่มีปุ่มลบ ยกเว้นตัวหุ้น/บัญชีทั้งก้อน
 // fields: [{ key, label, type: 'text'|'number'|'date'|'time'|'select'|'textarea', options }]
@@ -3604,6 +3626,8 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const patch = { shares: buyPreview.newShares, avgCost: buyPreview.newAvgCost, purchaseDate: h.purchaseDate || buyDraft.date, lastUpdated: new Date().toISOString().slice(0, 10), buys: [buyRecord, ...(h.buys || [])] };
     if (h.currency === 'USD') patch.purchaseFx = buyPreview.newPurchaseFx;
     onUpdate(accountId, h.id, patch);
+    const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
+    sendLineNotify(`📈 ซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''}: ${Number(buyDraft.shares || 0).toLocaleString()} หุ้น @ ${Number(buyDraft.price || 0)} รวม ฿${Number(buyDraft.amount || 0).toLocaleString()}`);
     setBuyDraft(null);
   }
 
@@ -3765,7 +3789,17 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             { key: 'price', label: 'ราคา/หุ้น', type: 'number' },
             { key: 'amount', label: 'จ่ายจริง (บาท)', type: 'number' },
           ]}
-          onSave={(v) => { onUpdateBuy(accountId, h.id, editingBuy.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0 }); setEditingBuy(null); }}
+          onSave={(v) => {
+            const changed = [];
+            if (Number(editingBuy.shares || 0) !== Number(v.shares || 0)) changed.push(`จำนวนหุ้น ${Number(editingBuy.shares || 0).toLocaleString()} → ${Number(v.shares || 0).toLocaleString()}`);
+            if (Number(editingBuy.price || 0) !== Number(v.price || 0)) changed.push(`ราคา ${editingBuy.price} → ${v.price}`);
+            if (Number(editingBuy.amount || 0) !== Number(v.amount || 0)) changed.push(`จ่ายจริง ฿${Number(editingBuy.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
+            if (editingBuy.date !== v.date) changed.push(`วันที่ ${formatDateDMY(editingBuy.date)} → ${formatDateDMY(v.date)}`);
+            const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
+            if (changed.length) sendLineNotify(`✏️ แก้ไขรายการซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''} วันที่ ${formatDateDMY(editingBuy.date)}: ${changed.join(' · ')}`);
+            onUpdateBuy(accountId, h.id, editingBuy.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0 });
+            setEditingBuy(null);
+          }}
         />
       )}
 
@@ -3825,6 +3859,13 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             const fx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1;
             const costBasisSold = Number(v.shares || 0) * Number(h.avgCost || 0) * fx;
             const gain = Number(v.amount || 0) - costBasisSold;
+            const changed = [];
+            if (Number(editingSell.shares || 0) !== Number(v.shares || 0)) changed.push(`จำนวนหุ้น ${Number(editingSell.shares || 0).toLocaleString()} → ${Number(v.shares || 0).toLocaleString()}`);
+            if (Number(editingSell.price || 0) !== Number(v.price || 0)) changed.push(`ราคา ${editingSell.price} → ${v.price}`);
+            if (Number(editingSell.amount || 0) !== Number(v.amount || 0)) changed.push(`ได้รับ ฿${Number(editingSell.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
+            if (editingSell.date !== v.date) changed.push(`วันที่ ${formatDateDMY(editingSell.date)} → ${formatDateDMY(v.date)}`);
+            const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
+            if (changed.length) sendLineNotify(`✏️ แก้ไขรายการขาย ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''} วันที่ ${formatDateDMY(editingSell.date)}: ${changed.join(' · ')}`);
             onUpdateSell(accountId, h.id, editingSell.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0, gain });
             setEditingSell(null);
           }}
@@ -4062,8 +4103,8 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           onSave={(v) => {
             const oldAcc = accounts.find((a) => a.id === editing.accountId);
             const newAcc = accounts.find((a) => a.id === v.accountId);
-            const oldSrc = SOURCES.find((s) => s.id === editing.source)?.label || editing.source;
-            const newSrc = SOURCES.find((s) => s.id === v.source)?.label || v.source;
+            const oldSrc = editing.source === 'yieldtech' ? 'YieldTech' : (SOURCES.find((s) => s.id === editing.source)?.label || editing.source);
+            const newSrc = v.source === 'yieldtech' ? 'YieldTech' : (SOURCES.find((s) => s.id === v.source)?.label || v.source);
             const amountChanged = Number(editing.amount || 0) !== Number(v.amount || 0);
             const changed = [];
             if (amountChanged) changed.push(`ยอด ฿${Number(editing.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
@@ -4258,6 +4299,21 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   useEffect(() => { setSelPeriod2(periods2[0] || ''); }, [periodType, periods2.length]);
   const periodExpenses = useMemo(() => expenses.filter((e) => keyFn2(e.date) === selPeriod2), [expenses, selPeriod2, periodType]);
   const periodExpenseTotal = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  // รวมรายจ่ายเงินสด + รายการบัตรเครดิตทุกใบเป็นลิสต์เดียว ให้ "รายการล่าสุด" เห็นครบทั้งวันในที่เดียว ไม่ต้องสลับไปแท็บบัตรเครดิตแยก
+  const combinedExpenses = useMemo(() => {
+    const cash = expenses.map((e) => ({ ...e, _kind: 'cash' }));
+    const card = [];
+    (creditCards || []).forEach((c) => {
+      (c.transactions || []).forEach((t) => {
+        card.push({ ...t, _kind: 'card', _cardId: c.id, _cardLabel: c.cardName || c.bankName || 'บัตร' });
+      });
+    });
+    return [...cash, ...card];
+  }, [expenses, creditCards]);
+  function removeCombinedItem(e) {
+    if (e._kind === 'card') onRemoveCreditCardTransaction(e._cardId, e.id);
+    else onRemove(e.id);
+  }
   const byCategory = useMemo(() => {
     const map = {};
     periodExpenses.forEach((e) => { map[e.category] = (map[e.category] || 0) + Number(e.amount || 0); });
@@ -4382,14 +4438,14 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด</p>
       {(() => {
         const searchActive = listSearch.trim().length > 0;
-        const filtered = expenses.filter((e) => !searchActive || (e.category || '').toLowerCase().includes(listSearch.trim().toLowerCase()) || (e.note || '').toLowerCase().includes(listSearch.trim().toLowerCase()));
+        const filtered = combinedExpenses.filter((e) => !searchActive || (e.category || '').toLowerCase().includes(listSearch.trim().toLowerCase()) || (e.note || '').toLowerCase().includes(listSearch.trim().toLowerCase()));
         if (searchActive) {
           // ค้นหาอยู่ -> โชว์แบบแบนเรียงตามปกติ ไม่ต้องจัดกลุ่ม
           return filtered.slice(0, 30).map((e) => (
-            <Card key={e.id}>
+            <Card key={`${e._kind}_${e.id}`} style={e._kind === 'card' ? { background: '#EFF6FF', border: '1px solid #BFDBFE' } : undefined}>
               <div className="flex justify-between items-center">
-                <div><p className="text-sm">{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
-                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => onRemove(e.id)}><Trash2 size={14} color={BAD} /></button></div>
+                <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
+                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => removeCombinedItem(e)}><Trash2 size={14} color={BAD} /></button></div>
               </div>
             </Card>
           ));
@@ -4409,14 +4465,17 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         const rows = [];
         dayKeys.forEach((d) => rows.push({ type: 'day', key: d, items: dayGroups[d], total: dayGroups[d].reduce((s, e) => s + Number(e.amount || 0), 0) }));
         monthKeys.forEach((m) => rows.push({ type: 'month', key: m, items: monthGroups[m], total: monthGroups[m].reduce((s, e) => s + Number(e.amount || 0), 0) }));
-        return rows.map((r) => (
-          <Card key={r.key}>
-            <button onClick={() => setGroupPopup(r)} className="w-full flex justify-between items-center">
-              <div className="text-left"><p className="text-sm">{r.type === 'day' ? r.key : r.key}</p><p className="text-xs" style={{ color: SLATE }}>{r.items.length} รายการ{r.type === 'month' ? ' (เดือนที่ผ่านมา)' : ''}</p></div>
-              <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(r.total)}</span><ChevronRight size={15} color={SLATE} /></div>
-            </button>
-          </Card>
-        ));
+        return rows.map((r) => {
+          const hasCard = r.items.some((e) => e._kind === 'card');
+          return (
+            <Card key={r.key} style={hasCard ? { borderLeft: '3px solid #2563EB' } : undefined}>
+              <button onClick={() => setGroupPopup(r)} className="w-full flex justify-between items-center">
+                <div className="text-left"><p className="text-sm">{r.type === 'day' ? r.key : r.key}{hasCard && <span className="ml-1.5" style={{ color: '#2563EB' }}>💳</span>}</p><p className="text-xs" style={{ color: SLATE }}>{r.items.length} รายการ{r.type === 'month' ? ' (เดือนที่ผ่านมา)' : ''}</p></div>
+                <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(r.total)}</span><ChevronRight size={15} color={SLATE} /></div>
+              </button>
+            </Card>
+          );
+        });
       })()}
       {groupPopup && (
         <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(15,23,42,0.45)' }} onClick={() => setGroupPopup(null)}>
@@ -4426,16 +4485,16 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
               <button onClick={() => setGroupPopup(null)}><X size={20} color={INK} /></button>
             </div>
             {[...groupPopup.items].sort((a, b) => b.date.localeCompare(a.date)).map((e) => (
-              <div key={e.id} className="flex justify-between items-center py-2.5" style={{ borderTop: `1px solid ${BORDER}` }}>
-                <div><p className="text-sm">{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
-                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => { setEditingExpense(e); }} /><button onClick={() => onRemove(e.id)}><Trash2 size={14} color={BAD} /></button></div>
+              <div key={`${e._kind}_${e.id}`} className="flex justify-between items-center py-2.5 px-2 -mx-2 rounded-lg" style={{ borderTop: `1px solid ${BORDER}`, background: e._kind === 'card' ? '#EFF6FF' : 'transparent' }}>
+                <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
+                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => { setEditingExpense(e); }} /><button onClick={() => removeCombinedItem(e)}><Trash2 size={14} color={BAD} /></button></div>
               </div>
             ))}
           </div>
         </div>
       )}
       {editingExpense && (
-        <EditModal title="แก้ไขรายจ่าย" onClose={() => setEditingExpense(null)}
+        <EditModal title={editingExpense._kind === 'card' ? `แก้ไขรายการบัตร (${editingExpense._cardLabel})` : 'แก้ไขรายจ่าย'} onClose={() => setEditingExpense(null)}
           initialValues={{ date: editingExpense.date, amount: editingExpense.amount, category: editingExpense.category, note: editingExpense.note || '' }}
           fields={[
             { key: 'date', label: 'วันที่', type: 'date' },
@@ -4443,7 +4502,11 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
             { key: 'category', label: 'หมวดหมู่', type: 'select', options: categories },
             { key: 'note', label: 'โน้ต', type: 'text' },
           ]}
-          onSave={(v) => { onUpdate(editingExpense.id, { date: v.date, amount: Number(v.amount) || 0, category: v.category, note: v.note }); setEditingExpense(null); }}
+          onSave={(v) => {
+            if (editingExpense._kind === 'card') onUpdateCreditCardTransaction(editingExpense._cardId, editingExpense.id, { date: v.date, amount: Number(v.amount) || 0, category: v.category, note: v.note });
+            else onUpdate(editingExpense.id, { date: v.date, amount: Number(v.amount) || 0, category: v.category, note: v.note });
+            setEditingExpense(null);
+          }}
         />
       )}
       </>
@@ -5044,7 +5107,7 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
   );
 }
 
-function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar, onRefreshShared, onCurrentPhotoChange }) {
+function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onUpdateRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar, onRefreshShared, onCurrentPhotoChange }) {
   const [section, setSection] = useState('overview');
   const [selectedId, setSelectedId] = useState(properties[0]?.id || '');
   const selected = properties.find((p) => p.id === selectedId) || properties[0];
@@ -5075,7 +5138,7 @@ function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment,
             ))}
             <button onClick={() => onAdd({ name: 'ทรัพย์สินใหม่' })} style={{ color: BRASS, flexShrink: 0 }} className="flex items-center gap-1 text-xs"><PlusCircle size={14} /> เพิ่ม</button>
           </div>
-          {selected && <PropertyDetail property={selected} onUpdate={onUpdate} onRemove={onRemove} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument} onAddRentInstallment={onAddRentInstallment} onRemoveRentInstallment={onRemoveRentInstallment} onSetRentManualConfirm={onSetRentManualConfirm} accounts={accounts} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
+          {selected && <PropertyDetail property={selected} onUpdate={onUpdate} onRemove={onRemove} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument} onAddRentInstallment={onAddRentInstallment} onRemoveRentInstallment={onRemoveRentInstallment} onUpdateRentInstallment={onUpdateRentInstallment} onSetRentManualConfirm={onSetRentManualConfirm} accounts={accounts} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
         </>
       )}
       {section === 'collection' && <RentCollectionMatrix properties={properties} onTogglePayment={onTogglePayment} />}
@@ -5160,7 +5223,7 @@ function RealEstateOverview({ properties, onSelectProperty }) {
   );
 }
 
-function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar }) {
+function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onUpdateRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar }) {
   const [sub, setSub] = useState('info');
   const [editMode, setEditMode] = useState(false);
   const heroPhoto = p.photos && p.photos[0] && p.photos[0].url;
@@ -5226,7 +5289,7 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
           <PropertyInfoSection property={p} onUpdate={onUpdate} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />
         </div>
       )}
-      {sub === 'rent' && <PropertyRentSection property={p} accounts={accounts} onAddInstallment={onAddRentInstallment} onRemoveInstallment={onRemoveRentInstallment} onSetManualConfirm={onSetRentManualConfirm} />}
+      {sub === 'rent' && <PropertyRentSection property={p} accounts={accounts} onAddInstallment={onAddRentInstallment} onRemoveInstallment={onRemoveRentInstallment} onUpdateInstallment={onUpdateRentInstallment} onSetManualConfirm={onSetRentManualConfirm} />}
       {sub === 'money' && <PropertyMoneySection property={p} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} />}
       {sub === 'repairs' && <PropertyRepairsSection property={p} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} />}
       {sub === 'roi' && <PropertyROISection property={p} />}
@@ -5236,12 +5299,13 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
 }
 
 // หน้ารับเงินค่าเช่าแบบแบ่งจ่ายได้หลายงวด — เลือกเดือน ดูสถานะ จ่ายครบ/ไม่ครบ เพิ่มงวดใหม่พร้อมเลือกบัญชีปลายทาง (สร้างรายการเงินเข้าให้อัตโนมัติ)
-function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemoveInstallment, onSetManualConfirm }) {
+function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemoveInstallment, onUpdateInstallment, onSetManualConfirm }) {
   const [ym, setYm] = useState(thisMonth());
   const [amount, setAmount] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState('');
   const [accountId, setAccountId] = useState('');
+  const [editingInstallment, setEditingInstallment] = useState(null);
   const pay = (p.payments || {})[ym] || {};
   const installments = pay.installments || [];
   const totalPaid = installments.reduce((s, it) => s + Number(it.amount || 0), 0);
@@ -5280,10 +5344,22 @@ function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemove
         return (
           <div key={it.id} style={{ border: `1px solid ${BORDER}` }} className="rounded-xl px-3 py-2 mb-2 flex justify-between items-center">
             <div><p className="text-sm font-semibold">฿{fmt(it.amount)}</p><p className="text-xs" style={{ color: SLATE }}>{it.date}{it.note ? ` · ${it.note}` : ''}</p>{acc ? <p className="text-xs font-semibold mt-0.5" style={{ color: BRASS }}>💰 นำไปลง: {acc.name}</p> : <p className="text-xs mt-0.5" style={{ color: SLATE }}>ยังไม่ได้ระบุว่านำไปลงที่ไหน</p>}</div>
-            <button onClick={() => onRemoveInstallment(p.id, ym, it.id)}><Trash2 size={14} color={BAD} /></button>
+            <div className="flex items-center gap-3"><EditButton onClick={() => setEditingInstallment(it)} /><button onClick={() => onRemoveInstallment(p.id, ym, it.id)}><Trash2 size={14} color={BAD} /></button></div>
           </div>
         );
       })}
+      {editingInstallment && (
+        <EditModal title="แก้ไขงวดค่าเช่า" onClose={() => setEditingInstallment(null)}
+          initialValues={{ date: editingInstallment.date, amount: editingInstallment.amount, note: editingInstallment.note || '', accountId: editingInstallment.accountId || '' }}
+          fields={[
+            { key: 'date', label: 'วันที่โอน/จ่าย', type: 'date' },
+            { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
+            { key: 'note', label: 'โน้ต', type: 'text' },
+            { key: 'accountId', label: 'นำเงินนี้ไปฝาก/ลงทุนที่บัญชีไหน', type: 'select', options: [{ value: '', label: '— ไม่ระบุ —' }, ...accounts.map((a) => ({ value: a.id, label: a.name }))] },
+          ]}
+          onSave={(v) => { onUpdateInstallment(p.id, ym, editingInstallment.id, { date: v.date, amount: Number(v.amount) || 0, note: v.note, accountId: v.accountId }); setEditingInstallment(null); }}
+        />
+      )}
 
       <div style={{ background: PAPER_DIM }} className="rounded-xl p-3 mt-2">
         <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>+ เพิ่มรายการจ่ายอีกงวด</p>
