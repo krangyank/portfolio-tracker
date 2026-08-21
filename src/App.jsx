@@ -163,7 +163,10 @@ async function askServer(promptText, imageBase64, mediaType, webSearch) {
 // เพราะการแจ้งเตือนพัง (เช่น ยังไม่ตั้งค่า LINE_GROUP_ID) ไม่ควรทำให้การบันทึกรายการหลักใช้งานไม่ได้
 // currentNotifyUser ถูกตั้งค่าจาก Tracker ทุกครั้งที่ user หรือชื่อที่ตั้งไว้ในตั้งค่าเปลี่ยน เพื่อให้ทุกข้อความแจ้งเตือน (ทุกจุดเรียกทั่วทั้งไฟล์) ต่อท้ายด้วย "โดยใคร" โดยไม่ต้องแก้ทีละจุด
 let currentNotifyUser = '';
+// สวิตช์เปิด/ปิดแจ้งเตือน LINE ทั้งหมด ตั้งค่าจาก Tracker ตาม state.lineNotifyEnabled (ค่าเริ่มต้นเปิด) — เช็คจุดเดียวตรงนี้ ครอบคลุมทุกจุดเรียกในไฟล์ทันที
+let lineNotifyEnabled = true;
 function sendLineNotify(message) {
+  if (!lineNotifyEnabled) return;
   const tagged = currentNotifyUser ? `${message}\n— โดย ${currentNotifyUser}` : message;
   fetch('/api/line-notify', {
     method: 'POST',
@@ -916,6 +919,9 @@ export default function App() {
   useEffect(() => {
     currentNotifyUser = (state && state.notifyDisplayName) || (user && user.email) || '';
   }, [state && state.notifyDisplayName, user]);
+  useEffect(() => {
+    lineNotifyEnabled = !(state && state.lineNotifyEnabled === false);
+  }, [state && state.lineNotifyEnabled]);
 
   const dailyPriceRefreshTriggered = useRef(false);
   useEffect(() => {
@@ -959,6 +965,7 @@ export default function App() {
   const changeFinnhubKey = (v) => persist({ ...state, finnhubKey: v });
   const changeGoogleClientId = (v) => persist({ ...state, googleClientId: v });
   const changeNotifyDisplayName = (v) => persist({ ...state, notifyDisplayName: v });
+  const changeLineNotifyEnabled = (v) => persist({ ...state, lineNotifyEnabled: v });
 
   function addHolding(accountId) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -1716,7 +1723,8 @@ export default function App() {
           googleToken={googleToken} onConnectCalendar={connectCalendar} onDisconnectCalendar={disconnectCalendar}
           calendarError={calendarError} reconnecting={reconnecting}
           openToLastTab={state.openToLastTab} onChangeOpenToLastTab={(v) => persist({ ...state, openToLastTab: v })}
-          notifyDisplayName={state.notifyDisplayName} userEmail={user && user.email} onChangeNotifyDisplayName={changeNotifyDisplayName} />
+          notifyDisplayName={state.notifyDisplayName} userEmail={user && user.email} onChangeNotifyDisplayName={changeNotifyDisplayName}
+          lineNotifyEnabled={state.lineNotifyEnabled !== false} onChangeLineNotifyEnabled={changeLineNotifyEnabled} />
       )}
 
       {tab === 'dashboard' && (
@@ -2041,7 +2049,7 @@ function MedicalPhotoAttach({ record, onAddPhoto, onRemovePhoto }) {
   );
 }
 
-function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting, openToLastTab, onChangeOpenToLastTab, notifyDisplayName, userEmail, onChangeNotifyDisplayName }) {
+function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting, openToLastTab, onChangeOpenToLastTab, notifyDisplayName, userEmail, onChangeNotifyDisplayName, lineNotifyEnabled, onChangeLineNotifyEnabled }) {
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
@@ -2055,6 +2063,18 @@ function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChange
             </div>
             <button onClick={() => onChangeOpenToLastTab(!openToLastTab)} style={{ background: openToLastTab ? GOOD : PAPER_DIM, flexShrink: 0 }} className="w-12 h-7 rounded-full relative">
               <div style={{ background: 'white', left: openToLastTab ? 22 : 3, top: 3 }} className="w-5 h-5 rounded-full absolute transition-all" />
+            </button>
+          </div>
+        </div>
+
+        <div style={{ borderBottom: '1px solid #E7EAF0' }} className="pb-4 mb-4">
+          <div className="flex justify-between items-center">
+            <div className="pr-3">
+              <p className="text-xs font-semibold" style={{ color: INK }}>แจ้งเตือนผ่าน LINE</p>
+              <p className="text-[11px]" style={{ color: SLATE }}>ปิดไว้ชั่วคราวได้ถ้าไม่อยากให้มีข้อความเด้งเข้ากลุ่ม (เช่น กำลังทดสอบ/แก้ข้อมูลหลายรายการรวด) — ตั้งค่านี้แยกกันได้ในแต่ละบัญชี ปิดที่บัญชีนี้จะงดแจ้งเตือนเฉพาะตอนที่บัญชีนี้เป็นคนบันทึก/แก้ไขเท่านั้น ไม่กระทบอีกฝ่าย</p>
+            </div>
+            <button onClick={() => onChangeLineNotifyEnabled(!lineNotifyEnabled)} style={{ background: lineNotifyEnabled ? GOOD : PAPER_DIM, flexShrink: 0 }} className="w-12 h-7 rounded-full relative">
+              <div style={{ background: 'white', left: lineNotifyEnabled ? 22 : 3, top: 3 }} className="w-5 h-5 rounded-full absolute transition-all" />
             </button>
           </div>
         </div>
