@@ -453,6 +453,22 @@ export default function App() {
     setGoogleToken(null);
     persist({ ...state, googleRefreshToken: '' });
   }
+  // access token ของ Google หมดอายุทุกๆ ~1 ชม. แต่ระบบ reconnect อัตโนมัติเดิมรันแค่ครั้งเดียวตอนเปิดแอป
+  // ถ้าเปิดแอปค้างไว้นานแล้วมา sync ปฏิทินทีหลัง จะเจอ error "invalid authentication credentials" แบบนี้ทุกครั้ง
+  // ฟังก์ชันนี้ครอบการเรียก Calendar API ไว้ ถ้าเจอ error แบบ token หมดอายุ จะรีเฟรช token ให้อัตโนมัติแล้วลองใหม่อีก 1 ครั้งก่อนจะยอมแพ้จริงๆ
+  async function withGoogleTokenRetry(apiCall) {
+    try {
+      return await apiCall(googleToken);
+    } catch (e) {
+      const authErr = /invalid authentication credentials|unauthorized|401/i.test(e.message || '');
+      if (authErr && state && state.googleRefreshToken && state.googleClientId) {
+        const data = await refreshGoogleAccessToken(state.googleClientId, state.googleRefreshToken);
+        setGoogleToken(data.access_token);
+        return await apiCall(data.access_token);
+      }
+      throw e;
+    }
+  }
   async function addAppointmentToCalendar(dogName, appt) {
     if (!googleToken) { setCalendarError('ยังไม่ได้เชื่อมต่อ Google Calendar'); return { ok: false }; }
     try {
@@ -463,11 +479,11 @@ export default function App() {
       const endDateTime = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}:00`;
       const days = (appt.reminderDays && appt.reminderDays.length > 0) ? appt.reminderDays : [7, 3, 1];
       const reminders = days.map((d) => ({ method: 'popup', minutes: d * 24 * 60 })).concat([{ method: 'popup', minutes: 120 }]);
-      await createCalendarEvent(googleToken, {
+      await withGoogleTokenRetry((token) => createCalendarEvent(token, {
         summary: `นัดสัตวแพทย์: ${dogName}${appt.purpose ? ' - ' + appt.purpose : ''}`,
         description: `โรงพยาบาล: ${appt.hospital || '-'}\nหมอ: ${appt.doctor || '-'}`,
         startDateTime, endDateTime, reminders,
-      });
+      }));
       return { ok: true };
     } catch (e) { return { ok: false, message: e.message }; }
   }
@@ -479,10 +495,10 @@ export default function App() {
       const days = (reminderDays && reminderDays.length > 0) ? reminderDays : [7, 3, 1];
       const reminders = days.map((d) => ({ method: 'popup', minutes: d * 24 * 60 }));
       if (existingEventId) {
-        await updateCalendarEvent(googleToken, existingEventId, { summary, description, startDateTime, endDateTime, reminders });
+        await withGoogleTokenRetry((token) => updateCalendarEvent(token, existingEventId, { summary, description, startDateTime, endDateTime, reminders }));
         return { ok: true, eventId: existingEventId };
       }
-      const created = await createCalendarEvent(googleToken, { summary, description, startDateTime, endDateTime, reminders });
+      const created = await withGoogleTokenRetry((token) => createCalendarEvent(token, { summary, description, startDateTime, endDateTime, reminders }));
       return { ok: true, eventId: created.id };
     } catch (e) { return { ok: false, message: e.message }; }
   }
