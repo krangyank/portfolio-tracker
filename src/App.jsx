@@ -13,16 +13,16 @@ import { db, auth, storage } from './firebase.js';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import AuthGate from './Login.jsx';
 
-const INK = '#2B2118';
-const PAPER = '#FFF8F0';
-const PAPER_DIM = '#FBF3E9';
-const BRASS = '#F2761E';
-const SLATE = '#9A8A78';
-const GOOD = '#2E9E5B';
-const BAD = '#E1483F';
-const WARN = '#D97706';
-const BORDER = '#F1E6D8';
-const CARD_RADIUS = 20;
+const INK = '#1C2029';
+const PAPER = '#F6F5F1';
+const PAPER_DIM = '#ECEAE3';
+const BRASS = '#A87C2E';
+const SLATE = '#767268';
+const GOOD = '#1F8A54';
+const BAD = '#C0392E';
+const WARN = '#B45309';
+const BORDER = '#E4E1D8';
+const CARD_RADIUS = 12;
 
 const CATEGORY_META = {
   cooperative: { label: 'สหกรณ์ออมทรัพย์ครู', color: '#B8874B' },
@@ -259,6 +259,14 @@ async function updateCalendarEvent(accessToken, eventId, evt) {
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err.error && err.error.message) || `HTTP ${res.status}`); }
   return res.json();
 }
+// ลบอีเวนต์ในปฏิทิน — 404/410 แปลว่าถูกลบไปแล้ว (เช่น ผู้ใช้ลบเองในปฏิทิน) ให้ถือว่าสำเร็จ ไม่ต้อง throw error
+async function deleteCalendarEvent(accessToken, eventId) {
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok && res.status !== 404 && res.status !== 410) { const err = await res.json().catch(() => ({})); throw new Error((err.error && err.error.message) || `HTTP ${res.status}`); }
+}
 
 function holdingMarketValueTHB(h) { const fx = h.currency === 'USD' ? Number(h.currentFx || 0) : 1; return Number(h.shares || 0) * Number(h.currentPrice || 0) * fx; }
 function holdingCostBasisTHB(h) { const fx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1; return Number(h.shares || 0) * Number(h.avgCost || 0) * fx; }
@@ -472,7 +480,12 @@ export default function App() {
       throw e;
     }
   }
-  async function addAppointmentToCalendar(dogName, appt) {
+  // ลบอีเวนต์ปฏิทินที่เคยผูกไว้กับรายการ เรียกตอนลบรายการต้นทางทิ้ง — fire-and-forget เหมือน sendLineNotify เพราะไม่ควรบล็อกการลบรายการหลัก แม้ไม่ได้เชื่อมต่อปฏิทินอยู่ก็แค่ข้ามเงียบๆ ไป
+  function deleteLinkedCalendarEvent(eventId) {
+    if (!eventId || !googleToken) return;
+    withGoogleTokenRetry((token) => deleteCalendarEvent(token, eventId)).catch((e) => console.error('deleteCalendarEvent failed', e));
+  }
+  async function addAppointmentToCalendar(dogName, appt, existingEventId) {
     if (!googleToken) { setCalendarError('ยังไม่ได้เชื่อมต่อ Google Calendar'); return { ok: false }; }
     try {
       const startDateTime = `${appt.date}T${appt.time || '09:00'}:00`;
@@ -482,12 +495,17 @@ export default function App() {
       const endDateTime = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}:00`;
       const days = (appt.reminderDays && appt.reminderDays.length > 0) ? appt.reminderDays : [7, 3, 1];
       const reminders = days.map((d) => ({ method: 'popup', minutes: d * 24 * 60 })).concat([{ method: 'popup', minutes: 120 }]);
-      await withGoogleTokenRetry((token) => createCalendarEvent(token, {
+      const evt = {
         summary: `นัดสัตวแพทย์: ${dogName}${appt.purpose ? ' - ' + appt.purpose : ''}`,
         description: `โรงพยาบาล: ${appt.hospital || '-'}\nหมอ: ${appt.doctor || '-'}`,
         startDateTime, endDateTime, reminders,
-      }));
-      return { ok: true };
+      };
+      if (existingEventId) {
+        await withGoogleTokenRetry((token) => updateCalendarEvent(token, existingEventId, evt));
+        return { ok: true, eventId: existingEventId };
+      }
+      const created = await withGoogleTokenRetry((token) => createCalendarEvent(token, evt));
+      return { ok: true, eventId: created.id };
     } catch (e) { return { ok: false, message: e.message }; }
   }
   async function addPropertyEventToCalendar(summary, description, date, reminderDays, existingEventId) {
@@ -958,7 +976,11 @@ export default function App() {
     const srcLabel = entry.source === 'yieldtech' ? 'YieldTech' : ((SOURCES.find((s) => s.id === entry.source) || {}).label || entry.source || 'เงินเข้า');
     sendLineNotify(`💰 เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}): ฿${Number(entry.amount || 0).toLocaleString()}`);
   };
-  const removeContribution = (id) => persist({ ...state, contributions: contributions.filter((c) => c.id !== id) });
+  const removeContribution = (id) => {
+    const c = contributions.find((x) => x.id === id);
+    if (c && c.calendarEventId) deleteLinkedCalendarEvent(c.calendarEventId);
+    persist({ ...state, contributions: contributions.filter((x) => x.id !== id) });
+  };
   const updateContribution = (id, patch) => persist({ ...state, contributions: contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const changeTargetDate = (d) => persist({ ...state, targetDate: d });
   const changeGoal = (v) => persist({ ...state, goalNetWorth: v });
@@ -1515,6 +1537,8 @@ export default function App() {
   }
   function removeAppointment(dogId, apptId) {
     const d = dogs.find((x) => x.id === dogId);
+    const a = (d.appointments || []).find((x) => x.id === apptId);
+    if (a && a.calendarEventId) deleteLinkedCalendarEvent(a.calendarEventId);
     updateDog(dogId, { appointments: (d.appointments || []).filter((a) => a.id !== apptId) });
   }
   function updateAppointment(dogId, apptId, patch) {
@@ -1647,7 +1671,7 @@ export default function App() {
   if (shareMode) return <ShareView totalNetWorth={totalNetWorth} categoryBreakdown={categoryBreakdown} monthlyIncome={monthlyIncome} daysLeft={daysLeft} onClose={() => setShareMode(false)} />;
 
   return (
-    <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK }} className="pb-24">
+    <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK, fontVariantNumeric: 'tabular-nums' }} className="pb-24">
       {saveError && (
         <div style={{ background: BAD, position: 'sticky', top: 0, zIndex: 100 }} className="px-4 py-3 text-white text-xs flex items-start gap-2">
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -1752,7 +1776,8 @@ export default function App() {
       {tab === 'reports' && <ReportsTab contributions={contributions} accounts={accounts} costBasisByAccount={costBasisByAccount} history={history} />}
       {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onAddCategory={addExpenseCategory}
           creditCards={creditCards} onAddCreditCard={addCreditCard} onUpdateCreditCard={updateCreditCard} onRemoveCreditCard={removeCreditCard}
-          onAddCreditCardTransaction={addCreditCardTransaction} onRemoveCreditCardTransaction={removeCreditCardTransaction} onUpdateCreditCardTransaction={updateCreditCardTransaction} onMatchCreditCard={matchCreditCard} />}
+          onAddCreditCardTransaction={addCreditCardTransaction} onRemoveCreditCardTransaction={removeCreditCardTransaction} onUpdateCreditCardTransaction={updateCreditCardTransaction} onMatchCreditCard={matchCreditCard}
+          googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} />}
       {tab === 'pets' && (
         <PetsTab dogs={dogs} onUpdateDog={updateDog} onCopyToMultipleDogs={copyToMultipleDogs} onAddWeight={addWeight} onRemoveWeight={removeWeight} onUpdateWeight={updateWeight}
           onAddMedication={addMedication} onUpdateMedication={updateMedication} onRemoveMedication={removeMedication} onLogFleaTick={logFleaTick} onRemoveFleaTickHistory={removeFleaTickHistory} onUpdateFleaTickHistory={updateFleaTickHistory} onUpdateFleaTickInfo={updateFleaTickInfo}
@@ -1775,7 +1800,8 @@ export default function App() {
           onAddPolicy={addInsurancePolicy} onUpdatePolicy={updateInsurancePolicy} onRemovePolicy={removeInsurancePolicy}
           onAddRider={addInsuranceRider} onUpdateRider={updateInsuranceRider} onRemoveRider={removeInsuranceRider}
           onAddDocument={addInsurancePolicyDocument} onRemoveDocument={removeInsurancePolicyDocument}
-          onAddClaim={addInsuranceClaim} onUpdateClaim={updateInsuranceClaim} onRemoveClaim={removeInsuranceClaim} />
+          onAddClaim={addInsuranceClaim} onUpdateClaim={updateInsuranceClaim} onRemoveClaim={removeInsuranceClaim}
+          googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} />
       )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
@@ -4231,7 +4257,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-      }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory, creditCards, onAddCreditCard, onUpdateCreditCard, onRemoveCreditCard, onAddCreditCardTransaction, onRemoveCreditCardTransaction, onUpdateCreditCardTransaction, onMatchCreditCard }) {
+      }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory, creditCards, onAddCreditCard, onUpdateCreditCard, onRemoveCreditCard, onAddCreditCardTransaction, onRemoveCreditCardTransaction, onUpdateCreditCardTransaction, onMatchCreditCard, googleConnected, onAddToCalendar }) {
   const [mainSection, setMainSection] = useState('cash');
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
@@ -4632,7 +4658,7 @@ function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard
     setShowAddForm(false);
   }
 
-  if (selected) return <CreditCardDetail card={selected} onBack={() => setSelectedId(null)} onUpdateCard={onUpdateCard} onRemoveCard={(id) => { onRemoveCard(id); setSelectedId(null); }} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onUpdateTransaction={onUpdateTransaction} />;
+  if (selected) return <CreditCardDetail card={selected} onBack={() => setSelectedId(null)} onUpdateCard={onUpdateCard} onRemoveCard={(id) => { onRemoveCard(id); setSelectedId(null); }} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onUpdateTransaction={onUpdateTransaction} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />;
 
   return (
     <div>
@@ -4684,11 +4710,13 @@ function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard
   );
 }
 
-function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction }) {
+function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, googleConnected, onAddToCalendar }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState('อื่นๆ');
   const [note, setNote] = useState('');
   const [editingTx, setEditingTx] = useState(null);
+  const [syncingDue, setSyncingDue] = useState(false);
+  const [syncDueMsg, setSyncDueMsg] = useState('');
   const reminderDays = card.reminderDays || [3, 1];
   const dueDate = nextCardDueDate(card.dueDay);
   const daysToDue = daysUntilGeneric(dueDate);
@@ -4699,6 +4727,13 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
 
   function toggleReminderDay(d) {
     onUpdateCard(card.id, { reminderDays: reminderDays.includes(d) ? reminderDays.filter((x) => x !== d) : [...reminderDays, d].sort((a, b) => a - b) });
+  }
+  async function syncDueReminder() {
+    setSyncingDue(true); setSyncDueMsg('');
+    const r = await onAddToCalendar(`ครบกำหนดจ่ายบัตร: ${card.bankName} ${card.cardName}`, `ยอดใช้เดือนนี้: ฿${fmt(spent)}`, dueDate, reminderDays, card.dueCalendarEventId);
+    if (r.ok) { onUpdateCard(card.id, { dueCalendarEventId: r.eventId, dueCalendarSyncedFor: dueDate }); setSyncDueMsg('เพิ่มลงปฏิทินสำเร็จ ✓'); }
+    else setSyncDueMsg(`ไม่สำเร็จ: ${r.message}`);
+    setSyncingDue(false);
   }
   function submit() {
     if (!amount) return;
@@ -4731,11 +4766,15 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
           <div><label className="text-[10px]" style={{ color: SLATE }}>วันครบกำหนดจ่าย</label><NumInput value={card.dueDay} onChange={(v) => onUpdateCard(card.id, { dueDay: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         </div>
         <p className="text-[10px] mb-1" style={{ color: SLATE }}>เตือนล่วงหน้าก่อนวันจ่าย (วัน)</p>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap mb-2">
           {[1, 2, 3, 7].map((d) => (
             <button key={d} onClick={() => toggleReminderDay(d)} style={{ background: reminderDays.includes(d) ? BRASS : PAPER_DIM, color: reminderDays.includes(d) ? 'white' : SLATE }} className="rounded-full px-3 py-1 text-xs">{d} วัน</button>
           ))}
         </div>
+        {googleConnected ? (
+          <button onClick={syncDueReminder} disabled={syncingDue} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs">{syncingDue ? 'กำลังเพิ่ม...' : (card.dueCalendarEventId && card.dueCalendarSyncedFor === dueDate ? '🔄 อัพเดทในปฏิทิน' : '📅 เพิ่มลงปฏิทิน')}</button>
+        ) : <p className="text-[11px]" style={{ color: SLATE }}>เชื่อมต่อ Google Calendar ที่ ⚙️ ตั้งค่า ก่อน ถึงจะเพิ่มเตือนลงปฏิทินได้</p>}
+        {syncDueMsg && <p className="text-[11px] mt-1" style={{ color: syncDueMsg.includes('สำเร็จ') ? GOOD : BAD }}>{syncDueMsg}</p>}
       </Card>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกรายจ่ายเข้าบัตรนี้</p>
@@ -5818,7 +5857,7 @@ function allRiders(policies) {
   return list;
 }
 
-function InsuranceTab({ policies, claims, onAddPolicy, onUpdatePolicy, onRemovePolicy, onAddRider, onUpdateRider, onRemoveRider, onAddDocument, onRemoveDocument, onAddClaim, onUpdateClaim, onRemoveClaim }) {
+function InsuranceTab({ policies, claims, onAddPolicy, onUpdatePolicy, onRemovePolicy, onAddRider, onUpdateRider, onRemoveRider, onAddDocument, onRemoveDocument, onAddClaim, onUpdateClaim, onRemoveClaim, googleConnected, onAddToCalendar }) {
   const [section, setSection] = useState('overview');
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [selectedPolicyId, setSelectedPolicyId] = useState(null);
@@ -5842,7 +5881,8 @@ function InsuranceTab({ policies, claims, onAddPolicy, onUpdatePolicy, onRemoveP
       {section === 'policies' && !selectedPolicy && <InsurancePoliciesList policies={filteredPolicies} onSelect={setSelectedPolicyId} onAddPolicy={onAddPolicy} />}
       {section === 'policies' && selectedPolicy && (
         <InsurancePolicyDetail policy={selectedPolicy} onBack={() => setSelectedPolicyId(null)} onUpdate={onUpdatePolicy} onRemove={() => { onRemovePolicy(selectedPolicy.id); setSelectedPolicyId(null); }}
-          onAddRider={onAddRider} onUpdateRider={onUpdateRider} onRemoveRider={onRemoveRider} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument} />
+          onAddRider={onAddRider} onUpdateRider={onUpdateRider} onRemoveRider={onRemoveRider} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument}
+          googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />
       )}
       {section === 'coverage' && <InsuranceCoverageSection policies={filteredPolicies} onJumpToPolicy={(id) => { setSelectedPolicyId(id); setSection('policies'); }} />}
       {section === 'claims' && <InsuranceClaimsSection policies={policies} claims={claims} onAddClaim={onAddClaim} onUpdateClaim={onUpdateClaim} onRemoveClaim={onRemoveClaim} />}
@@ -6071,16 +6111,30 @@ function InsurancePolicyReviewForm({ draft, setDraft, onSave, category }) {
   );
 }
 
-function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRider, onUpdateRider, onRemoveRider, onAddDocument, onRemoveDocument }) {
+function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRider, onUpdateRider, onRemoveRider, onAddDocument, onRemoveDocument, googleConnected, onAddToCalendar }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState(null);
+  const [syncingDue, setSyncingDue] = useState(false);
+  const [syncDueMsg, setSyncDueMsg] = useState('');
   async function handleUpload(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setUploading(true);
     try { await onAddDocument(p.id, file); } catch (err) { /* เงียบไว้ */ }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
+  }
+  async function syncDueReminder() {
+    if (!p.nextDueDate) return;
+    setSyncingDue(true); setSyncDueMsg('');
+    const r = await onAddToCalendar(`ครบกำหนดจ่ายเบี้ยประกัน: ${p.planName || p.company}`, `บริษัท: ${p.company || '-'}\nเลขกรมธรรม์: ${p.policyNumber || '-'}\nเบี้ย: ฿${fmt(p.premiumAmount)}`, p.nextDueDate, p.reminderDays, p.dueCalendarEventId);
+    if (r.ok) { onUpdate(p.id, { dueCalendarEventId: r.eventId }); setSyncDueMsg('เพิ่มลงปฏิทินสำเร็จ ✓'); }
+    else setSyncDueMsg(`ไม่สำเร็จ: ${r.message}`);
+    setSyncingDue(false);
+  }
+  function toggleDueReminderDay(d) {
+    const cur = p.reminderDays || [7, 3, 1];
+    onUpdate(p.id, { reminderDays: cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => b - a) });
   }
   const dl = p.endDate ? daysUntil(p.endDate) : null;
   return (
@@ -6108,6 +6162,23 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
             </select>
           </div>
         </div>
+      </Card>
+
+      <Card>
+        <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>เตือนวันครบกำหนดจ่ายเบี้ยครั้งถัดไป</p>
+        <label className="text-[10px]" style={{ color: SLATE }}>วันครบกำหนดจ่ายเบี้ย</label>
+        <input type="date" value={p.nextDueDate || ''} onChange={(e) => onUpdate(p.id, { nextDueDate: e.target.value })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+        {p.nextDueDate && (() => { const d = daysUntil(p.nextDueDate); return d !== null && <p className="text-xs mb-2" style={{ color: d < 0 ? BAD : d <= 14 ? WARN : SLATE }}>{d < 0 ? `🔴 เลยกำหนดมา ${Math.abs(d)} วัน` : `อีก ${d} วันถึงกำหนด`}</p>; })()}
+        <p className="text-[10px] mb-1" style={{ color: SLATE }}>เตือนล่วงหน้ากี่วัน</p>
+        <div className="flex gap-1.5 mb-2">
+          {[7, 3, 1].map((d) => (
+            <button key={d} onClick={() => toggleDueReminderDay(d)} style={{ background: (p.reminderDays || [7, 3, 1]).includes(d) ? BRASS : PAPER_DIM, color: (p.reminderDays || [7, 3, 1]).includes(d) ? 'white' : SLATE }} className="text-xs font-semibold px-3 py-1 rounded-full">{d} วัน</button>
+          ))}
+        </div>
+        {googleConnected ? (
+          <button onClick={syncDueReminder} disabled={syncingDue || !p.nextDueDate} style={{ background: INK, opacity: p.nextDueDate ? 1 : 0.5 }} className="w-full text-white rounded-lg py-2 text-xs">{syncingDue ? 'กำลังเพิ่ม...' : (p.dueCalendarEventId ? '🔄 อัพเดทในปฏิทิน' : '📅 เพิ่มลงปฏิทิน')}</button>
+        ) : <p className="text-[11px]" style={{ color: SLATE }}>เชื่อมต่อ Google Calendar ที่ ⚙️ ตั้งค่า ก่อน ถึงจะเพิ่มเตือนลงปฏิทินได้</p>}
+        {syncDueMsg && <p className="text-[11px] mt-1" style={{ color: syncDueMsg.includes('สำเร็จ') ? GOOD : BAD }}>{syncDueMsg}</p>}
       </Card>
 
       <Card>
@@ -7320,9 +7391,9 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
   }
   async function syncToCalendar(a) {
     setSyncingId(a.id);
-    const result = await onAddToCalendar(dog.name, a);
+    const result = await onAddToCalendar(dog.name, a, a.calendarEventId);
     setSyncResult({ ...syncResult, [a.id]: result });
-    if (result.ok) onUpdateAppointment(dog.id, a.id, { calendarSynced: true });
+    if (result.ok) onUpdateAppointment(dog.id, a.id, { calendarSynced: true, calendarEventId: result.eventId });
     setSyncingId(null);
   }
   const appts = [...(dog.appointments || [])].sort((a, b) => a.date.localeCompare(b.date));
@@ -7571,6 +7642,21 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       });
       patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, doctor: form.doctor, department: form.department, reason: form.reason, diagnosis: form.diagnosis, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
       onUpdateDog(dog.id, patch);
+      // แจ้งเตือน LINE สรุปรวมทุกอย่างจากการไปหาหมอครั้งนี้ — แสดงเฉพาะช่องที่มีข้อมูล ข้ามช่องว่าง
+      {
+        const lines = [`🐶 ${dog.name} — ไปหาหมอ`, `📅 วันที่: ${formatDateDMY(form.date)}`];
+        if (form.hospital) lines.push(`🏥 โรงพยาบาล: ${form.hospital}`);
+        if (form.department) lines.push(`🚪 แผนก: ${form.department}`);
+        if (form.doctor) lines.push(`👨‍⚕️ สัตวแพทย์: ${form.doctor}`);
+        if (form.reason) lines.push(`📝 เหตุผลที่ไป: ${form.reason}`);
+        if (form.diagnosis) lines.push(`💬 ผลวินิจฉัย: ${form.diagnosis}`);
+        if (form.cost) lines.push(`💰 ค่าใช้จ่าย: ฿${fmt(form.cost)}`);
+        const meds = (sectionData.medication || []).filter((m) => m.name).map((m) => `${m.name}${m.dose ? ' ' + m.dose : ''}`);
+        if (meds.length) lines.push(`💊 ยาที่ได้รับ: ${meds.join(', ')}`);
+        const nextAppt = activeSections.includes('appointment') ? sectionData.appointment : null;
+        if (nextAppt && nextAppt.date) lines.push(`📆 นัดครั้งถัดไป: ${formatDateDMY(nextAppt.date)}`);
+        sendLineNotify(lines.join('\n'));
+      }
       // บันทึกยาที่พิมพ์เองใหม่เข้ารายการ "ยาที่เคยใช้" ด้วย เหมือน Tab ยาโดยตรง (แก้บั๊กที่เคยตกหล่นมาก่อน)
       if (activeSections.includes('medication') && onAddMedicationPreset) {
         (sectionData.medication || []).forEach((row) => {
