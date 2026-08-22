@@ -60,6 +60,7 @@ const SOURCES = [
   { id: 'us_div', label: 'ปันผลหุ้นสหรัฐฯ' },
   { id: 'wealthx', label: 'Wealth X (หักอัตโนมัติ)' },
   { id: 'pharmacy', label: 'เงินเก็บร้านยา' },
+  { id: 'personal_withdraw', label: 'ถอนใช้ส่วนตัว' },
   { id: 'other', label: 'อื่นๆ' },
 ];
 
@@ -974,7 +975,11 @@ export default function App() {
     if (entry.source === 'rental') return; // มีข้อความแจ้งเตือนเฉพาะทางที่ addRentInstallment ส่งให้แล้ว (บอกชื่อบ้าน+ยอดขาด) กันส่งซ้ำ
     const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
     const srcLabel = entry.source === 'yieldtech' ? 'YieldTech' : ((SOURCES.find((s) => s.id === entry.source) || {}).label || entry.source || 'เงินเข้า');
-    sendLineNotify(`💰 เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}): ฿${Number(entry.amount || 0).toLocaleString()}`);
+    if (entry.source === 'personal_withdraw') {
+      sendLineNotify(`💸 ถอนออกจาก${accName ? ' ' + accName : ''} ไปใช้ส่วนตัว: ฿${Math.abs(Number(entry.amount || 0)).toLocaleString()}`);
+    } else {
+      sendLineNotify(`💰 เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}): ฿${Number(entry.amount || 0).toLocaleString()}`);
+    }
   };
   const removeContribution = (id) => {
     const c = contributions.find((x) => x.id === id);
@@ -1771,7 +1776,7 @@ export default function App() {
           onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
           onSellHolding={sellHolding} onRemoveSell={removeSell} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} />
       )}
-      {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} />}
+      {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
       {tab === 'income' && <NewsTab news={investmentNews} accounts={accounts} onSaved={saveInvestmentNews} />}
       {tab === 'reports' && <ReportsTab contributions={contributions} accounts={accounts} costBasisByAccount={costBasisByAccount} history={history} />}
       {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onAddCategory={addExpenseCategory}
@@ -3964,7 +3969,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   );
 }
 
-function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, customDestinationList, onAddCustomDestination, onAddToCalendar, googleConnected }) {
+function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, customDestinationList, onAddCustomDestination, onAddToCalendar, googleConnected, expenseCategories, onAddExpense }) {
   const [amount, setAmount] = useState(10000);
   const [source, setSource] = useState('pharmacy');
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
@@ -3974,6 +3979,12 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
   const [syncingId, setSyncingId] = useState(null);
   const [syncMsg, setSyncMsg] = useState({}); // { [contributionId]: message }
   const [summaryPeriodType, setSummaryPeriodType] = useState('month');
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [wdAmount, setWdAmount] = useState(0);
+  const [wdAccountId, setWdAccountId] = useState('');
+  const [wdDate, setWdDate] = useState(new Date().toISOString().slice(0, 10));
+  const [wdCategory, setWdCategory] = useState((expenseCategories && expenseCategories[0]) || 'อื่นๆ');
+  const [wdNote, setWdNote] = useState('');
   const destAccount = accounts.find((a) => a.id === accountId);
   const isDime = destAccount && destAccount.category === 'dime';
   function submit() { if (!accountId) return; onAdd({ date, amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined }); setUsdAmount(0); }
@@ -4030,6 +4041,40 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
         <div className="mb-3" />
         {isDime && <><label className="text-xs" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" /></>}
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเงินเข้า</button>
+      </Card>
+      <Card>
+        <button onClick={() => setShowWithdraw(!showWithdraw)} className="w-full flex justify-between items-center text-sm font-semibold" style={{ color: INK }}>
+          <span>💸 ถอนออกมาใช้ส่วนตัว</span><span style={{ color: SLATE }}>{showWithdraw ? '▲' : '▼'}</span>
+        </button>
+        {showWithdraw && (() => {
+          function submitWithdraw() {
+            if (!wdAmount || !wdAccountId) return;
+            const acc = accounts.find((a) => a.id === wdAccountId);
+            onAdd({ date: wdDate, amount: -Math.abs(Number(wdAmount)), source: 'personal_withdraw', accountId: wdAccountId });
+            if (onAddExpense) onAddExpense({ date: wdDate, amount: Math.abs(Number(wdAmount)), category: wdCategory, note: `ถอนจากเงินเก็บ${acc ? ' - ' + acc.name : ''}${wdNote ? ' · ' + wdNote : ''}` });
+            setWdAmount(0); setWdNote(''); setShowWithdraw(false);
+          }
+          return (
+            <div className="mt-3">
+              <label className="text-xs" style={{ color: SLATE }}>วันที่</label>
+              <input type="date" value={wdDate} onChange={(e) => setWdDate(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+              <label className="text-xs" style={{ color: SLATE }}>จำนวนเงิน (บาท)</label>
+              <NumInput value={wdAmount} onChange={setWdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+              <label className="text-xs" style={{ color: SLATE }}>ถอนจากบัญชีไหน</label>
+              <select value={wdAccountId} onChange={(e) => setWdAccountId(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">
+                <option value="">— เลือกบัญชี —</option>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <label className="text-xs" style={{ color: SLATE }}>หมวดหมู่รายจ่าย (จะขึ้นในแท็บรายจ่ายด้วย)</label>
+              <select value={wdCategory} onChange={(e) => setWdCategory(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">
+                {(expenseCategories || ['อื่นๆ']).map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <label className="text-xs" style={{ color: SLATE }}>โน้ต (ไม่บังคับ)</label>
+              <input value={wdNote} onChange={(e) => setWdNote(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
+              <button onClick={submitWithdraw} disabled={!wdAmount || !wdAccountId} style={{ background: BAD, opacity: (!wdAmount || !wdAccountId) ? 0.5 : 1 }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกการถอน</button>
+            </div>
+          );
+        })()}
       </Card>
       <Card>
         <p className="text-xs mb-3" style={{ color: SLATE }}>สรุปแยกตามแหล่งที่มา</p>
