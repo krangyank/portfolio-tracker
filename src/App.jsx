@@ -205,6 +205,11 @@ function buildFlexCard({ title, rows, amount, amountColor, note, tab }) {
     ] });
   }
   if (note) body.push({ type: 'text', text: note, size: 'xs', color: '#767268', wrap: true, margin: 'md' });
+  // แสดง "บันทึกโดย" ในตัวการ์ดเองด้วย เดิมมีแค่ใน altText (ข้อความสำรองตอนแจ้งเตือน) ซึ่งมองไม่เห็นแล้วหลังเปิดแชทเข้ามาดูการ์ดจริง
+  if (currentNotifyUser) body.push({ type: 'box', layout: 'baseline', margin: 'md', contents: [
+    { type: 'text', text: 'บันทึกโดย', size: 'xs', color: '#9A958A', flex: 2 },
+    { type: 'text', text: currentNotifyUser, size: 'xs', color: '#9A958A', flex: 3, wrap: true, align: 'end' },
+  ] });
   const bubble = {
     type: 'bubble',
     header: { type: 'box', layout: 'horizontal', backgroundColor: '#1C2029', paddingAll: 'md', contents: [
@@ -254,6 +259,10 @@ function buildVetVisitFlexCard(dogName, form, meds, nextApptDate) {
       { type: 'text', text: `📆 นัดครั้งถัดไป ${formatDateDMY(nextApptDate)}`, size: 'xs', color: '#854F0B' },
     ] });
   }
+  if (currentNotifyUser) body.push({ type: 'box', layout: 'baseline', margin: 'md', contents: [
+    { type: 'text', text: 'บันทึกโดย', size: 'xs', color: '#9A958A', flex: 2 },
+    { type: 'text', text: currentNotifyUser, size: 'xs', color: '#9A958A', flex: 3, wrap: true, align: 'end' },
+  ] });
   return {
     type: 'bubble',
     header: { type: 'box', layout: 'horizontal', backgroundColor: '#1C2029', paddingAll: 'md', contents: [
@@ -1078,7 +1087,7 @@ export default function App() {
     } else {
       sendLineFlex(`เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}) ฿${fmt(entry.amount)}`, buildFlexCard({
         title: `💰 เงินเข้า${accName ? ' ' + accName : ''}`,
-        rows: [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'แหล่งที่มา', value: srcLabel }],
+        rows: [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'แหล่งที่มา', value: srcLabel }, { label: 'ปลายทาง', value: accName || '-' }],
         amount: Number(entry.amount || 0), amountColor: GOOD, tab: 'savings',
       }));
     }
