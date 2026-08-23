@@ -145,27 +145,32 @@ export default function AuthGate({ children }) {
   if (isWebAuthnAvailable() && !unlocked) {
     const registered = hasFingerprintRegistered(user.uid);
     return (
-      <div style={{ background: INK, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif' }} className="flex flex-col items-center justify-center px-6 text-white">
-        <Fingerprint size={56} color={BRASS} className="mb-6" />
-        <p className="text-sm mb-6 text-center" style={{ color: PAPER_DIM }}>
-          {registered ? 'สแกนลายนิ้วมือ/ใบหน้าเพื่อปลดล็อก' : 'ตั้งค่าล็อกด้วยลายนิ้วมือของเครื่องนี้ (ไม่บังคับ)'}
+      <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif' }} className="flex flex-col items-center justify-center px-6">
+        <div style={{ background: INK }} className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6">
+          <Fingerprint size={30} color={BRASS} />
+        </div>
+        <p style={{ color: INK }} className="text-lg font-semibold mb-1.5 text-center">
+          {registered ? 'ยืนยันตัวตน' : 'ล็อกเครื่องนี้ด้วยลายนิ้วมือ'}
         </p>
-        {error && <p className="text-xs mb-4" style={{ color: '#E07A5F' }}>{error}</p>}
+        <p className="text-sm mb-8 text-center" style={{ color: SLATE }}>
+          {registered ? 'สแกนลายนิ้วมือ/ใบหน้าเพื่อปลดล็อก' : 'ตั้งค่าไว้ครั้งเดียว ไม่บังคับ'}
+        </p>
+        {error && <p className="text-xs mb-4 text-center" style={{ color: BAD }}>{error}</p>}
         {registered ? (
-          <button onClick={handleVerifyFingerprint} style={{ background: BRASS }} className="rounded-full px-8 py-3 text-sm font-semibold" >
+          <button onClick={handleVerifyFingerprint} style={{ background: INK }} className="w-full max-w-xs text-white rounded-full py-4 text-sm font-semibold">
             ปลดล็อก
           </button>
         ) : (
           <div className="flex flex-col gap-3 w-full max-w-xs">
-            <button onClick={handleRegisterFingerprint} style={{ background: BRASS }} className="rounded-full px-8 py-3 text-sm font-semibold">
+            <button onClick={handleRegisterFingerprint} style={{ background: INK }} className="text-white rounded-full py-4 text-sm font-semibold">
               ตั้งค่าลายนิ้วมือ
             </button>
-            <button onClick={() => setUnlocked(true)} className="text-xs" style={{ color: '#8A93A6' }}>
+            <button onClick={() => setUnlocked(true)} className="text-xs" style={{ color: SLATE }}>
               ข้ามไปก่อน
             </button>
           </div>
         )}
-        <button onClick={() => signOut(auth)} className="flex items-center gap-1 text-xs mt-10" style={{ color: '#8A93A6' }}>
+        <button onClick={() => signOut(auth)} className="flex items-center gap-1 text-xs mt-10" style={{ color: SLATE }}>
           <LogOut size={12} /> ออกจากระบบ
         </button>
       </div>
