@@ -5,14 +5,18 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { Fingerprint, LogOut, Loader2 } from 'lucide-react';
+import { Fingerprint, LogOut, Loader2, ArrowLeft } from 'lucide-react';
 import { auth } from './firebase.js';
 import { isWebAuthnAvailable, registerFingerprint, hasFingerprintRegistered, verifyFingerprint } from './webauthn.js';
 
-const INK = '#14213D';
-const PAPER = '#FAF7F0';
-const BRASS = '#B8874B';
-const SLATE = '#6B7280';
+// โทนสีเดียวกับ App.jsx (ปรับให้เข้าชุดกันทั้งแอปตอนทำโทนสีใหม่ให้ดูมืออาชีพขึ้น)
+const INK = '#1C2029';
+const PAPER = '#F6F5F1';
+const PAPER_DIM = '#ECEAE3';
+const BRASS = '#A87C2E';
+const SLATE = '#767268';
+const BORDER = '#E4E1D8';
+const BAD = '#C0392E';
 
 export default function AuthGate({ children }) {
   const [user, setUser] = useState(undefined);
@@ -23,6 +27,8 @@ export default function AuthGate({ children }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [autoTried, setAutoTried] = useState(false);
+  // หน้าประตูทางเข้า (โลโก้ + คำทักทาย + ปุ่มเดียว) ก่อนค่อยเปิดฟอร์มกรอกอีเมล/รหัสผ่านจริง — ตามแบบที่ต้องการ
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
@@ -80,19 +86,51 @@ export default function AuthGate({ children }) {
   }
 
   if (!user) {
+    // ขั้นที่ 1: หน้าประตูทางเข้า — โลโก้ตรงกลาง คำทักทายใหญ่ ปุ่มเดียว ไม่มีฟอร์มให้เห็นเลย
+    if (!showForm) {
+      return (
+        <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif' }} className="flex flex-col justify-between px-6 pt-20 pb-10">
+          <div>
+            <div className="flex flex-col items-center mb-16">
+              <div style={{ background: INK }} className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3">
+                <span style={{ color: BRASS }} className="text-2xl font-bold">฿</span>
+              </div>
+              <p style={{ color: INK }} className="text-lg font-semibold">เป๋าตุง Family</p>
+              <p className="text-[11px] tracking-widest mt-0.5" style={{ color: SLATE }}>FAMILY · FINANCE · SYSTEM</p>
+            </div>
+            <p style={{ color: INK }} className="text-3xl font-semibold leading-snug text-center">
+              &ldquo;สวัสดี&rdquo;<br />เป๋าตุง Family
+            </p>
+          </div>
+          <div>
+            <button onClick={() => setShowForm(true)} style={{ background: INK }} className="w-full text-white rounded-full py-4 text-sm font-semibold mb-4">
+              เข้าสู่ระบบ
+            </button>
+            <p className="text-[11px] text-center leading-relaxed" style={{ color: SLATE }}>
+              ระบบสำหรับครอบครัวทอมมี่เท่านั้น<br />หากเข้าสู่ระบบไม่ได้ กรุณาติดต่อทอมมี่
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ขั้นที่ 2: ฟอร์มกรอกอีเมล/รหัสผ่านจริง (ฟังก์ชันเดิมทุกอย่าง แค่รีสไตล์ให้เข้าชุดกับหน้าประตู)
     return (
       <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif' }} className="flex flex-col justify-center px-6">
-        <p className="text-xs tracking-widest mb-1" style={{ color: BRASS }}>สมุดบัญชีการลงทุน</p>
+        <button onClick={() => setShowForm(false)} className="flex items-center gap-1 text-xs mb-8" style={{ color: SLATE }}>
+          <ArrowLeft size={14} /> กลับ
+        </button>
+        <p className="text-xs tracking-widest mb-1" style={{ color: BRASS }}>เป๋าตุง FAMILY</p>
         <h1 style={{ color: INK }} className="text-2xl font-semibold mb-6">{mode === 'signup' ? 'สร้างบัญชี' : 'เข้าสู่ระบบ'}</h1>
         <input
           type="email" placeholder="อีเมล" value={email} onChange={(e) => setEmail(e.target.value)}
-          style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-3 text-sm w-full mb-3"
+          style={{ border: `1px solid ${BORDER}`, background: 'white' }} className="rounded-lg px-3 py-3 text-sm w-full mb-3"
         />
         <input
           type="password" placeholder="รหัสผ่าน" value={password} onChange={(e) => setPassword(e.target.value)}
-          style={{ border: '1px solid #E7E0CE' }} className="rounded-lg px-3 py-3 text-sm w-full mb-3"
+          style={{ border: `1px solid ${BORDER}`, background: 'white' }} className="rounded-lg px-3 py-3 text-sm w-full mb-3"
         />
-        {error && <p className="text-xs mb-3" style={{ color: '#A64B3D' }}>{error}</p>}
+        {error && <p className="text-xs mb-3" style={{ color: BAD }}>{error}</p>}
         <button onClick={handleSubmit} disabled={busy} style={{ background: INK }} className="text-white rounded-lg py-3 text-sm mb-3 flex items-center justify-center gap-2">
           {busy && <Loader2 size={14} className="animate-spin" />}
           {mode === 'signup' ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}
@@ -109,7 +147,7 @@ export default function AuthGate({ children }) {
     return (
       <div style={{ background: INK, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif' }} className="flex flex-col items-center justify-center px-6 text-white">
         <Fingerprint size={56} color={BRASS} className="mb-6" />
-        <p className="text-sm mb-6 text-center" style={{ color: '#D8CBB0' }}>
+        <p className="text-sm mb-6 text-center" style={{ color: PAPER_DIM }}>
           {registered ? 'สแกนลายนิ้วมือ/ใบหน้าเพื่อปลดล็อก' : 'ตั้งค่าล็อกด้วยลายนิ้วมือของเครื่องนี้ (ไม่บังคับ)'}
         </p>
         {error && <p className="text-xs mb-4" style={{ color: '#E07A5F' }}>{error}</p>}
