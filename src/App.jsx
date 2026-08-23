@@ -4396,7 +4396,8 @@ function NewsTab({ news, accounts, onSaved }) {
   }
 
   useEffect(() => {
-    if (isStale && !loading && items.length === 0) runFetch();
+    // ดึงข่าวใหม่อัตโนมัติทุกครั้งที่เข้าแท็บนี้ ถ้าข่าวที่มีอยู่เก่าเกิน 24 ชม. — แก้บั๊กเดิมที่เช็ค items.length === 0 ด้วย ทำให้พอมีข่าวแคชไว้แล้วครั้งแรก จะไม่มีวันดึงใหม่ให้เองอีกเลย
+    if (isStale && !loading) runFetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
