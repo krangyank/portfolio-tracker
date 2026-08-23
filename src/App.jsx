@@ -175,6 +175,96 @@ function sendLineNotify(message) {
     body: JSON.stringify({ message: tagged }),
   }).catch((e) => console.error('sendLineNotify failed', e));
 }
+// ส่งการ์ด Flex Message แทนข้อความล้วน — ใช้ altText เป็นข้อความสำรอง (โชว์ตอนแจ้งเตือน/บนนาฬิกา ที่มองไม่เห็นการ์ดจริง) ต้องแปะ "โดยใคร" ต่อท้ายใน altText เอง เพราะการ์ดไม่มีที่ใส่ชื่อผู้บันทึกแบบข้อความธรรมดา
+function sendLineFlex(altText, contents) {
+  if (!lineNotifyEnabled) return;
+  const taggedAlt = currentNotifyUser ? `${altText} — โดย ${currentNotifyUser}` : altText;
+  fetch('/api/line-notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flex: { altText: taggedAlt, contents } }),
+  }).catch((e) => console.error('sendLineFlex failed', e));
+}
+const APP_URL = 'https://portfolio-tracker-six-chi.vercel.app';
+// การ์ด Flex Message มาตรฐานที่ใช้ซ้ำได้ทุกจุดแจ้งเตือน — หัวเข้ม, แถว label/value, ยอดเงินตัวใหญ่ (สีเขียว/แดงได้ตามทิศทางเงิน), โน้ตท้ายการ์ด, ปุ่มเปิดแอปไปแท็บที่เกี่ยวข้อง
+function buildFlexCard({ title, rows, amount, amountColor, note, tab }) {
+  const body = [];
+  if (rows && rows.length) {
+    body.push({ type: 'box', layout: 'vertical', spacing: 'sm', contents: rows.map((r) => ({
+      type: 'box', layout: 'baseline', contents: [
+        { type: 'text', text: r.label, size: 'sm', color: '#767268', flex: 2 },
+        { type: 'text', text: r.value, size: 'sm', color: '#1C2029', flex: 3, wrap: true, align: 'end' },
+      ],
+    })) });
+  }
+  if (amount != null) {
+    if (rows && rows.length) body.push({ type: 'separator', margin: 'md' });
+    body.push({ type: 'box', layout: 'baseline', margin: rows && rows.length ? 'md' : undefined, contents: [
+      { type: 'text', text: 'จำนวนเงิน', size: 'sm', color: '#767268', flex: 2 },
+      { type: 'text', text: `฿${fmt(Math.abs(amount))}`, size: 'lg', weight: 'bold', flex: 3, align: 'end', color: amountColor || '#1C2029' },
+    ] });
+  }
+  if (note) body.push({ type: 'text', text: note, size: 'xs', color: '#767268', wrap: true, margin: 'md' });
+  const bubble = {
+    type: 'bubble',
+    header: { type: 'box', layout: 'horizontal', backgroundColor: '#1C2029', paddingAll: 'md', contents: [
+      { type: 'text', text: title, color: '#FFFFFF', weight: 'bold', size: 'md', wrap: true },
+    ] },
+    body: { type: 'box', layout: 'vertical', paddingAll: 'md', contents: body },
+  };
+  if (tab) bubble.footer = { type: 'box', layout: 'vertical', contents: [
+    { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: 'เปิดในแอป', uri: `${APP_URL}/?tab=${tab}` } },
+  ] };
+  return bubble;
+}
+// สร้างการ์ด Flex Message สรุปการไปหาหมอ — โครงเดียวกับตัวอย่างที่ทำให้ดูก่อนหน้านี้ (หัวการ์ดเข้ม, แถว label/value, ค่าใช้จ่ายตัวใหญ่, กล่องนัดถัดไปสีเตือน, ปุ่มเปิดแอป)
+function buildVetVisitFlexCard(dogName, form, meds, nextApptDate) {
+  const rows = [];
+  const row = (label, value) => rows.push({ type: 'box', layout: 'baseline', contents: [
+    { type: 'text', text: label, size: 'sm', color: '#767268', flex: 2 },
+    { type: 'text', text: value, size: 'sm', color: '#1C2029', flex: 3, wrap: true, align: 'end' },
+  ] });
+  row('วันที่', formatDateDMY(form.date));
+  if (form.hospital) row('โรงพยาบาล', form.hospital);
+  if (form.department) row('แผนก', form.department);
+  if (form.doctor) row('สัตวแพทย์', form.doctor);
+  const body = [{ type: 'box', layout: 'vertical', spacing: 'sm', contents: rows }];
+  if (form.diagnosis) {
+    body.push({ type: 'separator', margin: 'md' });
+    body.push({ type: 'box', layout: 'vertical', margin: 'md', contents: [
+      { type: 'text', text: 'ผลวินิจฉัย', size: 'xs', color: '#767268' },
+      { type: 'text', text: form.diagnosis, size: 'sm', wrap: true, margin: 'xs' },
+    ] });
+  }
+  if (meds && meds.length) {
+    body.push({ type: 'box', layout: 'baseline', margin: 'md', contents: [
+      { type: 'text', text: 'ยาที่ได้รับ', size: 'sm', color: '#767268', flex: 2 },
+      { type: 'text', text: meds.join(', '), size: 'sm', flex: 3, wrap: true, align: 'end' },
+    ] });
+  }
+  if (form.cost) {
+    body.push({ type: 'separator', margin: 'md' });
+    body.push({ type: 'box', layout: 'baseline', margin: 'md', contents: [
+      { type: 'text', text: 'ค่าใช้จ่าย', size: 'sm', color: '#767268', flex: 2 },
+      { type: 'text', text: `฿${fmt(form.cost)}`, size: 'lg', weight: 'bold', flex: 3, align: 'end' },
+    ] });
+  }
+  if (nextApptDate) {
+    body.push({ type: 'box', layout: 'baseline', margin: 'md', backgroundColor: '#FAEEDA', cornerRadius: 'md', paddingAll: 'sm', contents: [
+      { type: 'text', text: `📆 นัดครั้งถัดไป ${formatDateDMY(nextApptDate)}`, size: 'xs', color: '#854F0B' },
+    ] });
+  }
+  return {
+    type: 'bubble',
+    header: { type: 'box', layout: 'horizontal', backgroundColor: '#1C2029', paddingAll: 'md', contents: [
+      { type: 'text', text: `${dogName} — ไปหาหมอ`, color: '#FFFFFF', weight: 'bold', size: 'md' },
+    ] },
+    body: { type: 'box', layout: 'vertical', paddingAll: 'md', contents: body },
+    footer: { type: 'box', layout: 'vertical', contents: [
+      { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: 'เปิดในแอป', uri: `${APP_URL}/?tab=pets` } },
+    ] },
+  };
+}
 
 
 function ensureGsiLoaded() {
@@ -416,6 +506,10 @@ export default function App() {
     if (path.indexOf('/expense') === 0) return 'expenses';
     if (path.indexOf('/realestate') === 0) return 'realestate';
     if (new URLSearchParams(window.location.search).get('quick') === 'expense') return 'expenses';
+    // รองรับลิงก์เปิดแอปตรงไปยังแท็บที่ต้องการ เช่น จากปุ่ม "เปิดในแอป" ในการ์ด LINE Flex Message: ?tab=pets
+    const validTabs = ['dashboard', 'accounts', 'savings', 'income', 'reports', 'expenses', 'pets', 'realestate', 'insurance'];
+    const tabParam = new URLSearchParams(window.location.search).get('tab');
+    if (tabParam && validTabs.includes(tabParam)) return tabParam;
     return 'dashboard';
   });
   const [shareMode, setShareMode] = useState(false);
@@ -976,9 +1070,17 @@ export default function App() {
     const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
     const srcLabel = entry.source === 'yieldtech' ? 'YieldTech' : ((SOURCES.find((s) => s.id === entry.source) || {}).label || entry.source || 'เงินเข้า');
     if (entry.source === 'personal_withdraw') {
-      sendLineNotify(`💸 ถอนออกจาก${accName ? ' ' + accName : ''} ไปใช้ส่วนตัว: ฿${Math.abs(Number(entry.amount || 0)).toLocaleString()}`);
+      sendLineFlex(`ถอนจาก ${accName} ไปใช้ส่วนตัว ฿${fmt(Math.abs(Number(entry.amount || 0)))}`, buildFlexCard({
+        title: `💸 ถอนออกจาก${accName ? ' ' + accName : ''}`,
+        rows: [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'ปลายทาง', value: 'ใช้ส่วนตัว' }],
+        amount: Math.abs(Number(entry.amount || 0)), amountColor: BAD, tab: 'savings',
+      }));
     } else {
-      sendLineNotify(`💰 เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}): ฿${Number(entry.amount || 0).toLocaleString()}`);
+      sendLineFlex(`เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}) ฿${fmt(entry.amount)}`, buildFlexCard({
+        title: `💰 เงินเข้า${accName ? ' ' + accName : ''}`,
+        rows: [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'แหล่งที่มา', value: srcLabel }],
+        amount: Number(entry.amount || 0), amountColor: GOOD, tab: 'savings',
+      }));
     }
   };
   const removeContribution = (id) => {
@@ -1039,8 +1141,12 @@ export default function App() {
     const sellRecord = { id: uid(), date: entry.date, shares: entry.shares, price: entry.price, amount: entry.amount, gain, currency: h.currency };
     const newShares = Math.max(0, Number(h.shares || 0) - Number(entry.shares || 0));
     updateHolding(accountId, holdingId, { shares: newShares, sells: [sellRecord, ...(h.sells || [])] });
-    const gainLabel = gain >= 0 ? `กำไร +฿${gain.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : `ขาดทุน -฿${Math.abs(gain).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-    sendLineNotify(`📉 ขาย ${h.symbol || h.name} (${acc.name}): ${entry.shares} หน่วย ได้ ฿${Number(entry.amount || 0).toLocaleString()} — ${gainLabel}`);
+    const gainLabel = gain >= 0 ? `กำไร +฿${fmt(gain)}` : `ขาดทุน -฿${fmt(Math.abs(gain))}`;
+    sendLineFlex(`ขาย ${h.symbol || h.name} (${acc.name}) ฿${fmt(entry.amount)}`, buildFlexCard({
+      title: `📉 ขาย ${h.symbol || h.name}`,
+      rows: [{ label: 'บัญชี', value: acc.name }, { label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'จำนวนหุ้น', value: `${Number(entry.shares || 0).toLocaleString()} หน่วย` }, { label: 'กำไร/ขาดทุน', value: gainLabel }],
+      amount: Number(entry.amount || 0), amountColor: gain >= 0 ? GOOD : BAD, tab: 'accounts',
+    }));
   }
   function removeSell(accountId, holdingId, sellId) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -1082,7 +1188,11 @@ export default function App() {
     updateAccount(accountId, { holdings: nextHoldings });
     contributionsToAdd.forEach((c) => addContribution(c));
     const noReinvestTotal = entries.filter((e) => !e.reinvestAccountId).reduce((s, e) => s + Number(e.amount || 0), 0);
-    if (noReinvestTotal > 0) sendLineNotify(`💵 ตัด YieldTech ${acc.name}: ${entries.length} รายการ รวม ฿${noReinvestTotal.toLocaleString()}`);
+    if (noReinvestTotal > 0) sendLineFlex(`ตัด YieldTech ${acc.name} ฿${fmt(noReinvestTotal)}`, buildFlexCard({
+      title: `💵 ตัด YieldTech ${acc.name}`,
+      rows: [{ label: 'จำนวนรายการ', value: `${entries.length} รายการ` }],
+      amount: noReinvestTotal, amountColor: BAD, tab: 'accounts',
+    }));
   }
   // แปะรูปประวัติคำสั่งซื้อ-ขายที่มีหลายกองทุนปนกันในภาพเดียว — บันทึกซื้อเพิ่ม/ขายให้ทุกกองทุนที่จับคู่ไว้พร้อมกันในการเขียนครั้งเดียว
   function recordBuySellBatch(accountId, entries) {
@@ -1134,10 +1244,10 @@ export default function App() {
     updateAccount(accountId, { holdings: [...nextHoldings, ...newHoldings] });
     const buysN = entries.filter((e) => e.type !== 'sell');
     const sellsN = entries.filter((e) => e.type === 'sell');
-    const parts = [];
-    if (buysN.length) parts.push(`ซื้อ ${buysN.length} รายการ รวม ฿${buysN.reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`);
-    if (sellsN.length) parts.push(`ขาย ${sellsN.length} รายการ รวม ฿${sellsN.reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`);
-    if (parts.length) sendLineNotify(`📊 อัพเดตพอร์ต ${acc.name}: ${parts.join(' · ')}`);
+    const rows = [];
+    if (buysN.length) rows.push({ label: 'ซื้อ', value: `${buysN.length} รายการ รวม ฿${fmt(buysN.reduce((s, e) => s + Number(e.amount || 0), 0))}` });
+    if (sellsN.length) rows.push({ label: 'ขาย', value: `${sellsN.length} รายการ รวม ฿${fmt(sellsN.reduce((s, e) => s + Number(e.amount || 0), 0))}` });
+    if (rows.length) sendLineFlex(`อัพเดตพอร์ต ${acc.name}`, buildFlexCard({ title: `📊 อัพเดตพอร์ต ${acc.name}`, rows, tab: 'accounts' }));
   }
   function recordYieldTechWithdrawal(accountId, holdingId, { amount, date, reinvestAccountId, sharesOverride }) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -1155,7 +1265,11 @@ export default function App() {
     patch.yieldTechHistory = [{ id: uid(), date, amount: Number(amount), reinvestAccountId: reinvestAccountId || undefined, estimatedShares: estimatedShares || undefined }, ...(h.yieldTechHistory || [])];
     updateHolding(accountId, holdingId, patch);
     if (reinvestAccountId) addContribution({ date, amount: Number(amount), source: 'yieldtech', accountId: reinvestAccountId });
-    else sendLineNotify(`💵 ตัด YieldTech ${h.symbol || h.name} (${acc.name}): ฿${Number(amount || 0).toLocaleString()}`);
+    else sendLineFlex(`ตัด YieldTech ${h.symbol || h.name} (${acc.name}) ฿${fmt(amount)}`, buildFlexCard({
+      title: `💵 ตัด YieldTech ${h.symbol || h.name}`,
+      rows: [{ label: 'บัญชี', value: acc.name }, { label: 'วันที่', value: formatDateDMY(date) }],
+      amount: Number(amount || 0), amountColor: BAD, tab: 'accounts',
+    }));
   }
   function updateBuy(accountId, holdingId, buyId, patch) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -1333,8 +1447,9 @@ export default function App() {
       addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId });
       const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
       const shortfall = Number(p.rent || 0) - totalPaid;
-      const shortfallNote = shortfall > 0 ? ` (ยังขาดอีก ฿${shortfall.toLocaleString()} จากยอดเต็ม ฿${Number(p.rent || 0).toLocaleString()})` : '';
-      sendLineNotify(`🏠 รับค่าเช่า ${p.name} ฿${Number(entry.amount || 0).toLocaleString()} → ฝากเข้าบัญชี ${accName}${shortfallNote}`);
+      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'ฝากเข้าบัญชี', value: accName }];
+      if (shortfall > 0) rows.push({ label: 'ยังขาดอีก', value: `฿${fmt(shortfall)} จากยอดเต็ม ฿${fmt(p.rent)}` });
+      sendLineFlex(`รับค่าเช่า ${p.name} ฿${fmt(entry.amount)}`, buildFlexCard({ title: `🏠 รับค่าเช่า ${p.name}`, rows, amount: Number(entry.amount || 0), amountColor: GOOD, tab: 'realestate' }));
     }
   }
   function removeRentInstallment(propertyId, ymKey, installmentId) {
@@ -1362,10 +1477,14 @@ export default function App() {
     const newAccountId = patch.accountId !== undefined ? patch.accountId : old.accountId;
     const newAccName = (accounts.find((a) => a.id === newAccountId) || {}).name || newAccountId || '-';
     const changed = [];
-    if (patch.amount !== undefined && Number(patch.amount) !== Number(old.amount)) changed.push(`ยอด ฿${Number(old.amount || 0).toLocaleString()} → ฿${Number(patch.amount || 0).toLocaleString()}`);
-    if (patch.accountId !== undefined && patch.accountId !== old.accountId) changed.push(`บัญชีปลายทาง ${oldAccName} → ${newAccName}`);
-    if (patch.date !== undefined && patch.date !== old.date) changed.push(`วันที่ ${formatDateDMY(old.date)} → ${formatDateDMY(patch.date)}`);
-    if (changed.length) sendLineNotify(`✏️ แก้ไขค่าเช่า ${p.name} ฿${Number(old.amount || 0).toLocaleString()} วันที่ ${formatDateDMY(old.date)}: ${changed.join(' · ')}`);
+    if (patch.amount !== undefined && Number(patch.amount) !== Number(old.amount)) changed.push({ label: 'ยอด', value: `฿${fmt(old.amount)} → ฿${fmt(patch.amount)}` });
+    if (patch.accountId !== undefined && patch.accountId !== old.accountId) changed.push({ label: 'บัญชีปลายทาง', value: `${oldAccName} → ${newAccName}` });
+    if (patch.date !== undefined && patch.date !== old.date) changed.push({ label: 'วันที่', value: `${formatDateDMY(old.date)} → ${formatDateDMY(patch.date)}` });
+    if (changed.length) sendLineFlex(`แก้ไขค่าเช่า ${p.name} ฿${fmt(old.amount)}`, buildFlexCard({
+      title: `✏️ แก้ไขค่าเช่า ${p.name}`,
+      rows: [{ label: 'รายการ', value: `฿${fmt(old.amount)} วันที่ ${formatDateDMY(old.date)}` }, ...changed],
+      tab: 'realestate',
+    }));
   }
   function setRentManualConfirm(propertyId, ymKey, confirmed) {
     const p = properties.find((x) => x.id === propertyId);
@@ -3039,14 +3158,14 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
     if (!txAmount) return;
     const history = a.cashFlowHistory || [];
     onUpdate(a.id, { value: Number(a.value || 0) + Number(txAmount), cashFlowHistory: [{ id: uid(), type: 'deposit', date: txDate, amount: txAmount }, ...history] });
-    sendLineNotify(`💰 ฝากเงินเข้า ${a.name}: ฿${Number(txAmount).toLocaleString()}`);
+    sendLineFlex(`ฝากเงินเข้า ${a.name} ฿${fmt(txAmount)}`, buildFlexCard({ title: `💰 ฝากเงินเข้า ${a.name}`, rows: [{ label: 'วันที่', value: formatDateDMY(txDate) }], amount: Number(txAmount), amountColor: GOOD, tab: 'accounts' }));
     setTxAmount(0);
   }
   function recordWithdraw() {
     if (!txAmount) return;
     const history = a.cashFlowHistory || [];
     onUpdate(a.id, { value: Math.max(0, Number(a.value || 0) - Number(txAmount)), cashFlowHistory: [{ id: uid(), type: 'withdraw', date: txDate, amount: txAmount }, ...history] });
-    sendLineNotify(`💸 ถอนเงินจาก ${a.name}: ฿${Number(txAmount).toLocaleString()}`);
+    sendLineFlex(`ถอนเงินจาก ${a.name} ฿${fmt(txAmount)}`, buildFlexCard({ title: `💸 ถอนเงินจาก ${a.name}`, rows: [{ label: 'วันที่', value: formatDateDMY(txDate) }], amount: Number(txAmount), amountColor: BAD, tab: 'accounts' }));
     setTxAmount(0);
   }
   return (
@@ -3694,7 +3813,11 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     if (h.currency === 'USD') patch.purchaseFx = buyPreview.newPurchaseFx;
     onUpdate(accountId, h.id, patch);
     const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
-    sendLineNotify(`📈 ซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''}: ${Number(buyDraft.shares || 0).toLocaleString()} หุ้น @ ${Number(buyDraft.price || 0)} รวม ฿${Number(buyDraft.amount || 0).toLocaleString()}`);
+    sendLineFlex(`ซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''} ฿${fmt(buyDraft.amount)}`, buildFlexCard({
+      title: `📈 ซื้อ ${h.symbol || h.name}`,
+      rows: [{ label: 'บัญชี', value: accName || '-' }, { label: 'วันที่', value: formatDateDMY(buyDraft.date) }, { label: 'จำนวนหุ้น', value: `${Number(buyDraft.shares || 0).toLocaleString()} หุ้น @ ${Number(buyDraft.price || 0)}` }],
+      amount: Number(buyDraft.amount || 0), amountColor: BAD, tab: 'accounts',
+    }));
     setBuyDraft(null);
   }
 
@@ -3858,12 +3981,16 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           ]}
           onSave={(v) => {
             const changed = [];
-            if (Number(editingBuy.shares || 0) !== Number(v.shares || 0)) changed.push(`จำนวนหุ้น ${Number(editingBuy.shares || 0).toLocaleString()} → ${Number(v.shares || 0).toLocaleString()}`);
-            if (Number(editingBuy.price || 0) !== Number(v.price || 0)) changed.push(`ราคา ${editingBuy.price} → ${v.price}`);
-            if (Number(editingBuy.amount || 0) !== Number(v.amount || 0)) changed.push(`จ่ายจริง ฿${Number(editingBuy.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
-            if (editingBuy.date !== v.date) changed.push(`วันที่ ${formatDateDMY(editingBuy.date)} → ${formatDateDMY(v.date)}`);
+            if (Number(editingBuy.shares || 0) !== Number(v.shares || 0)) changed.push({ label: 'จำนวนหุ้น', value: `${Number(editingBuy.shares || 0).toLocaleString()} → ${Number(v.shares || 0).toLocaleString()}` });
+            if (Number(editingBuy.price || 0) !== Number(v.price || 0)) changed.push({ label: 'ราคา', value: `${editingBuy.price} → ${v.price}` });
+            if (Number(editingBuy.amount || 0) !== Number(v.amount || 0)) changed.push({ label: 'จ่ายจริง', value: `฿${fmt(editingBuy.amount)} → ฿${fmt(v.amount)}` });
+            if (editingBuy.date !== v.date) changed.push({ label: 'วันที่', value: `${formatDateDMY(editingBuy.date)} → ${formatDateDMY(v.date)}` });
             const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
-            if (changed.length) sendLineNotify(`✏️ แก้ไขรายการซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''} วันที่ ${formatDateDMY(editingBuy.date)}: ${changed.join(' · ')}`);
+            if (changed.length) sendLineFlex(`แก้ไขรายการซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''}`, buildFlexCard({
+              title: `✏️ แก้ไขรายการซื้อ ${h.symbol || h.name}`,
+              rows: [{ label: 'วันที่เดิม', value: formatDateDMY(editingBuy.date) }, ...changed],
+              tab: 'accounts',
+            }));
             onUpdateBuy(accountId, h.id, editingBuy.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0 });
             setEditingBuy(null);
           }}
@@ -3927,12 +4054,16 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             const costBasisSold = Number(v.shares || 0) * Number(h.avgCost || 0) * fx;
             const gain = Number(v.amount || 0) - costBasisSold;
             const changed = [];
-            if (Number(editingSell.shares || 0) !== Number(v.shares || 0)) changed.push(`จำนวนหุ้น ${Number(editingSell.shares || 0).toLocaleString()} → ${Number(v.shares || 0).toLocaleString()}`);
-            if (Number(editingSell.price || 0) !== Number(v.price || 0)) changed.push(`ราคา ${editingSell.price} → ${v.price}`);
-            if (Number(editingSell.amount || 0) !== Number(v.amount || 0)) changed.push(`ได้รับ ฿${Number(editingSell.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
-            if (editingSell.date !== v.date) changed.push(`วันที่ ${formatDateDMY(editingSell.date)} → ${formatDateDMY(v.date)}`);
+            if (Number(editingSell.shares || 0) !== Number(v.shares || 0)) changed.push({ label: 'จำนวนหุ้น', value: `${Number(editingSell.shares || 0).toLocaleString()} → ${Number(v.shares || 0).toLocaleString()}` });
+            if (Number(editingSell.price || 0) !== Number(v.price || 0)) changed.push({ label: 'ราคา', value: `${editingSell.price} → ${v.price}` });
+            if (Number(editingSell.amount || 0) !== Number(v.amount || 0)) changed.push({ label: 'ได้รับ', value: `฿${fmt(editingSell.amount)} → ฿${fmt(v.amount)}` });
+            if (editingSell.date !== v.date) changed.push({ label: 'วันที่', value: `${formatDateDMY(editingSell.date)} → ${formatDateDMY(v.date)}` });
             const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
-            if (changed.length) sendLineNotify(`✏️ แก้ไขรายการขาย ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''} วันที่ ${formatDateDMY(editingSell.date)}: ${changed.join(' · ')}`);
+            if (changed.length) sendLineFlex(`แก้ไขรายการขาย ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''}`, buildFlexCard({
+              title: `✏️ แก้ไขรายการขาย ${h.symbol || h.name}`,
+              rows: [{ label: 'วันที่เดิม', value: formatDateDMY(editingSell.date) }, ...changed],
+              tab: 'accounts',
+            }));
             onUpdateSell(accountId, h.id, editingSell.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0, gain });
             setEditingSell(null);
           }}
@@ -4214,12 +4345,16 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
             const newSrc = v.source === 'yieldtech' ? 'YieldTech' : (SOURCES.find((s) => s.id === v.source)?.label || v.source);
             const amountChanged = Number(editing.amount || 0) !== Number(v.amount || 0);
             const changed = [];
-            if (amountChanged) changed.push(`ยอด ฿${Number(editing.amount || 0).toLocaleString()} → ฿${Number(v.amount || 0).toLocaleString()}`);
-            if (editing.accountId !== v.accountId) changed.push(`ปลายทาง ${oldAcc?.name || editing.accountId || '-'} → ${newAcc?.name || v.accountId || '-'}`);
-            if (editing.source !== v.source) changed.push(`แหล่งที่มา ${oldSrc} → ${newSrc}`);
-            if (editing.date !== v.date) changed.push(`วันที่ ${formatDateDMY(editing.date)} → ${formatDateDMY(v.date)}`);
-            // ระบุยอดเงิน+วันที่ของรายการไว้เสมอ (ใช้ยอด/วันที่เดิมเป็นตัวบอกว่าแก้ "รายการไหน" เผื่อวันนั้นมีหลายรายการ) แล้วต่อด้วยรายละเอียดที่เปลี่ยน
-            if (changed.length) sendLineNotify(`✏️ แก้ไขเงินเข้า ฿${Number(editing.amount || 0).toLocaleString()} (${oldSrc}) วันที่ ${formatDateDMY(editing.date)}: ${changed.join(' · ')}`);
+            if (amountChanged) changed.push({ label: 'ยอด', value: `฿${fmt(editing.amount)} → ฿${fmt(v.amount)}` });
+            if (editing.accountId !== v.accountId) changed.push({ label: 'ปลายทาง', value: `${oldAcc?.name || editing.accountId || '-'} → ${newAcc?.name || v.accountId || '-'}` });
+            if (editing.source !== v.source) changed.push({ label: 'แหล่งที่มา', value: `${oldSrc} → ${newSrc}` });
+            if (editing.date !== v.date) changed.push({ label: 'วันที่', value: `${formatDateDMY(editing.date)} → ${formatDateDMY(v.date)}` });
+            // ระบุยอดเงิน+วันที่ของรายการไว้เสมอ (ใช้ยอด/วันที่เดิมเป็นตัวบอกว่าแก้ "รายการไหน" เผื่อวันนั้นมีหลายรายการ)
+            if (changed.length) sendLineFlex(`แก้ไขเงินเข้า ฿${fmt(editing.amount)} (${oldSrc})`, buildFlexCard({
+              title: `✏️ แก้ไขเงินเข้า (${oldSrc})`,
+              rows: [{ label: 'รายการเดิม', value: `฿${fmt(editing.amount)} วันที่ ${formatDateDMY(editing.date)}` }, ...changed],
+              tab: 'savings',
+            }));
             onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId });
             setEditing(null);
           }}
@@ -7687,20 +7822,13 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       });
       patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, doctor: form.doctor, department: form.department, reason: form.reason, diagnosis: form.diagnosis, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
       onUpdateDog(dog.id, patch);
-      // แจ้งเตือน LINE สรุปรวมทุกอย่างจากการไปหาหมอครั้งนี้ — แสดงเฉพาะช่องที่มีข้อมูล ข้ามช่องว่าง
+      // แจ้งเตือน LINE สรุปรวมทุกอย่างจากการไปหาหมอครั้งนี้ — เป็นการ์ด Flex Message (แสดงเฉพาะช่องที่มีข้อมูล ข้ามช่องว่าง)
       {
-        const lines = [`🐶 ${dog.name} — ไปหาหมอ`, `📅 วันที่: ${formatDateDMY(form.date)}`];
-        if (form.hospital) lines.push(`🏥 โรงพยาบาล: ${form.hospital}`);
-        if (form.department) lines.push(`🚪 แผนก: ${form.department}`);
-        if (form.doctor) lines.push(`👨‍⚕️ สัตวแพทย์: ${form.doctor}`);
-        if (form.reason) lines.push(`📝 เหตุผลที่ไป: ${form.reason}`);
-        if (form.diagnosis) lines.push(`💬 ผลวินิจฉัย: ${form.diagnosis}`);
-        if (form.cost) lines.push(`💰 ค่าใช้จ่าย: ฿${fmt(form.cost)}`);
         const meds = (sectionData.medication || []).filter((m) => m.name).map((m) => `${m.name}${m.dose ? ' ' + m.dose : ''}`);
-        if (meds.length) lines.push(`💊 ยาที่ได้รับ: ${meds.join(', ')}`);
         const nextAppt = activeSections.includes('appointment') ? sectionData.appointment : null;
-        if (nextAppt && nextAppt.date) lines.push(`📆 นัดครั้งถัดไป: ${formatDateDMY(nextAppt.date)}`);
-        sendLineNotify(lines.join('\n'));
+        const nextApptDate = nextAppt && nextAppt.date ? nextAppt.date : null;
+        const altText = `${dog.name} ไปหาหมอ${form.hospital ? ' ที่ ' + form.hospital : ''}${form.cost ? ' ฿' + fmt(form.cost) : ''}`;
+        sendLineFlex(altText, buildVetVisitFlexCard(dog.name, form, meds, nextApptDate));
       }
       // บันทึกยาที่พิมพ์เองใหม่เข้ารายการ "ยาที่เคยใช้" ด้วย เหมือน Tab ยาโดยตรง (แก้บั๊กที่เคยตกหล่นมาก่อน)
       if (activeSections.includes('medication') && onAddMedicationPreset) {
