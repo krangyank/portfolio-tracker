@@ -1151,9 +1151,12 @@ export default function App() {
     const newShares = Math.max(0, Number(h.shares || 0) - Number(entry.shares || 0));
     updateHolding(accountId, holdingId, { shares: newShares, sells: [sellRecord, ...(h.sells || [])] });
     const gainLabel = gain >= 0 ? `กำไร +฿${fmt(gain)}` : `ขาดทุน -฿${fmt(Math.abs(gain))}`;
+    const sellRows = [{ label: 'บัญชี', value: acc.name }, { label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'จำนวนหุ้น', value: `${Number(entry.shares || 0).toLocaleString()} หน่วย` }];
+    if (entry.amountForeign) sellRows.push({ label: 'ได้รับจริง', value: `$${fmt2(entry.amountForeign)}${entry.fx ? ` (FX ${Number(entry.fx).toFixed(2)})` : ''}` });
+    sellRows.push({ label: 'กำไร/ขาดทุน', value: gainLabel });
     sendLineFlex(`ขาย ${h.symbol || h.name} (${acc.name}) ฿${fmt(entry.amount)}`, buildFlexCard({
       title: `📉 ขาย ${h.symbol || h.name}`,
-      rows: [{ label: 'บัญชี', value: acc.name }, { label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'จำนวนหุ้น', value: `${Number(entry.shares || 0).toLocaleString()} หน่วย` }, { label: 'กำไร/ขาดทุน', value: gainLabel }],
+      rows: sellRows,
       amount: Number(entry.amount || 0), amountColor: gain >= 0 ? GOOD : BAD, tab: 'accounts',
     }));
   }
@@ -3770,7 +3773,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     setBuyScanning(true); setBuyError(''); setBuyDraft(null);
     try {
       const parsed = await scanBuyTransaction(file);
-      setBuyDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10) });
+      setBuyDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.purchaseFx || 36) : undefined });
     } catch (err) { setBuyError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setBuyScanning(false); if (buyFileRef.current) buyFileRef.current.value = ''; }
   }
@@ -3781,22 +3784,24 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     setSellScanning(true); setSellError(''); setSellDraft(null);
     try {
       const parsed = await scanSellTransaction(file);
-      setSellDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10) });
+      setSellDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.currentFx || h.purchaseFx || 36) : undefined });
     } catch (err) { setSellError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setSellScanning(false); if (sellFileRef.current) sellFileRef.current.value = ''; }
   }
 
   const sellPreview = useMemo(() => {
     if (!sellDraft) return null;
-    const fx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1;
-    const costBasisSold = Number(sellDraft.shares || 0) * Number(h.avgCost || 0) * fx;
-    const gainOnSale = Number(sellDraft.amount || 0) - costBasisSold;
+    const costFx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1;
+    const costBasisSold = Number(sellDraft.shares || 0) * Number(h.avgCost || 0) * costFx;
+    // สำหรับหุ้น USD (Dime): sellDraft.amount คือยอดที่ได้รับจริงเป็น USD ต้องคูณ FX ก่อนเทียบกับต้นทุน (ที่เป็นบาท) เพื่อหากำไร/ขาดทุน
+    const amountTHB = h.currency === 'USD' ? Number(sellDraft.amount || 0) * Number(sellDraft.fx || h.currentFx || h.purchaseFx || 36) : Number(sellDraft.amount || 0);
+    const gainOnSale = amountTHB - costBasisSold;
     const remainingShares = Math.max(0, Number(h.shares || 0) - Number(sellDraft.shares || 0));
-    return { costBasisSold, gainOnSale, remainingShares };
+    return { costBasisSold, gainOnSale, remainingShares, amountTHB };
   }, [sellDraft, h]);
 
   function confirmSell() {
-    onSellHolding(accountId, h.id, sellDraft);
+    onSellHolding(accountId, h.id, { ...sellDraft, amount: sellPreview.amountTHB, amountForeign: h.currency === 'USD' ? Number(sellDraft.amount || 0) : undefined, fx: sellDraft.fx });
     setSellDraft(null);
   }
 
@@ -3806,26 +3811,32 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const oldAvgCost = Number(h.avgCost || 0);
     const newShares = oldShares + Number(buyDraft.shares || 0);
     const newAvgCost = newShares > 0 ? (oldShares * oldAvgCost + Number(buyDraft.shares || 0) * Number(buyDraft.price || 0)) / newShares : 0;
+    // สำหรับหุ้น USD (Dime): buyDraft.amount คือยอดที่จ่ายจริงเป็น USD (ตามที่สแกน/กรอก) ต้องคูณ FX ก่อนแปลงเป็นบาทเพื่อคำนวณต้นทุน/FX เฉลี่ย
+    const amountTHB = h.currency === 'USD' ? Number(buyDraft.amount || 0) * Number(buyDraft.fx || h.purchaseFx || 36) : Number(buyDraft.amount || 0);
     let newPurchaseFx = h.purchaseFx;
     if (h.currency === 'USD') {
       const oldTotalTHB = holdingCostBasisTHB(h);
-      const newTotalTHB = oldTotalTHB + Number(buyDraft.amount || 0);
+      const newTotalTHB = oldTotalTHB + amountTHB;
       const newTotalUSDCost = newShares * newAvgCost;
       newPurchaseFx = newTotalUSDCost > 0 ? newTotalTHB / newTotalUSDCost : h.purchaseFx;
     }
-    return { newShares, newAvgCost, newPurchaseFx };
+    return { newShares, newAvgCost, newPurchaseFx, amountTHB };
   }, [buyDraft, h]);
 
   function confirmBuy() {
-    const buyRecord = { id: uid(), date: buyDraft.date, shares: buyDraft.shares, price: buyDraft.price, amount: buyDraft.amount };
+    const amountTHB = buyPreview.amountTHB;
+    const buyRecord = { id: uid(), date: buyDraft.date, shares: buyDraft.shares, price: buyDraft.price, amount: amountTHB };
     const patch = { shares: buyPreview.newShares, avgCost: buyPreview.newAvgCost, purchaseDate: h.purchaseDate || buyDraft.date, lastUpdated: new Date().toISOString().slice(0, 10), buys: [buyRecord, ...(h.buys || [])] };
     if (h.currency === 'USD') patch.purchaseFx = buyPreview.newPurchaseFx;
     onUpdate(accountId, h.id, patch);
     const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
-    sendLineFlex(`ซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''} ฿${fmt(buyDraft.amount)}`, buildFlexCard({
+    const isUSD = h.currency === 'USD';
+    const rows = [{ label: 'บัญชี', value: accName || '-' }, { label: 'วันที่', value: formatDateDMY(buyDraft.date) }, { label: 'จำนวนหุ้น', value: `${Number(buyDraft.shares || 0).toLocaleString()} หุ้น @ ${Number(buyDraft.price || 0)}${isUSD ? ' USD' : ''}` }];
+    if (isUSD) rows.push({ label: 'จ่ายจริง', value: `$${fmt2(Number(buyDraft.amount || 0))} (FX ${Number(buyDraft.fx || h.purchaseFx || 36).toFixed(2)})` });
+    sendLineFlex(`ซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''} ${isUSD ? '$' + fmt2(Number(buyDraft.amount || 0)) : '฿' + fmt(amountTHB)}`, buildFlexCard({
       title: `📈 ซื้อ ${h.symbol || h.name}`,
-      rows: [{ label: 'บัญชี', value: accName || '-' }, { label: 'วันที่', value: formatDateDMY(buyDraft.date) }, { label: 'จำนวนหุ้น', value: `${Number(buyDraft.shares || 0).toLocaleString()} หุ้น @ ${Number(buyDraft.price || 0)}` }],
-      amount: Number(buyDraft.amount || 0), amountColor: BAD, tab: 'accounts',
+      rows,
+      amount: amountTHB, amountColor: BAD, tab: 'accounts',
     }));
     setBuyDraft(null);
   }
@@ -3942,11 +3953,13 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             <p className="text-[11px] mb-2" style={{ color: WARN }}>⚠️ ภาพนี้ดูเหมือนเป็นสัญลักษณ์ "{buyDraft.symbol}" แต่หุ้นนี้คือ "{h.symbol}" — เช็คให้ดีว่าภาพถูกต้องก่อนยืนยัน</p>
           )}
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="text-[10px]" style={{ color: SLATE }}>จ่ายจริง (บาท)</label><NumInput value={buyDraft.amount} onChange={(v) => setBuyDraft({ ...buyDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>จ่ายจริง ({h.currency === 'USD' ? 'USD' : 'บาท'})</label><NumInput value={buyDraft.amount} onChange={(v) => setBuyDraft({ ...buyDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ได้</label><NumInput value={buyDraft.shares} onChange={(v) => setBuyDraft({ ...buyDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>ราคา/หุ้น ({h.currency})</label><NumInput value={buyDraft.price} onChange={(v) => setBuyDraft({ ...buyDraft, price: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label><input type="date" value={buyDraft.date} onChange={(e) => setBuyDraft({ ...buyDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนซื้อนี้ (บาทต่อ USD)</label><NumInput value={buyDraft.fx} onChange={(v) => setBuyDraft({ ...buyDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>}
           </div>
+          {h.currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(buyDraft.amount || 0) * Number(buyDraft.fx || h.purchaseFx || 36))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่จ่ายไม่ตรง)</p>}
           {buyPreview && (
             <p className="text-[11px] mb-2" style={{ color: GOOD }}>
               หลังยืนยัน: จำนวนหุ้นรวม {buyPreview.newShares.toFixed(4)} · ต้นทุนเฉลี่ยใหม่ {buyPreview.newAvgCost.toFixed(2)} {h.currency}
@@ -3964,7 +3977,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           <button onClick={() => buyFileRef.current && buyFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
             {buyScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {buyScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการซื้อ'}
           </button>
-          <button onClick={() => setBuyDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10) })} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
+          <button onClick={() => setBuyDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.purchaseFx || 36) : undefined })} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
             ✍️ กรอกด้วยมือ
           </button>
           {buyError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{buyError}</p>}
@@ -4013,11 +4026,13 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             <p className="text-[11px] mb-2" style={{ color: WARN }}>⚠️ ภาพนี้ดูเหมือนเป็นสัญลักษณ์ "{sellDraft.symbol}" แต่หุ้นนี้คือ "{h.symbol}" — เช็คให้ดีว่าภาพถูกต้องก่อนยืนยัน</p>
           )}
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="text-[10px]" style={{ color: SLATE }}>ได้รับจริง (บาท)</label><NumInput value={sellDraft.amount} onChange={(v) => setSellDraft({ ...sellDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ได้รับจริง ({h.currency === 'USD' ? 'USD' : 'บาท'})</label><NumInput value={sellDraft.amount} onChange={(v) => setSellDraft({ ...sellDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ขาย</label><NumInput value={sellDraft.shares} onChange={(v) => setSellDraft({ ...sellDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>ราคา/หุ้น ({h.currency})</label><NumInput value={sellDraft.price} onChange={(v) => setSellDraft({ ...sellDraft, price: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ขาย</label><input type="date" value={sellDraft.date} onChange={(e) => setSellDraft({ ...sellDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนขายนี้ (บาทต่อ USD)</label><NumInput value={sellDraft.fx} onChange={(v) => setSellDraft({ ...sellDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>}
           </div>
+          {h.currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(sellDraft.amount || 0) * Number(sellDraft.fx || h.currentFx || h.purchaseFx || 36))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่ได้ไม่ตรง)</p>}
           {sellPreview && (
             <p className="text-[11px] mb-2" style={{ color: sellPreview.gainOnSale >= 0 ? GOOD : BAD }}>
               กำไร/ขาดทุนจากการขายนี้: {sellPreview.gainOnSale >= 0 ? '+' : ''}฿{fmt(sellPreview.gainOnSale)} (เทียบต้นทุน ฿{fmt(sellPreview.costBasisSold)}) · เหลือถือ {sellPreview.remainingShares.toFixed(4)} หุ้น
@@ -4034,7 +4049,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           <button onClick={() => sellFileRef.current && sellFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
             {sellScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {sellScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการขาย'}
           </button>
-          <button onClick={() => setSellDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10) })} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
+          <button onClick={() => setSellDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.currentFx || h.purchaseFx || 36) : undefined })} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
             ✍️ กรอกด้วยมือ
           </button>
           {sellError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{sellError}</p>}
