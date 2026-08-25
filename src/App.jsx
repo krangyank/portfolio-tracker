@@ -4490,6 +4490,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   const recogRef = useRef(null);
 
   const receiptFileRef = useRef(null);
+  const receiptGalleryRef = useRef(null);
   const [receiptScanning, setReceiptScanning] = useState(false);
   const [receiptError, setReceiptError] = useState('');
   const [receiptDraft, setReceiptDraft] = useState(null); // array of {item, amount, category}
@@ -4689,9 +4690,15 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         ) : (
           <div>
             <input ref={receiptFileRef} type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} className="hidden" />
-            <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} className="w-full flex items-center justify-center gap-2 rounded-lg py-2 text-sm" style={{ border: '1px solid #E7EAF0', color: BRASS }}>
-              {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} {receiptScanning ? 'กำลังอ่านใบเสร็จ...' : 'สแกนใบเสร็จ'}
-            </button>
+            <input ref={receiptGalleryRef} type="file" accept="image/*" onChange={handleReceiptFile} className="hidden" />
+            <div className="flex gap-2">
+              <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} className="flex-1 flex items-center justify-center gap-2 rounded-lg py-2 text-sm" style={{ border: '1px solid #E7EAF0', color: BRASS }}>
+                {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} {receiptScanning ? 'กำลังอ่าน...' : 'ถ่ายรูปใบเสร็จ'}
+              </button>
+              <button onClick={() => receiptGalleryRef.current && receiptGalleryRef.current.click()} disabled={receiptScanning} className="flex-1 flex items-center justify-center gap-2 rounded-lg py-2 text-sm" style={{ border: '1px solid #E7EAF0', color: SLATE }}>
+                <ImageIcon size={14} /> เลือกจากอัลบั้ม
+              </button>
+            </div>
             {receiptError && <p className="text-xs mt-2" style={{ color: BAD }}>{receiptError}</p>}
           </div>
         )}
