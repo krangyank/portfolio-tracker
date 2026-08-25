@@ -1079,9 +1079,12 @@ export default function App() {
     const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
     const srcLabel = entry.source === 'yieldtech' ? 'YieldTech' : ((SOURCES.find((s) => s.id === entry.source) || {}).label || entry.source || 'เงินเข้า');
     if (entry.source === 'personal_withdraw') {
+      const wdRows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'ปลายทาง', value: 'ใช้ส่วนตัว' }];
+      if (entry.category) wdRows.push({ label: 'หมวดหมู่', value: entry.category });
+      if (entry.note) wdRows.push({ label: 'โน้ต', value: entry.note });
       sendLineFlex(`ถอนจาก ${accName} ไปใช้ส่วนตัว ฿${fmt(Math.abs(Number(entry.amount || 0)))}`, buildFlexCard({
         title: `💸 ถอนออกจาก${accName ? ' ' + accName : ''}`,
-        rows: [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'ปลายทาง', value: 'ใช้ส่วนตัว' }],
+        rows: wdRows,
         amount: Math.abs(Number(entry.amount || 0)), amountColor: BAD, tab: 'savings',
       }));
     } else {
@@ -4206,7 +4209,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
             if (!wdAmount || !wdAccountId) return;
             const acc = accounts.find((a) => a.id === wdAccountId);
             const destLabel = acc ? acc.name : wdAccountId;
-            onAdd({ date: wdDate, amount: -Math.abs(Number(wdAmount)), source: 'personal_withdraw', accountId: wdAccountId });
+            onAdd({ date: wdDate, amount: -Math.abs(Number(wdAmount)), source: 'personal_withdraw', accountId: wdAccountId, category: wdCategory, note: wdNote });
             if (onAddExpense) onAddExpense({ date: wdDate, amount: Math.abs(Number(wdAmount)), category: wdCategory, note: `ถอนจากเงินเก็บ${destLabel ? ' - ' + destLabel : ''}${wdNote ? ' · ' + wdNote : ''}` });
             setWdAmount(0); setWdNote(''); setShowWithdraw(false);
           }
@@ -4273,12 +4276,13 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
       {groupedList.thisMonthItems.map((c) => {
         const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((s) => s.id === c.source);
         const destLabel = acc?.name || c.accountId || 'ไม่ทราบบัญชี';
+        const isWithdraw = c.source === 'personal_withdraw';
         return (
           <Card key={c.id}>
             <div className="flex justify-between items-center">
-              <div><p className="text-sm">{src?.label || c.source} → {destLabel}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}</p></div>
+              <div><p className="text-sm">{isWithdraw ? '💸' : '💰'} {src?.label || c.source} → {destLabel}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}</p>{isWithdraw && c.note && <p className="text-xs" style={{ color: SLATE }}>{c.note}</p>}</div>
               <div className="flex items-center gap-3">
-                <span className="text-sm">฿{fmt(c.amount)}</span>
+                <span className="text-sm" style={{ color: isWithdraw ? BAD : GOOD }}>{isWithdraw ? '-' : '+'}฿{fmt(Math.abs(c.amount))}</span>
                 {googleConnected && (
                   <button onClick={async () => {
                     setSyncingId(c.id);
@@ -4354,12 +4358,13 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
       )}
       {editing && (
         <EditModal title="แก้ไขเงินเข้า" onClose={() => setEditing(null)}
-          initialValues={{ date: editing.date, amount: editing.amount, source: editing.source, accountId: editing.accountId }}
+          initialValues={{ date: editing.date, amount: editing.amount, source: editing.source, accountId: editing.accountId, note: editing.note || '' }}
           fields={[
             { key: 'date', label: 'วันที่', type: 'date' },
             { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
             { key: 'source', label: 'แหล่งที่มา', type: 'select', options: SOURCES.map((s) => ({ value: s.id, label: s.label })) },
             { key: 'accountId', label: 'บัญชีปลายทาง', type: 'select-custom', options: accounts.map((a) => ({ value: a.id, label: a.name })), customList: customDestinationList, onAddCustom: onAddCustomDestination },
+            ...(editing.source === 'personal_withdraw' ? [{ key: 'note', label: 'โน้ต (เอาไปทำอะไร)', type: 'text' }] : []),
           ]}
           onSave={(v) => {
             const oldAcc = accounts.find((a) => a.id === editing.accountId);
@@ -4372,13 +4377,14 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
             if (editing.accountId !== v.accountId) changed.push({ label: 'ปลายทาง', value: `${oldAcc?.name || editing.accountId || '-'} → ${newAcc?.name || v.accountId || '-'}` });
             if (editing.source !== v.source) changed.push({ label: 'แหล่งที่มา', value: `${oldSrc} → ${newSrc}` });
             if (editing.date !== v.date) changed.push({ label: 'วันที่', value: `${formatDateDMY(editing.date)} → ${formatDateDMY(v.date)}` });
+            if ((editing.note || '') !== (v.note || '')) changed.push({ label: 'โน้ต', value: `${editing.note || '-'} → ${v.note || '-'}` });
             // ระบุยอดเงิน+วันที่ของรายการไว้เสมอ (ใช้ยอด/วันที่เดิมเป็นตัวบอกว่าแก้ "รายการไหน" เผื่อวันนั้นมีหลายรายการ)
             if (changed.length) sendLineFlex(`แก้ไขเงินเข้า ฿${fmt(editing.amount)} (${oldSrc})`, buildFlexCard({
               title: `✏️ แก้ไขเงินเข้า (${oldSrc})`,
               rows: [{ label: 'รายการเดิม', value: `฿${fmt(editing.amount)} วันที่ ${formatDateDMY(editing.date)}` }, ...changed],
               tab: 'savings',
             }));
-            onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId });
+            onUpdate(editing.id, { date: v.date, amount: Number(v.amount) || 0, source: v.source, accountId: v.accountId, note: v.note });
             setEditing(null);
           }}
         />
