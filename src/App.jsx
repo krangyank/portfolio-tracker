@@ -4205,8 +4205,9 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           function submitWithdraw() {
             if (!wdAmount || !wdAccountId) return;
             const acc = accounts.find((a) => a.id === wdAccountId);
+            const destLabel = acc ? acc.name : wdAccountId;
             onAdd({ date: wdDate, amount: -Math.abs(Number(wdAmount)), source: 'personal_withdraw', accountId: wdAccountId });
-            if (onAddExpense) onAddExpense({ date: wdDate, amount: Math.abs(Number(wdAmount)), category: wdCategory, note: `ถอนจากเงินเก็บ${acc ? ' - ' + acc.name : ''}${wdNote ? ' · ' + wdNote : ''}` });
+            if (onAddExpense) onAddExpense({ date: wdDate, amount: Math.abs(Number(wdAmount)), category: wdCategory, note: `ถอนจากเงินเก็บ${destLabel ? ' - ' + destLabel : ''}${wdNote ? ' · ' + wdNote : ''}` });
             setWdAmount(0); setWdNote(''); setShowWithdraw(false);
           }
           return (
@@ -4216,10 +4217,8 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
               <label className="text-xs" style={{ color: SLATE }}>จำนวนเงิน (บาท)</label>
               <NumInput value={wdAmount} onChange={setWdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
               <label className="text-xs" style={{ color: SLATE }}>ถอนจากบัญชีไหน</label>
-              <select value={wdAccountId} onChange={(e) => setWdAccountId(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">
-                <option value="">— เลือกบัญชี —</option>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              <AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={wdAccountId} onChange={setWdAccountId} customList={customDestinationList} onAddCustom={onAddCustomDestination} />
+              <div className="mb-3" />
               <label className="text-xs" style={{ color: SLATE }}>หมวดหมู่รายจ่าย (จะขึ้นในแท็บรายจ่ายด้วย)</label>
               <select value={wdCategory} onChange={(e) => setWdCategory(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">
                 {(expenseCategories || ['อื่นๆ']).map((c) => <option key={c} value={c}>{c}</option>)}
