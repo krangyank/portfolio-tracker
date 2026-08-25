@@ -63,6 +63,10 @@ const SOURCES = [
   { id: 'personal_withdraw', label: 'ถอนใช้ส่วนตัว' },
   { id: 'other', label: 'อื่นๆ' },
 ];
+// แหล่งที่มาที่ถือเป็น "ปันผล" — ใช้ทำพื้นหลังสีเขียวอ่อนแยกจากเงินเข้าปกติในรายการล่าสุด
+const DIVIDEND_SOURCES = ['coop_div', 'thai_div', 'us_div', 'yieldtech'];
+const BG_WITHDRAW = '#FBEAEA';
+const BG_DIVIDEND = '#E9F5EE';
 
 const fmt = (n) => new Intl.NumberFormat('th-TH', { maximumFractionDigits: 0 }).format(n || 0);
 // แปลง YYYY-MM-DD เป็น วัน/เดือน/ปี ให้อ่านง่ายแบบไทย ใช้แสดงผลเฉยๆ ไม่กระทบการเก็บข้อมูลจริง (ยังเก็บเป็น YYYY-MM-DD เหมือนเดิมเพื่อ sort ได้ถูกต้อง)
@@ -4277,8 +4281,9 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
         const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((s) => s.id === c.source);
         const destLabel = acc?.name || c.accountId || 'ไม่ทราบบัญชี';
         const isWithdraw = c.source === 'personal_withdraw';
+        const isDividend = DIVIDEND_SOURCES.includes(c.source);
         return (
-          <Card key={c.id}>
+          <Card key={c.id} style={isWithdraw ? { background: BG_WITHDRAW } : isDividend ? { background: BG_DIVIDEND } : undefined}>
             <div className="flex justify-between items-center">
               <div><p className="text-sm">{isWithdraw ? '💸' : '💰'} {src?.label || c.source} → {destLabel}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}</p>{isWithdraw && c.note && <p className="text-xs" style={{ color: SLATE }}>{c.note}</p>}</div>
               <div className="flex items-center gap-3">
@@ -4555,11 +4560,15 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   function updateReceiptRow(idx, patch) { setReceiptDraft(receiptDraft.map((r, i) => (i === idx ? { ...r, ...patch } : r))); }
   function removeReceiptRow(idx) { setReceiptDraft(receiptDraft.filter((_, i) => i !== idx)); }
   function confirmReceipt() {
-    if (receiptCardId) {
-      receiptDraft.forEach((r) => onAddCreditCardTransaction(receiptCardId, { date: today, amount: r.amount, category: r.category, note: r.item }));
-    } else {
-      receiptDraft.forEach((r) => onAdd({ date: today, amount: r.amount, category: r.category, note: r.item }));
-    }
+    // รวมทุกรายการในใบเสร็จเป็นรายจ่ายเดียว (ยอดรวม) แต่เก็บรายละเอียดแต่ละรายการไว้ใน items เผื่อต้องการดูแยก
+    const total = receiptDraft.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const catCounts = {};
+    receiptDraft.forEach((r) => { catCounts[r.category] = (catCounts[r.category] || 0) + 1; });
+    const mainCategory = Object.keys(catCounts).sort((a, b) => catCounts[b] - catCounts[a])[0] || (categories[0] || 'อื่นๆ');
+    const combinedNote = receiptDraft.map((r) => `${r.item} ฿${fmt(r.amount)}`).join(', ');
+    const record = { date: today, amount: total, category: mainCategory, note: combinedNote, items: receiptDraft };
+    if (receiptCardId) onAddCreditCardTransaction(receiptCardId, record);
+    else onAdd(record);
     setReceiptDraft(null); setReceiptCardId('');
   }
 
@@ -4653,7 +4662,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
 
         {receiptDraft ? (
           <div style={{ background: PAPER_DIM }} className="rounded-lg p-2">
-            <p className="text-xs mb-2" style={{ color: SLATE }}>พบ {receiptDraft.length} รายการในใบเสร็จ — เลือกหมวดหมู่แล้วยืนยัน</p>
+            <p className="text-xs mb-2" style={{ color: SLATE }}>พบ {receiptDraft.length} รายการในใบเสร็จ — แก้ไขได้ทีละรายการ ตอนยืนยันจะรวมเป็นรายจ่ายเดียว (ยอดรวม ฿{fmt(receiptDraft.reduce((s, r) => s + Number(r.amount || 0), 0))}) แต่ยังเก็บรายละเอียดแต่ละรายการไว้ให้ดูย้อนหลังได้</p>
             <label className="text-[11px]" style={{ color: SLATE }}>จ่ายด้วย</label>
             <select value={receiptCardId} onChange={(e) => setReceiptCardId(e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }}>
               <option value="">💵 เงินสด</option>
@@ -4673,13 +4682,13 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
               </div>
             ))}
             <div className="flex gap-2">
-              <button onClick={confirmReceipt} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยันเพิ่มทั้งหมด</button>
+              <button onClick={confirmReceipt} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ยืนยัน (รวมเป็นรายการเดียว)</button>
               <button onClick={() => setReceiptDraft(null)} style={{ border: '1px solid #E7EAF0' }} className="text-xs rounded px-3 py-1.5">ยกเลิก</button>
             </div>
           </div>
         ) : (
           <div>
-            <input ref={receiptFileRef} type="file" accept="image/*" onChange={handleReceiptFile} className="hidden" />
+            <input ref={receiptFileRef} type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} className="hidden" />
             <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} className="w-full flex items-center justify-center gap-2 rounded-lg py-2 text-sm" style={{ border: '1px solid #E7EAF0', color: BRASS }}>
               {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} {receiptScanning ? 'กำลังอ่านใบเสร็จ...' : 'สแกนใบเสร็จ'}
             </button>
@@ -8741,7 +8750,7 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
   return (
     <div>
       <Card>
-        <input ref={receiptFileRef} type="file" accept="image/*" onChange={handleReceiptPhoto} className="hidden" />
+        <input ref={receiptFileRef} type="file" accept="image/*" capture="environment" onChange={handleReceiptPhoto} className="hidden" />
         <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-3">
           {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color={BRASS} />}{receiptScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปใบเสร็จหรือสลิปโอน (บันทึกทันที)'}
         </button>
