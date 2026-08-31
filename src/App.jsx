@@ -1172,6 +1172,25 @@ export default function App() {
     const h = acc.holdings.find((x) => x.id === holdingId);
     updateHolding(accountId, holdingId, { sells: (h.sells || []).filter((s) => s.id !== sellId) });
   }
+  // ลบรายการซื้อ — ต้องคำนวณจำนวนหุ้น/ต้นทุนเฉลี่ย/FX เฉลี่ยของหุ้นตัวนั้นใหม่ทั้งหมด (หักรายการนี้ออกจากยอดรวมเดิม) ไม่ใช่แค่ลบออกจากลิสต์เฉยๆ
+  function removeBuy(accountId, holdingId, buyId) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const h = acc.holdings.find((x) => x.id === holdingId);
+    const buy = (h.buys || []).find((b) => b.id === buyId);
+    if (!buy) return;
+    const newShares = Math.max(0, Number(h.shares || 0) - Number(buy.shares || 0));
+    const oldTotalCost = Number(h.shares || 0) * Number(h.avgCost || 0);
+    const newTotalCost = oldTotalCost - Number(buy.shares || 0) * Number(buy.price || 0);
+    const newAvgCost = newShares > 0 ? newTotalCost / newShares : 0;
+    const patch = { shares: newShares, avgCost: newAvgCost, buys: (h.buys || []).filter((b) => b.id !== buyId) };
+    if (h.currency === 'USD') {
+      const oldTotalTHB = holdingCostBasisTHB(h);
+      const newTotalTHB = oldTotalTHB - Number(buy.amount || 0);
+      const newTotalUSDCost = newShares * newAvgCost;
+      patch.purchaseFx = newTotalUSDCost > 0 ? newTotalTHB / newTotalUSDCost : h.purchaseFx;
+    }
+    updateHolding(accountId, holdingId, patch);
+  }
   function updateSell(accountId, holdingId, sellId, patch) {
     const acc = accounts.find((a) => a.id === accountId);
     const h = acc.holdings.find((x) => x.id === holdingId);
@@ -1912,7 +1931,7 @@ export default function App() {
         <AccountsTab accounts={accounts} onUpdate={updateAccount} onAdd={addAccount} onRemove={removeAccount} costBasisByAccount={costBasisByAccount}
           onAddHolding={addHolding} onUpdateHolding={updateHolding} onRemoveHolding={removeHolding} onAddDividend={addDividend}
           onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
-          onSellHolding={sellHolding} onRemoveSell={removeSell} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} />
+          onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} />
       )}
       {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
       {tab === 'income' && <NewsTab news={investmentNews} accounts={accounts} onSaved={saveInvestmentNews} />}
@@ -2877,7 +2896,7 @@ function mergePortfolioScans(results) {
   return { bySymbol, orderRows };
 }
 
-function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch }) {
+function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -2988,7 +3007,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
           </div>
           {catAccounts.map((a) => (
             HOLDING_CATEGORIES.includes(key)
-              ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onAddContribution={onAddContribution} onRecordYieldTech={onRecordYieldTech} onRecordYieldTechBatch={onRecordYieldTechBatch} onRecordBuySellBatch={onRecordBuySellBatch} />
+              ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onRemoveBuy={onRemoveBuy} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onAddContribution={onAddContribution} onRecordYieldTech={onRecordYieldTech} onRecordYieldTechBatch={onRecordYieldTechBatch} onRecordBuySellBatch={onRecordBuySellBatch} />
               : <SimpleAccountCard key={a.id} account={a} basis={costBasisByAccount[a.id] || 0} onUpdate={onUpdate} onRemove={onRemove} onScanValue={scanSingleValue} />
           ))}
           {(!grouped[key] || grouped[key].length === 0) && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีบัญชีในหมวดนี้</p>}
@@ -3236,7 +3255,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
   );
 }
 
-function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch }) {
+function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch }) {
   const [expanded, setExpanded] = useState(true);
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
@@ -3715,14 +3734,14 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
                 <p style={{ color: INK }} className="text-base font-bold">{h.symbol}</p>
                 <button onClick={() => setSelectedHoldingId(null)}><X size={20} color={INK} /></button>
               </div>
-              <HoldingRow accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={(accId, hId) => { onRemoveHolding(accId, hId); setSelectedHoldingId(null); }} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={true} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onRecordYieldTech={onRecordYieldTech} isMutualFund={a.category === 'mutual_fund'} />
+              <HoldingRow accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={(accId, hId) => { onRemoveHolding(accId, hId); setSelectedHoldingId(null); }} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={true} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onRemoveBuy={onRemoveBuy} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onRecordYieldTech={onRecordYieldTech} isMutualFund={a.category === 'mutual_fund'} />
             </div>
           </div>
         );
       })()}
     </Card>
   );
-    }function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onUpdateSell, onUpdateBuy, onRecordYieldTech, isMutualFund }) {
+    }function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onRecordYieldTech, isMutualFund }) {
   const [showDiv, setShowDiv] = useState(false);
   const [divAmount, setDivAmount] = useState(0);
   const [divDate, setDivDate] = useState(new Date().toISOString().slice(0, 10));
@@ -3996,7 +4015,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       {showBuys && (h.buys || []).map((b) => (
         <div key={b.id} className="flex justify-between text-xs mt-1">
           <span>{b.date} · ซื้อ {b.shares} หุ้น @ {b.price}{b.estimated && <span className="text-[9px]" style={{ color: WARN }}> (ประมาณการจากภาพสรุป)</span>}</span>
-          <span className="text-[10px] flex items-center gap-2" style={{ color: SLATE }}>฿{fmt(b.amount)} <EditButton onClick={() => setEditingBuy(b)} /></span>
+          <span className="text-[10px] flex items-center gap-2" style={{ color: SLATE }}>฿{fmt(b.amount)} <EditButton onClick={() => setEditingBuy(b)} /><button onClick={() => onRemoveBuy(accountId, h.id, b.id)}><Trash2 size={11} color={BAD} /></button></span>
         </div>
       ))}
       {editingBuy && (
