@@ -2648,7 +2648,13 @@ async function scanDimeCashBalances(file) {
 
 async function scanBuyTransaction(file) {
   const base64 = await readFileAsBase64(file);
-  const prompt = `นี่คือภาพยืนยันรายการซื้อหุ้นหรือกองทุนจากแอปการลงทุน (เช่น สลิปคำสั่งซื้อ, DCA, ประวัติรายการ, หรือตารางคำสั่งซื้อขาย) ภาพอาจมีหลายรายการหรือหลายสัญลักษณ์ปนกัน — ให้เลือกเฉพาะรายการฝั่งซื้อ (Buy/B) ที่มีสถานะสำเร็จแล้วเท่านั้น (เช่น Match, Filled, Completed, สำเร็จ) ห้ามนับรายการที่สถานะยังเป็น Open/Pending/รอดำเนินการ ถ้ามีหลายรายการที่ผ่านเงื่อนไข ให้เลือกรายการที่ดูเด่นหรือล่าสุดที่สุด อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"symbol": "สัญลักษณ์ย่อของรายการที่เลือก หรือ null ถ้าไม่เห็น", "amount": จำนวนเงินที่จ่ายจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ได้รับเป็นตัวเลข, "price": ราคาต่อหน่วยที่ซื้อได้จริงเป็นตัวเลข, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
+  const prompt = `นี่คือภาพยืนยันรายการซื้อหุ้นหรือกองทุนจากแอปการลงทุน (เช่น สลิปคำสั่งซื้อ, คำสั่งซื้อกองทุนรวม, DCA, ประวัติรายการ, หรือตารางคำสั่งซื้อขาย)
+
+กรณีที่ 1 — สลิปคำสั่งซื้อ "กองทุนรวม" (มักมี Order ID, "วันที่คำสั่งมีผล", "วันที่คาดว่าได้รับหน่วยลงทุน" เป็นวันถัดไป, ยังไม่มีจำนวนหน่วย): เงินถูกตัดจากบัญชีแล้วทันทีที่ยืนยันคำสั่ง แม้จะยังไม่รู้จำนวนหน่วย/ราคาต่อหน่วย (ต้องรอ NAV ปิดวันถัดไป) — ถือเป็นรายการซื้อที่สมบูรณ์แล้ว ให้ดึง amount (ยอดเงินที่ระบุในสลิป) และ date ให้ครบเสมอ ส่วน shares และ price ถ้ายังไม่ปรากฏในภาพให้ตอบเป็น null (ห้ามตอบ 0)
+
+กรณีที่ 2 — รายการซื้อหุ้นจากตลาดหลักทรัพย์ (ภาพอาจมีหลายรายการ/หลายสัญลักษณ์ปนกัน มีสถานะกำกับแต่ละแถว): ให้เลือกเฉพาะรายการฝั่งซื้อ (Buy/B) ที่ execute สำเร็จแล้วเท่านั้น (เช่น Match, Filled, Completed, สำเร็จ) ห้ามนับรายการที่สถานะยังเป็น Open/Pending/รอดำเนินการ (คือคำสั่ง limit order ที่ยังไม่จับคู่ ไม่ใช่การซื้อที่เกิดขึ้นจริง) ถ้ามีหลายรายการที่ผ่านเงื่อนไข ให้เลือกรายการที่ดูเด่นหรือล่าสุดที่สุด
+
+อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"symbol": "สัญลักษณ์ย่อของรายการที่เลือก หรือ null ถ้าไม่เห็น", "amount": จำนวนเงินที่จ่ายจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ได้รับเป็นตัวเลข หรือ null ถ้ายังไม่ทราบ (กองทุนรอ NAV), "price": ราคาต่อหน่วยที่ซื้อได้จริงเป็นตัวเลข หรือ null ถ้ายังไม่ทราบ, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
@@ -3799,7 +3805,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     setBuyScanning(true); setBuyError(''); setBuyDraft(null);
     try {
       const parsed = await scanBuyTransaction(file);
-      setBuyDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.purchaseFx || 36) : undefined });
+      setBuyDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.purchaseFx || 36) : undefined, pendingUnits: (parsed.shares === null || parsed.shares === undefined) });
     } catch (err) { setBuyError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setBuyScanning(false); if (buyFileRef.current) buyFileRef.current.value = ''; }
   }
@@ -3977,6 +3983,9 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           <p className="text-xs mb-2" style={{ color: SLATE }}>ตรวจสอบรายการซื้อก่อนยืนยัน (แก้ไขได้)</p>
           {buyDraft.symbol && buyDraft.symbol.toUpperCase() !== (h.symbol || '').toUpperCase() && (
             <p className="text-[11px] mb-2" style={{ color: WARN }}>⚠️ ภาพนี้ดูเหมือนเป็นสัญลักษณ์ "{buyDraft.symbol}" แต่หุ้นนี้คือ "{h.symbol}" — เช็คให้ดีว่าภาพถูกต้องก่อนยืนยัน</p>
+          )}
+          {buyDraft.pendingUnits && (
+            <p className="text-[11px] mb-2 px-2 py-1.5 rounded" style={{ background: '#FEF3E2', color: WARN }}>⏳ กองทุนนี้ยังไม่รู้จำนวนหน่วย/ราคา (รอ NAV ปิดวันถัดไป) — กรอกยอดเงินแล้วบันทึกไปก่อนได้ แล้วค่อยกลับมาแก้ไขจำนวนหน่วย/ราคาทีหลังตอนกองทุนแจ้งผลแล้ว</p>
           )}
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div><label className="text-[10px]" style={{ color: SLATE }}>จ่ายจริง ({h.currency === 'USD' ? 'USD' : 'บาท'})</label><NumInput value={buyDraft.amount} onChange={(v) => setBuyDraft({ ...buyDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
