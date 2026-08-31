@@ -2316,15 +2316,15 @@ function Sparkline({ values, color }) {
     </svg>
   );
 }
-function WeightStatBox({ label, value, trendValues, trendColor }) {
+function WeightStatBox({ label, value, trendValues, trendColor, onClick }) {
   return (
-    <div style={{ background: PAPER_DIM }} className="rounded-xl p-3">
+    <button onClick={onClick} disabled={!onClick} style={{ background: PAPER_DIM }} className="rounded-xl p-3 text-left w-full">
       <p className="text-[10px] mb-1" style={{ color: SLATE }}>{label}</p>
       <div className="flex items-center justify-between">
         <p className="text-lg font-semibold" style={{ color: INK }}>{value}</p>
         {trendValues && trendValues.length >= 2 && <Sparkline values={trendValues} color={trendColor} />}
       </div>
-    </div>
+    </button>
   );
 }
 function DashCategoryCard({ label, value, sub, tone, icon: Icon, fg, bg, onClick }) {
@@ -6782,7 +6782,7 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
         <p className="text-lg font-semibold mb-1">{dog.name}{dog.nickname && ` (${dog.nickname})`}</p>
         <div className="grid grid-cols-2 gap-2">
           <StatBox label="อายุ" value={ageString(dog.birthdate)} />
-          <WeightStatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} trendValues={recentWeights.length >= 2 ? recentWeights : null} trendColor={weightDelta < 0 ? BAD : weightDelta > 0 ? GOOD : SLATE} />
+          <WeightStatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} trendValues={recentWeights.length >= 2 ? recentWeights : null} trendColor={weightDelta < 0 ? BAD : weightDelta > 0 ? GOOD : SLATE} onClick={() => setSection('weight')} />
           <StatBox label="BCS" value={dog.bcs || '-'} />
           <StatBox label="เพศ/สี" value={`${dog.sex || '-'} / ${dog.color || '-'}`} />
         </div>
