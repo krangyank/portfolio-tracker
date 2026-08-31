@@ -7161,6 +7161,7 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
   const [editingMed, setEditingMed] = useState(null);
   const [selectedPreset, setSelectedPreset] = useState('');
   const labelFileRef = useRef(null);
+  const labelGalleryRef = useRef(null);
   const [scanningLabel, setScanningLabel] = useState(false);
   const [scanLabelError, setScanLabelError] = useState('');
   const [scannedFile, setScannedFile] = useState(null);
@@ -7217,10 +7218,16 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
     <div>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>เพิ่มยาใหม่ (ปรับยา = เพิ่มรายการใหม่ ไม่ลบของเดิม)</p>
-        <input ref={labelFileRef} type="file" accept="image/*" onChange={handleLabelPhoto} className="hidden" />
-        <button onClick={() => labelFileRef.current && labelFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-2">
-          {scanningLabel ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color="#FBBF24" />} {scanningLabel ? 'กำลังอ่านฉลากยา...' : 'ถ่ายรูปฉลาก/ซองยา ให้ AI กรอกให้'}
-        </button>
+        <input ref={labelFileRef} type="file" accept="image/*" capture="environment" onChange={handleLabelPhoto} className="hidden" />
+        <input ref={labelGalleryRef} type="file" accept="image/*" onChange={handleLabelPhoto} className="hidden" />
+        <div className="flex gap-2 mb-2">
+          <button onClick={() => labelFileRef.current && labelFileRef.current.click()} disabled={scanningLabel} style={{ background: INK }} className="flex-1 text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">
+            {scanningLabel ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color="#FBBF24" />} {scanningLabel ? 'กำลังอ่าน...' : 'ถ่ายรูปฉลาก/ซองยา'}
+          </button>
+          <button onClick={() => labelGalleryRef.current && labelGalleryRef.current.click()} disabled={scanningLabel} style={{ border: '1px solid #E7EAF0' }} className="flex-1 rounded-lg py-2 text-sm flex items-center justify-center gap-2">
+            <ImageIcon size={14} /> เลือกจากอัลบั้ม
+          </button>
+        </div>
         {scanLabelError && <p className="text-xs mb-3" style={{ color: BAD }}>{scanLabelError}</p>}
         {scannedFile && (
           <label className="flex items-center gap-2 mb-3 text-xs" style={{ color: INK }}>
@@ -7248,8 +7255,8 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
         <button onClick={submit} disabled={saving} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">{saving && <Loader2 size={14} className="animate-spin" />} บันทึกยา</button>
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติยาทั้งหมด</p>
-      {meds.map((m) => (
-        <Card key={m.id}>
+      {[...meds].sort((a, b) => (!!a.stopDate === !!b.stopDate ? 0 : a.stopDate ? 1 : -1)).map((m) => (
+        <Card key={m.id} style={m.stopDate ? { background: PAPER_DIM, opacity: 0.75 } : undefined}>
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm font-semibold">{m.name} {m.strength}</p>
@@ -7258,7 +7265,8 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
               {m.hospital && <p className="text-xs" style={{ color: SLATE }}>{m.hospital} · {m.doctor}</p>}
             </div>
             <div className="flex items-center gap-2">
-              {!m.stopDate && <span className="text-[10px] rounded-full px-2 py-1" style={{ background: PAPER_DIM, color: GOOD }}>กำลังใช้</span>}
+              {!m.stopDate && <span className="text-[10px] rounded-full px-2 py-1" style={{ background: 'white', color: GOOD }}>กำลังใช้</span>}
+              {m.stopDate && <span className="text-[10px] rounded-full px-2 py-1" style={{ background: 'white', color: SLATE }}>หยุดใช้แล้ว</span>}
               <EditButton onClick={() => setEditingMed(m)} />
               <button onClick={() => onRemoveMedication(dog.id, m.id)}><Trash2 size={14} color={BAD} /></button>
             </div>
@@ -8732,6 +8740,7 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
   const [periodType, setPeriodType] = useState('month');
   const [editingExp, setEditingExp] = useState(null);
   const receiptFileRef = useRef(null);
+  const receiptGalleryRef = useRef(null);
   const [receiptScanning, setReceiptScanning] = useState(false);
   const [receiptError, setReceiptError] = useState('');
   const list = hospitalList || [];
@@ -8786,9 +8795,15 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
     <div>
       <Card>
         <input ref={receiptFileRef} type="file" accept="image/*" capture="environment" onChange={handleReceiptPhoto} className="hidden" />
-        <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-3">
-          {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color={BRASS} />}{receiptScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปใบเสร็จหรือสลิปโอน (บันทึกทันที)'}
-        </button>
+        <input ref={receiptGalleryRef} type="file" accept="image/*" onChange={handleReceiptPhoto} className="hidden" />
+        <div className="flex gap-2 mb-3">
+          <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} disabled={receiptScanning} style={{ background: INK }} className="flex-1 text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">
+            {receiptScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color={BRASS} />}{receiptScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูป (บันทึกทันที)'}
+          </button>
+          <button onClick={() => receiptGalleryRef.current && receiptGalleryRef.current.click()} disabled={receiptScanning} style={{ border: '1px solid #E7EAF0' }} className="flex-1 rounded-lg py-2 text-sm flex items-center justify-center gap-2" >
+            <ImageIcon size={14} /> เลือกจากอัลบั้ม
+          </button>
+        </div>
         {receiptError && <p className="text-xs mb-3" style={{ color: BAD }}>{receiptError}</p>}
         <label className="text-xs" style={{ color: SLATE }}>หรือกรอกเอง</label>
         <NumInput value={amount} onChange={setAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
