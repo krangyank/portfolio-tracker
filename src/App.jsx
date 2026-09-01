@@ -3860,13 +3860,16 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const buyRecord = { id: uid(), date: buyDraft.date, shares: buyDraft.shares, price: buyDraft.price, amount: amountTHB };
     const patch = { shares: buyPreview.newShares, avgCost: buyPreview.newAvgCost, purchaseDate: h.purchaseDate || buyDraft.date, lastUpdated: new Date().toISOString().slice(0, 10), buys: [buyRecord, ...(h.buys || [])] };
     if (h.currency === 'USD') patch.purchaseFx = buyPreview.newPurchaseFx;
+    // ถ้าหุ้น/กองทุนนี้ยังไม่มีชื่อ (เพิ่งสร้างใหม่ ยังไม่ได้กรอกชื่อ) ให้ดึงชื่อจากภาพสลิปที่สแกนมาใส่ให้เลย จะได้ไม่ขึ้นชื่อว่างในการ์ดแจ้งเตือน/ประวัติ
+    if (!h.symbol && !h.name && buyDraft.symbol) patch.symbol = buyDraft.symbol;
     onUpdate(accountId, h.id, patch);
+    const displayName = h.symbol || h.name || buyDraft.symbol || 'รายการนี้';
     const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
     const isUSD = h.currency === 'USD';
     const rows = [{ label: 'บัญชี', value: accName || '-' }, { label: 'วันที่', value: formatDateDMY(buyDraft.date) }, { label: 'จำนวนหุ้น', value: `${Number(buyDraft.shares || 0).toLocaleString()} หุ้น @ ${Number(buyDraft.price || 0)}${isUSD ? ' USD' : ''}` }];
     if (isUSD) rows.push({ label: 'จ่ายจริง', value: `$${fmt2(Number(buyDraft.amount || 0))} (FX ${Number(buyDraft.fx || h.purchaseFx || 36).toFixed(2)})` });
-    sendLineFlex(`ซื้อ ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''} ${isUSD ? '$' + fmt2(Number(buyDraft.amount || 0)) : '฿' + fmt(amountTHB)}`, buildFlexCard({
-      title: `📈 ซื้อ ${h.symbol || h.name}`,
+    sendLineFlex(`ซื้อ ${displayName}${accName ? ' (' + accName + ')' : ''} ${isUSD ? '$' + fmt2(Number(buyDraft.amount || 0)) : '฿' + fmt(amountTHB)}`, buildFlexCard({
+      title: `📈 ซื้อ ${displayName}`,
       rows,
       amount: amountTHB, amountColor: BAD, tab: 'accounts',
     }));
@@ -4343,10 +4346,10 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
             const total = g.items.reduce((s, it) => s + Number(it.amount || 0), 0);
             return (
               <button key={`${g.source}__${g.accountId}__${g.month}`} onClick={() => setGroupPopup({ label: `${src?.label || g.source} → ${acc?.name || g.accountId || 'ไม่ทราบบัญชี'} · ${g.month}`, items: g.items })} className="w-full text-left" style={{ display: 'block' }}>
-                <Card>
+                <Card style={{ background: PAPER_DIM, borderLeft: `3px solid ${SLATE}` }}>
                   <div className="flex justify-between items-center">
-                    <div><p className="text-sm">{src?.label || g.source} → {acc?.name || g.accountId || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{g.month} · {g.items.length} รายการ</p></div>
-                    <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(total)}</span><ChevronRight size={15} color={SLATE} /></div>
+                    <div><p className="text-sm" style={{ color: SLATE }}>📁 {src?.label || g.source} → {acc?.name || g.accountId || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{g.month} · {g.items.length} รายการ</p></div>
+                    <div className="flex items-center gap-2"><span className="text-sm font-semibold" style={{ color: SLATE }}>฿{fmt(total)}</span><ChevronRight size={15} color={SLATE} /></div>
                   </div>
                 </Card>
               </button>
