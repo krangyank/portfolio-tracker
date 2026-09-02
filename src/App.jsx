@@ -3731,8 +3731,13 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const today_ = new Date();
 
   return (
-    <Card>
-      <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} />{a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}<button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
+    <Card style={{ borderTop: `3px solid ${categoryColor}` }}>
+      <div className="flex items-center gap-2.5 mb-1">
+        <div style={{ background: `${categoryColor}1F`, color: categoryColor, flexShrink: 0 }} className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold">{(a.name || '?').trim().slice(0, 2).toUpperCase()}</div>
+        <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} />
+        {a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}
+        <button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button>
+      </div>
       {a.category === 'mutual_fund' && (
         <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0', color: SLATE }} />
       )}
