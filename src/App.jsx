@@ -2910,6 +2910,19 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
   const [targets, setTargets] = useState({});
   const [newCats, setNewCats] = useState({});
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState('accounts'); // 'accounts' | 'allbuys'
+  const [editingAllBuy, setEditingAllBuy] = useState(null); // { accountId, holdingId, ...buy }
+  const allBuys = useMemo(() => {
+    const rows = [];
+    accounts.forEach((a) => {
+      (a.holdings || []).forEach((h) => {
+        (h.buys || []).forEach((b) => {
+          rows.push({ ...b, accountId: a.id, accountName: a.name, holdingId: h.id, holdingLabel: h.symbol || h.name || '(ยังไม่ตั้งชื่อ)', currency: h.currency });
+        });
+      });
+    });
+    return rows.sort((a, b) => b.date.localeCompare(a.date));
+  }, [accounts]);
   const searchLower = search.trim().toLowerCase();
   const matchesSearch = (a) => {
     if (!searchLower) return true;
@@ -2958,6 +2971,46 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
         <Search size={15} color={SLATE} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาบัญชีหรือสัญลักษณ์หุ้น..." style={{ border: '1px solid #E7EAF0' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
       </div>
+      <div className="flex gap-2 mb-4 p-1 rounded-lg" style={{ background: PAPER_DIM }}>
+        <button onClick={() => setViewMode('accounts')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'accounts' ? { background: 'white', color: INK } : { color: SLATE }}>ตามบัญชี</button>
+        <button onClick={() => setViewMode('allbuys')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'allbuys' ? { background: 'white', color: INK } : { color: SLATE }}>ประวัติซื้อทั้งหมด ({allBuys.length})</button>
+      </div>
+      {viewMode === 'allbuys' ? (
+        <div>
+          {allBuys.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีประวัติการซื้อ</p>}
+          {allBuys.map((b) => (
+            <Card key={`${b.holdingId}__${b.id}`}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-sm font-semibold">{b.holdingLabel} <span className="text-xs font-normal" style={{ color: SLATE }}>· {b.accountName}</span></p>
+                  <p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(b.date)} · {Number(b.shares || 0).toLocaleString()} หุ้น @ {Number(b.price || 0)}{b.currency === 'USD' ? ' USD' : ''}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm" style={{ color: BAD }}>฿{fmt(b.amount)}</span>
+                  <EditButton onClick={() => setEditingAllBuy(b)} />
+                  <button onClick={() => onRemoveBuy(b.accountId, b.holdingId, b.id)}><Trash2 size={14} color={BAD} /></button>
+                </div>
+              </div>
+            </Card>
+          ))}
+          {editingAllBuy && (
+            <EditModal title={`แก้ไขรายการซื้อ · ${editingAllBuy.holdingLabel}`} onClose={() => setEditingAllBuy(null)}
+              initialValues={{ date: editingAllBuy.date, shares: editingAllBuy.shares, price: editingAllBuy.price, amount: editingAllBuy.amount }}
+              fields={[
+                { key: 'date', label: 'วันที่', type: 'date' },
+                { key: 'shares', label: 'จำนวนหุ้น', type: 'number' },
+                { key: 'price', label: `ราคา/หุ้น (${editingAllBuy.currency || 'บาท'})`, type: 'number' },
+                { key: 'amount', label: 'จ่ายจริง (บาท)', type: 'number' },
+              ]}
+              onSave={(v) => {
+                onUpdateBuy(editingAllBuy.accountId, editingAllBuy.holdingId, editingAllBuy.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0 });
+                setEditingAllBuy(null);
+              }}
+            />
+          )}
+        </div>
+      ) : (
+      <>
       <Card>
         <div className="flex items-center gap-2 mb-2"><Camera size={16} color={BRASS} /><p className="text-sm font-semibold">อัพเดทพอร์ตจากภาพหน้าจอ (หลายรายการ)</p></div>
         <p className="text-xs mb-3" style={{ color: SLATE }}>เหมาะกับภาพที่มีหลายสินทรัพย์ในหน้าเดียว ต้องเลือกบัญชีปลายทางเองทีละรายการก่อนยืนยัน (กันจับคู่ผิด/ซ้ำ) — ถ้าอัพเดทแค่บัญชีเดียว แนะนำใช้ปุ่มกล้องในการ์ดของบัญชีนั้นแทน จะง่ายกว่า</p>
@@ -3020,6 +3073,8 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
         </div>
         );
       })}
+      </>
+      )}
     </div>
   );
           }function ScanValueButton({ onScanValue, onApply, defaultFx }) {
