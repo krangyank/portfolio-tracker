@@ -2912,6 +2912,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState('accounts'); // 'accounts' | 'allbuys'
   const [editingAllBuy, setEditingAllBuy] = useState(null); // { accountId, holdingId, ...buy }
+  const [buyMonthPopup, setBuyMonthPopup] = useState(null); // month string
   const allBuys = useMemo(() => {
     const rows = [];
     accounts.forEach((a) => {
@@ -2923,6 +2924,19 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
     });
     return rows.sort((a, b) => b.date.localeCompare(a.date));
   }, [accounts]);
+  const buyMonthGroups = useMemo(() => {
+    const ym = thisMonth();
+    const older = allBuys.filter((b) => !(b.date || '').startsWith(ym));
+    const map = {};
+    older.forEach((b) => {
+      const month = (b.date || '').slice(0, 7);
+      if (!map[month]) map[month] = { month, rows: [], total: 0 };
+      map[month].rows.push(b);
+      map[month].total += Number(b.amount || 0);
+    });
+    return Object.values(map).sort((a, b) => b.month.localeCompare(a.month));
+  }, [allBuys]);
+  const thisMonthBuys = useMemo(() => { const ym = thisMonth(); return allBuys.filter((b) => (b.date || '').startsWith(ym)); }, [allBuys]);
   const searchLower = search.trim().toLowerCase();
   const matchesSearch = (a) => {
     if (!searchLower) return true;
@@ -2978,7 +2992,8 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
       {viewMode === 'allbuys' ? (
         <div>
           {allBuys.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีประวัติการซื้อ</p>}
-          {allBuys.map((b) => (
+          {thisMonthBuys.length > 0 && <p className="text-xs mb-2" style={{ color: SLATE }}>เดือนนี้</p>}
+          {thisMonthBuys.map((b) => (
             <Card key={`${b.holdingId}__${b.id}`}>
               <div className="flex justify-between items-start">
                 <div>
@@ -2993,6 +3008,43 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
               </div>
             </Card>
           ))}
+          {buyMonthGroups.length > 0 && (
+            <>
+              <p className="text-xs mb-2 mt-4" style={{ color: SLATE }}>เดือนก่อนๆ (แตะเพื่อดูรายเดือน)</p>
+              {buyMonthGroups.map((mg) => (
+                <button key={mg.month} onClick={() => setBuyMonthPopup(mg.month)} className="w-full text-left" style={{ display: 'block' }}>
+                  <Card style={{ background: PAPER_DIM, borderLeft: `3px solid ${SLATE}` }}>
+                    <div className="flex justify-between items-center">
+                      <div><p className="text-sm" style={{ color: SLATE }}>🗂️ {mg.month}</p><p className="text-xs" style={{ color: SLATE }}>{mg.rows.length} รายการ</p></div>
+                      <div className="flex items-center gap-2"><span className="text-sm font-semibold" style={{ color: SLATE }}>฿{fmt(mg.total)}</span><ChevronRight size={15} color={SLATE} /></div>
+                    </div>
+                  </Card>
+                </button>
+              ))}
+            </>
+          )}
+          {buyMonthPopup && (
+            <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
+              <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[75vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">เดือน {buyMonthPopup}</p><button onClick={() => setBuyMonthPopup(null)}><X size={20} color={INK} /></button></div>
+                {(buyMonthGroups.find((mg) => mg.month === buyMonthPopup)?.rows || []).map((b) => (
+                  <Card key={`${b.holdingId}__${b.id}`}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-sm font-semibold">{b.holdingLabel} <span className="text-xs font-normal" style={{ color: SLATE }}>· {b.accountName}</span></p>
+                        <p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(b.date)} · {Number(b.shares || 0).toLocaleString()} หุ้น @ {Number(b.price || 0)}{b.currency === 'USD' ? ' USD' : ''}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm" style={{ color: BAD }}>฿{fmt(b.amount)}</span>
+                        <EditButton onClick={() => setEditingAllBuy(b)} />
+                        <button onClick={() => onRemoveBuy(b.accountId, b.holdingId, b.id)}><Trash2 size={14} color={BAD} /></button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
           {editingAllBuy && (
             <EditModal title={`แก้ไขรายการซื้อ · ${editingAllBuy.holdingLabel}`} onClose={() => setEditingAllBuy(null)}
               initialValues={{ date: editingAllBuy.date, shares: editingAllBuy.shares, price: editingAllBuy.price, amount: editingAllBuy.amount }}
