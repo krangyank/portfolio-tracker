@@ -1170,7 +1170,10 @@ export default function App() {
   function removeSell(accountId, holdingId, sellId) {
     const acc = accounts.find((a) => a.id === accountId);
     const h = acc.holdings.find((x) => x.id === holdingId);
-    updateHolding(accountId, holdingId, { sells: (h.sells || []).filter((s) => s.id !== sellId) });
+    const sell = (h.sells || []).find((s) => s.id === sellId);
+    // ลบรายการขาย ต้องคืนจำนวนหุ้นที่เคยขายไปกลับเข้าพอร์ตด้วย ไม่งั้นจำนวนหุ้นจะขาดหายไปเฉยๆ
+    const restoredShares = Number(h.shares || 0) + Number(sell?.shares || 0);
+    updateHolding(accountId, holdingId, { shares: restoredShares, sells: (h.sells || []).filter((s) => s.id !== sellId) });
   }
   // ลบรายการซื้อ — ต้องคำนวณจำนวนหุ้น/ต้นทุนเฉลี่ย/FX เฉลี่ยของหุ้นตัวนั้นใหม่ทั้งหมด (หักรายการนี้ออกจากยอดรวมเดิม) ไม่ใช่แค่ลบออกจากลิสต์เฉยๆ
   function removeBuy(accountId, holdingId, buyId) {
@@ -2937,6 +2940,32 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
     return Object.values(map).sort((a, b) => b.month.localeCompare(a.month));
   }, [allBuys]);
   const thisMonthBuys = useMemo(() => { const ym = thisMonth(); return allBuys.filter((b) => (b.date || '').startsWith(ym)); }, [allBuys]);
+  const [editingAllSell, setEditingAllSell] = useState(null);
+  const [sellMonthPopup, setSellMonthPopup] = useState(null);
+  const allSells = useMemo(() => {
+    const rows = [];
+    accounts.forEach((a) => {
+      (a.holdings || []).forEach((h) => {
+        (h.sells || []).forEach((s) => {
+          rows.push({ ...s, accountId: a.id, accountName: a.name, holdingId: h.id, holdingLabel: h.symbol || h.name || '(ยังไม่ตั้งชื่อ)', currency: h.currency });
+        });
+      });
+    });
+    return rows.sort((a, b) => b.date.localeCompare(a.date));
+  }, [accounts]);
+  const sellMonthGroups = useMemo(() => {
+    const ym = thisMonth();
+    const older = allSells.filter((s) => !(s.date || '').startsWith(ym));
+    const map = {};
+    older.forEach((s) => {
+      const month = (s.date || '').slice(0, 7);
+      if (!map[month]) map[month] = { month, rows: [], total: 0 };
+      map[month].rows.push(s);
+      map[month].total += Number(s.amount || 0);
+    });
+    return Object.values(map).sort((a, b) => b.month.localeCompare(a.month));
+  }, [allSells]);
+  const thisMonthSells = useMemo(() => { const ym = thisMonth(); return allSells.filter((s) => (s.date || '').startsWith(ym)); }, [allSells]);
   const searchLower = search.trim().toLowerCase();
   const matchesSearch = (a) => {
     if (!searchLower) return true;
@@ -2987,9 +3016,82 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
       </div>
       <div className="flex gap-2 mb-4 p-1 rounded-lg" style={{ background: PAPER_DIM }}>
         <button onClick={() => setViewMode('accounts')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'accounts' ? { background: 'white', color: INK } : { color: SLATE }}>ตามบัญชี</button>
-        <button onClick={() => setViewMode('allbuys')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'allbuys' ? { background: 'white', color: INK } : { color: SLATE }}>ประวัติซื้อทั้งหมด ({allBuys.length})</button>
+        <button onClick={() => setViewMode('allbuys')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'allbuys' ? { background: 'white', color: INK } : { color: SLATE }}>ซื้อทั้งหมด ({allBuys.length})</button>
+        <button onClick={() => setViewMode('allsells')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'allsells' ? { background: 'white', color: INK } : { color: SLATE }}>ขายทั้งหมด ({allSells.length})</button>
       </div>
-      {viewMode === 'allbuys' ? (
+      {viewMode === 'allsells' ? (
+        <div>
+          {allSells.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีประวัติการขาย</p>}
+          {thisMonthSells.length > 0 && <p className="text-xs mb-2" style={{ color: SLATE }}>เดือนนี้</p>}
+          {thisMonthSells.map((s) => (
+            <Card key={`${s.holdingId}__${s.id}`}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-sm font-semibold">{s.holdingLabel} <span className="text-xs font-normal" style={{ color: SLATE }}>· {s.accountName}</span></p>
+                  <p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(s.date)} · {Number(s.shares || 0).toLocaleString()} หุ้น @ {Number(s.price || 0)}{s.currency === 'USD' ? ' USD' : ''}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm" style={{ color: s.gain >= 0 ? GOOD : BAD }}>฿{fmt(s.amount)}</span>
+                  <EditButton onClick={() => setEditingAllSell(s)} />
+                  <button onClick={() => onRemoveSell(s.accountId, s.holdingId, s.id)}><Trash2 size={14} color={BAD} /></button>
+                </div>
+              </div>
+            </Card>
+          ))}
+          {sellMonthGroups.length > 0 && (
+            <>
+              <p className="text-xs mb-2 mt-4" style={{ color: SLATE }}>เดือนก่อนๆ (แตะเพื่อดูรายเดือน)</p>
+              {sellMonthGroups.map((mg) => (
+                <button key={mg.month} onClick={() => setSellMonthPopup(mg.month)} className="w-full text-left" style={{ display: 'block' }}>
+                  <Card style={{ background: PAPER_DIM, borderLeft: `3px solid ${SLATE}` }}>
+                    <div className="flex justify-between items-center">
+                      <div><p className="text-sm" style={{ color: SLATE }}>🗂️ {mg.month}</p><p className="text-xs" style={{ color: SLATE }}>{mg.rows.length} รายการ</p></div>
+                      <div className="flex items-center gap-2"><span className="text-sm font-semibold" style={{ color: SLATE }}>฿{fmt(mg.total)}</span><ChevronRight size={15} color={SLATE} /></div>
+                    </div>
+                  </Card>
+                </button>
+              ))}
+            </>
+          )}
+          {sellMonthPopup && (
+            <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
+              <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[75vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">เดือน {sellMonthPopup}</p><button onClick={() => setSellMonthPopup(null)}><X size={20} color={INK} /></button></div>
+                {(sellMonthGroups.find((mg) => mg.month === sellMonthPopup)?.rows || []).map((s) => (
+                  <Card key={`${s.holdingId}__${s.id}`}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-sm font-semibold">{s.holdingLabel} <span className="text-xs font-normal" style={{ color: SLATE }}>· {s.accountName}</span></p>
+                        <p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(s.date)} · {Number(s.shares || 0).toLocaleString()} หุ้น @ {Number(s.price || 0)}{s.currency === 'USD' ? ' USD' : ''}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm" style={{ color: s.gain >= 0 ? GOOD : BAD }}>฿{fmt(s.amount)}</span>
+                        <EditButton onClick={() => setEditingAllSell(s)} />
+                        <button onClick={() => onRemoveSell(s.accountId, s.holdingId, s.id)}><Trash2 size={14} color={BAD} /></button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+          {editingAllSell && (
+            <EditModal title={`แก้ไขรายการขาย · ${editingAllSell.holdingLabel}`} onClose={() => setEditingAllSell(null)}
+              initialValues={{ date: editingAllSell.date, shares: editingAllSell.shares, price: editingAllSell.price, amount: editingAllSell.amount }}
+              fields={[
+                { key: 'date', label: 'วันที่', type: 'date' },
+                { key: 'shares', label: 'จำนวนหุ้น', type: 'number' },
+                { key: 'price', label: `ราคา/หุ้น (${editingAllSell.currency || 'บาท'})`, type: 'number' },
+                { key: 'amount', label: 'ได้รับจริง (บาท)', type: 'number' },
+              ]}
+              onSave={(v) => {
+                onUpdateSell(editingAllSell.accountId, editingAllSell.holdingId, editingAllSell.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0 });
+                setEditingAllSell(null);
+              }}
+            />
+          )}
+        </div>
+      ) : viewMode === 'allbuys' ? (
         <div>
           {allBuys.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีประวัติการซื้อ</p>}
           {thisMonthBuys.length > 0 && <p className="text-xs mb-2" style={{ color: SLATE }}>เดือนนี้</p>}
@@ -3372,6 +3474,19 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const [expanded, setExpanded] = useState(true);
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
+  // FX ล่าสุดที่ใช้จริงจากการซื้อหุ้น USD ตัวไหนก็ได้ในพอร์ต (สำรองไว้ตอนแปะรูปประวัติซื้อ-ขายแบบหลายรายการ กรณีจับคู่กองทุนใหม่ที่ยังไม่มีประวัติ FX ของตัวเอง)
+  const globalLatestFx = useMemo(() => {
+    let best = null;
+    (allAccounts || []).forEach((acc) => (acc.holdings || []).forEach((hh) => {
+      if (hh.currency !== 'USD') return;
+      (hh.buys || []).forEach((b) => {
+        if (!b.shares || !b.price) return;
+        const impliedFx = Number(b.amount || 0) / (Number(b.shares) * Number(b.price));
+        if (isFinite(impliedFx) && impliedFx > 0 && (!best || b.date > best.date)) best = { date: b.date, fx: impliedFx };
+      });
+    }));
+    return best ? best.fx : null;
+  }, [allAccounts]);
   const totalValue = holdings.reduce((s, h) => s + holdingMarketValueTHB(h), 0);
   const totalCost = holdings.reduce((s, h) => s + holdingCostBasisTHB(h), 0);
   const totalGain = totalValue - totalCost;
@@ -3598,7 +3713,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             return false;
           });
         }
-        return { symbol: r.symbol, type: r.type === 'sell' ? 'sell' : 'buy', amount: rAmount, shares: rShares, price: r.price ? Number(r.price) : null, date: r.date || new Date().toISOString().slice(0, 10), holdingId: isDuplicate ? '' : (found ? found.id : '__new__'), isDuplicate };
+        return { symbol: r.symbol, type: r.type === 'sell' ? 'sell' : 'buy', amount: rAmount, shares: rShares, price: r.price ? Number(r.price) : null, date: r.date || new Date().toISOString().slice(0, 10), holdingId: isDuplicate ? '' : (found ? found.id : '__new__'), isDuplicate, fx: a.category === 'dime' ? Number((found && found.purchaseFx) || globalLatestFx || 36) : undefined };
       });
       setBsDraft(matched);
     } catch (err) { setBsScanError('เกิดข้อผิดพลาด: ' + err.message); }
@@ -3606,7 +3721,9 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   }
   function updateBsDraftRow(idx, patch) { setBsDraft(bsDraft.map((r, i) => (i === idx ? { ...r, ...patch } : r))); }
   function confirmBsDraft() {
-    const valid = bsDraft.filter((r) => r.holdingId && r.amount > 0);
+    const valid = bsDraft.filter((r) => r.holdingId && r.amount > 0).map((r) => (
+      a.category === 'dime' ? { ...r, amountForeign: Number(r.amount), amount: Number(r.amount) * Number(r.fx || globalLatestFx || 36) } : r
+    ));
     if (valid.length === 0) return;
     onRecordBuySellBatch(a.id, valid);
     setBsDraft(null);
@@ -3662,7 +3779,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
               <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>พบ {bsDraft.length} รายการ — เช็คประเภท/จับคู่กองทุนให้ถูกต้องก่อนยืนยัน</p>
               {bsDraft.map((row, idx) => (
                 <div key={idx} style={{ background: 'white', border: `1px solid ${row.isDuplicate ? WARN : BORDER}` }} className="rounded-lg p-2 mb-1.5">
-                  <p className="text-[11px] font-semibold mb-1">{row.symbol} · {row.date} · ฿{fmt(row.amount)}{row.shares ? ` · ${fmt2(row.shares)} หน่วย` : ''}</p>
+                  <p className="text-[11px] font-semibold mb-1">{row.symbol} · {row.date} · {a.category === 'dime' ? `$${fmt2(row.amount)}` : `฿${fmt(row.amount)}`}{row.shares ? ` · ${fmt2(row.shares)} หน่วย` : ''}</p>
                   {row.isDuplicate && <p className="text-[10px] mb-1.5" style={{ color: WARN }}>⚠️ ดูเหมือนซ้ำกับรายการที่เคยบันทึกไว้แล้ว (วันที่/จำนวนตรงกัน) — ระบบตั้งค่าเป็น "ข้าม" ไว้ให้ ถ้าตั้งใจบันทึกซ้ำจริงค่อยเลือกกองทุนเอง</p>}
                   <div className="grid grid-cols-2 gap-1.5 mb-1">
                     <select value={row.type} onChange={(e) => updateBsDraftRow(idx, { type: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: `1px solid ${row.type === 'sell' ? BAD : GOOD}`, color: row.type === 'sell' ? BAD : GOOD }}>
@@ -3675,6 +3792,13 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
                       <option value="__new__">+ สร้าง "{row.symbol}" เป็นกองทุนใหม่</option>
                     </select>
                   </div>
+                  {a.category === 'dime' && (
+                    <div>
+                      <label className="text-[10px]" style={{ color: SLATE }}>FX ตอนทำรายการนี้ (บาทต่อ USD)</label>
+                      <NumInput value={row.fx} onChange={(v) => updateBsDraftRow(idx, { fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} />
+                      <p className="text-[10px] mt-0.5" style={{ color: SLATE }}>≈ ฿{fmt(Number(row.amount || 0) * Number(row.fx || globalLatestFx || 36))} (แก้ FX ได้ถ้าอัตราจริงไม่ตรง)</p>
+                    </div>
+                  )}
                 </div>
               ))}
               <div className="flex gap-2 mt-1">
@@ -3855,6 +3979,20 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     </Card>
   );
     }function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onRecordYieldTech, isMutualFund }) {
+  // FX ล่าสุดที่ใช้จริงจากการซื้อหุ้น USD ตัวไหนก็ได้ในพอร์ต (เอาไว้ตั้งค่าเริ่มต้นให้หุ้น/กองทุน USD ที่ยังไม่มีประวัติซื้อของตัวเอง แทนเลข 36 ที่ล้าสมัยและอาจต่างจาก FX จริงมาก)
+  const latestGlobalFx = useMemo(() => {
+    let best = null;
+    (allAccounts || []).forEach((acc) => (acc.holdings || []).forEach((hh) => {
+      if (hh.currency !== 'USD') return;
+      (hh.buys || []).forEach((b) => {
+        if (!b.shares || !b.price) return;
+        const impliedFx = Number(b.amount || 0) / (Number(b.shares) * Number(b.price));
+        if (isFinite(impliedFx) && impliedFx > 0 && (!best || b.date > best.date)) best = { date: b.date, fx: impliedFx };
+      });
+    }));
+    return best ? best.fx : null;
+  }, [allAccounts]);
+  const defaultFxFor = (h) => Number(h.purchaseFx || latestGlobalFx || 36);
   const [showDiv, setShowDiv] = useState(false);
   const [divAmount, setDivAmount] = useState(0);
   const [divDate, setDivDate] = useState(new Date().toISOString().slice(0, 10));
@@ -3912,7 +4050,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     setBuyScanning(true); setBuyError(''); setBuyDraft(null);
     try {
       const parsed = await scanBuyTransaction(file);
-      setBuyDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.purchaseFx || 36) : undefined, pendingUnits: (parsed.shares === null || parsed.shares === undefined) });
+      setBuyDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? defaultFxFor(h) : undefined, pendingUnits: (parsed.shares === null || parsed.shares === undefined) });
     } catch (err) { setBuyError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setBuyScanning(false); if (buyFileRef.current) buyFileRef.current.value = ''; }
   }
@@ -3923,7 +4061,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     setSellScanning(true); setSellError(''); setSellDraft(null);
     try {
       const parsed = await scanSellTransaction(file);
-      setSellDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.currentFx || h.purchaseFx || 36) : undefined });
+      setSellDraft({ symbol: parsed.symbol || null, amount: Number(parsed.amount) || 0, shares: Number(parsed.shares) || 0, price: Number(parsed.price) || 0, date: parsed.date || new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? defaultFxFor(h) : undefined });
     } catch (err) { setSellError('อ่านภาพไม่สำเร็จ: ' + err.message); }
     finally { setSellScanning(false); if (sellFileRef.current) sellFileRef.current.value = ''; }
   }
@@ -3933,7 +4071,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const costFx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1;
     const costBasisSold = Number(sellDraft.shares || 0) * Number(h.avgCost || 0) * costFx;
     // สำหรับหุ้น USD (Dime): sellDraft.amount คือยอดที่ได้รับจริงเป็น USD ต้องคูณ FX ก่อนเทียบกับต้นทุน (ที่เป็นบาท) เพื่อหากำไร/ขาดทุน
-    const amountTHB = h.currency === 'USD' ? Number(sellDraft.amount || 0) * Number(sellDraft.fx || h.currentFx || h.purchaseFx || 36) : Number(sellDraft.amount || 0);
+    const amountTHB = h.currency === 'USD' ? Number(sellDraft.amount || 0) * Number(sellDraft.fx || defaultFxFor(h)) : Number(sellDraft.amount || 0);
     const gainOnSale = amountTHB - costBasisSold;
     const remainingShares = Math.max(0, Number(h.shares || 0) - Number(sellDraft.shares || 0));
     return { costBasisSold, gainOnSale, remainingShares, amountTHB };
@@ -3951,7 +4089,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const newShares = oldShares + Number(buyDraft.shares || 0);
     const newAvgCost = newShares > 0 ? (oldShares * oldAvgCost + Number(buyDraft.shares || 0) * Number(buyDraft.price || 0)) / newShares : 0;
     // สำหรับหุ้น USD (Dime): buyDraft.amount คือยอดที่จ่ายจริงเป็น USD (ตามที่สแกน/กรอก) ต้องคูณ FX ก่อนแปลงเป็นบาทเพื่อคำนวณต้นทุน/FX เฉลี่ย
-    const amountTHB = h.currency === 'USD' ? Number(buyDraft.amount || 0) * Number(buyDraft.fx || h.purchaseFx || 36) : Number(buyDraft.amount || 0);
+    const amountTHB = h.currency === 'USD' ? Number(buyDraft.amount || 0) * Number(buyDraft.fx || defaultFxFor(h)) : Number(buyDraft.amount || 0);
     let newPurchaseFx = h.purchaseFx;
     if (h.currency === 'USD') {
       const oldTotalTHB = holdingCostBasisTHB(h);
@@ -3974,7 +4112,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
     const isUSD = h.currency === 'USD';
     const rows = [{ label: 'บัญชี', value: accName || '-' }, { label: 'วันที่', value: formatDateDMY(buyDraft.date) }, { label: 'จำนวนหุ้น', value: `${Number(buyDraft.shares || 0).toLocaleString()} หุ้น @ ${Number(buyDraft.price || 0)}${isUSD ? ' USD' : ''}` }];
-    if (isUSD) rows.push({ label: 'จ่ายจริง', value: `$${fmt2(Number(buyDraft.amount || 0))} (FX ${Number(buyDraft.fx || h.purchaseFx || 36).toFixed(2)})` });
+    if (isUSD) rows.push({ label: 'จ่ายจริง', value: `$${fmt2(Number(buyDraft.amount || 0))} (FX ${Number(buyDraft.fx || defaultFxFor(h)).toFixed(2)})` });
     sendLineFlex(`ซื้อ ${displayName}${accName ? ' (' + accName + ')' : ''} ${isUSD ? '$' + fmt2(Number(buyDraft.amount || 0)) : '฿' + fmt(amountTHB)}`, buildFlexCard({
       title: `📈 ซื้อ ${displayName}`,
       rows,
@@ -4104,7 +4242,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label><input type="date" value={buyDraft.date} onChange={(e) => setBuyDraft({ ...buyDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนซื้อนี้ (บาทต่อ USD)</label><NumInput value={buyDraft.fx} onChange={(v) => setBuyDraft({ ...buyDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>}
           </div>
-          {h.currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(buyDraft.amount || 0) * Number(buyDraft.fx || h.purchaseFx || 36))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่จ่ายไม่ตรง)</p>}
+          {h.currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(buyDraft.amount || 0) * Number(buyDraft.fx || defaultFxFor(h)))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่จ่ายไม่ตรง)</p>}
           {buyPreview && (
             <p className="text-[11px] mb-2" style={{ color: GOOD }}>
               หลังยืนยัน: จำนวนหุ้นรวม {buyPreview.newShares.toFixed(4)} · ต้นทุนเฉลี่ยใหม่ {buyPreview.newAvgCost.toFixed(2)} {h.currency}
@@ -4122,7 +4260,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           <button onClick={() => buyFileRef.current && buyFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
             {buyScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {buyScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการซื้อ'}
           </button>
-          <button onClick={() => setBuyDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.purchaseFx || 36) : undefined })} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
+          <button onClick={() => setBuyDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? defaultFxFor(h) : undefined })} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
             ✍️ กรอกด้วยมือ
           </button>
           {buyError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{buyError}</p>}
@@ -4177,7 +4315,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ขาย</label><input type="date" value={sellDraft.date} onChange={(e) => setSellDraft({ ...sellDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนขายนี้ (บาทต่อ USD)</label><NumInput value={sellDraft.fx} onChange={(v) => setSellDraft({ ...sellDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>}
           </div>
-          {h.currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(sellDraft.amount || 0) * Number(sellDraft.fx || h.currentFx || h.purchaseFx || 36))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่ได้ไม่ตรง)</p>}
+          {h.currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(sellDraft.amount || 0) * Number(sellDraft.fx || defaultFxFor(h)))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่ได้ไม่ตรง)</p>}
           {sellPreview && (
             <p className="text-[11px] mb-2" style={{ color: sellPreview.gainOnSale >= 0 ? GOOD : BAD }}>
               กำไร/ขาดทุนจากการขายนี้: {sellPreview.gainOnSale >= 0 ? '+' : ''}฿{fmt(sellPreview.gainOnSale)} (เทียบต้นทุน ฿{fmt(sellPreview.costBasisSold)}) · เหลือถือ {sellPreview.remainingShares.toFixed(4)} หุ้น
@@ -4194,7 +4332,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           <button onClick={() => sellFileRef.current && sellFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
             {sellScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {sellScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการขาย'}
           </button>
-          <button onClick={() => setSellDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? Number(h.currentFx || h.purchaseFx || 36) : undefined })} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
+          <button onClick={() => setSellDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? defaultFxFor(h) : undefined })} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
             ✍️ กรอกด้วยมือ
           </button>
           {sellError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{sellError}</p>}
@@ -7905,13 +8043,13 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
 }
 
 const VET_RECORD_TYPES = [
-  { type: 'appointments', label: 'นัดหมาย', getLabel: (r) => `${r.date}${r.hospital ? ' · ' + r.hospital : ''}${r.purpose ? ' · ' + r.purpose : ''}` },
-  { type: 'weights', label: 'น้ำหนัก', getLabel: (r) => `${r.date} · ${r.weight} กก.` },
-  { type: 'bloodTests', label: 'ผลเลือด', getLabel: (r) => `${r.date} · ${r.type || 'ผลเลือด'}` },
-  { type: 'organExams', label: 'ตรวจอวัยวะ', getLabel: (r) => `${r.date} · ${r.organ || 'อวัยวะ'}` },
-  { type: 'imaging', label: 'Imaging', getLabel: (r) => `${r.date} · ${r.type || 'Imaging'}` },
-  { type: 'medications', label: 'ยา', getLabel: (r) => `${r.startDate || r.date || ''} · ${r.name || 'ยา'}` },
-  { type: 'expenses', label: 'ค่าใช้จ่าย', getLabel: (r) => `${r.date} · ${r.category || ''}${r.hospital ? ' · ' + r.hospital : ''} · ฿${fmt(r.amount)}` },
+  { type: 'appointments', label: 'นัดหมาย', getLabel: (r) => `${r.date}${r.hospital ? ' · ' + r.hospital : ''}${r.purpose ? ' · ' + r.purpose : ''}`, getDetail: (r) => r.note || r.diagnosis || null },
+  { type: 'weights', label: 'น้ำหนัก', getLabel: (r) => `${r.date} · ${r.weight} กก.`, getDetail: (r) => r.note || null },
+  { type: 'bloodTests', label: 'ผลเลือด', getLabel: (r) => `${r.date} · ${r.type || 'ผลเลือด'}`, getDetail: (r) => r.note || null },
+  { type: 'organExams', label: 'ตรวจอวัยวะ', getLabel: (r) => `${r.date} · ${r.organ || 'อวัยวะ'}`, getDetail: (r) => r.note || null },
+  { type: 'imaging', label: 'Imaging', getLabel: (r) => `${r.date} · ${r.type || 'Imaging'}`, getDetail: (r) => r.note || null },
+  { type: 'medications', label: 'ยา', getLabel: (r) => `${r.startDate || r.date || ''} · ${r.name || 'ยา'}`, getDetail: (r) => [r.strength, r.dose, r.usage, r.timing].filter(Boolean).join(' · ') || null },
+  { type: 'expenses', label: 'ค่าใช้จ่าย', getLabel: (r) => `${r.date} · ${r.category || ''}${r.hospital ? ' · ' + r.hospital : ''} · ฿${fmt(r.amount)}`, getDetail: (r) => r.note || null },
 ];
 
 // เลือกรูปหลายรูปเก็บไว้ในเครื่องก่อน (ยังไม่อัพโหลด เพราะตัว "ครั้งที่ไปหาหมอ" ยังไม่ถูกสร้างจนกว่าจะกดบันทึกทั้งหมด)
@@ -8615,9 +8753,14 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
           const record = recordsOfType(lr.type).find((r) => r.id === lr.id);
           if (!record || !typeMeta) return null;
           const targetTab = VET_RECORD_TAB_MAP[lr.type];
+          const detail = typeMeta.getDetail ? typeMeta.getDetail(record) : null;
           return (
             <button key={`${lr.type}-${lr.id}`} onClick={() => targetTab && setSection && setSection(targetTab)} className="flex justify-between items-center py-2 w-full text-left" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-              <div><p className="text-[10px]" style={{ color: BRASS }}>{typeMeta.label}</p><p className="text-sm">{typeMeta.getLabel(record)}</p></div>
+              <div>
+                <p className="text-[10px]" style={{ color: BRASS }}>{typeMeta.label}</p>
+                <p className="text-sm">{typeMeta.getLabel(record)}</p>
+                {detail && <p className="text-xs mt-0.5" style={{ color: SLATE }}>{detail}</p>}
+              </div>
               <div className="flex items-center gap-2">
                 {targetTab && <ChevronRight size={14} color={SLATE} />}
                 <button onClick={(e) => { e.stopPropagation(); onUnlinkRecordFromVisit(dog.id, visit.id, lr.type, lr.id); }}><Trash2 size={13} color={BAD} /></button>
