@@ -4205,6 +4205,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
   const [destPopup, setDestPopup] = useState(null); // { label, items: [...] }
   const periodGrandTotal = bySourceThisPeriod.reduce((s, r) => s + r.total, 0);
   const [groupPopup, setGroupPopup] = useState(null); // { label, items: [...] }
+  const [monthPopup, setMonthPopup] = useState(null); // month string, e.g. '2026-08'
   const groupedList = useMemo(() => {
     const ym = thisMonth();
     const thisMonthItems = contributions.filter((c) => c.date.startsWith(ym)).sort((a, b) => b.date.localeCompare(a.date));
@@ -4216,7 +4217,15 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
       groups[key].items.push(c);
     });
     const groupRows = Object.values(groups).sort((a, b) => b.month.localeCompare(a.month));
-    return { thisMonthItems, groupRows };
+    const monthMap = {};
+    groupRows.forEach((g) => {
+      if (!monthMap[g.month]) monthMap[g.month] = { month: g.month, rows: [], total: 0, count: 0 };
+      monthMap[g.month].rows.push(g);
+      monthMap[g.month].total += g.items.reduce((s, it) => s + Number(it.amount || 0), 0);
+      monthMap[g.month].count += g.items.length;
+    });
+    const monthGroups = Object.values(monthMap).sort((a, b) => b.month.localeCompare(a.month));
+    return { thisMonthItems, groupRows, monthGroups };
   }, [contributions]);
 
   return (
@@ -4338,24 +4347,41 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           </Card>
         );
       })}
-      {groupedList.groupRows.length > 0 && (
+      {groupedList.monthGroups.length > 0 && (
         <>
-          <p className="text-xs mb-2 mt-4" style={{ color: SLATE }}>ประวัติเดือนก่อนๆ (แตะดูรายละเอียด)</p>
-          {groupedList.groupRows.map((g) => {
-            const acc = accounts.find((a) => a.id === g.accountId); const src = SOURCES.find((s) => s.id === g.source);
-            const total = g.items.reduce((s, it) => s + Number(it.amount || 0), 0);
-            return (
-              <button key={`${g.source}__${g.accountId}__${g.month}`} onClick={() => setGroupPopup({ label: `${src?.label || g.source} → ${acc?.name || g.accountId || 'ไม่ทราบบัญชี'} · ${g.month}`, items: g.items })} className="w-full text-left" style={{ display: 'block' }}>
-                <Card style={{ background: PAPER_DIM, borderLeft: `3px solid ${SLATE}` }}>
-                  <div className="flex justify-between items-center">
-                    <div><p className="text-sm" style={{ color: SLATE }}>📁 {src?.label || g.source} → {acc?.name || g.accountId || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{g.month} · {g.items.length} รายการ</p></div>
-                    <div className="flex items-center gap-2"><span className="text-sm font-semibold" style={{ color: SLATE }}>฿{fmt(total)}</span><ChevronRight size={15} color={SLATE} /></div>
-                  </div>
-                </Card>
-              </button>
-            );
-          })}
+          <p className="text-xs mb-2 mt-4" style={{ color: SLATE }}>ประวัติเดือนก่อนๆ (แตะเพื่อดูรายเดือน)</p>
+          {groupedList.monthGroups.map((mg) => (
+            <button key={mg.month} onClick={() => setMonthPopup(mg.month)} className="w-full text-left" style={{ display: 'block' }}>
+              <Card style={{ background: PAPER_DIM, borderLeft: `3px solid ${SLATE}` }}>
+                <div className="flex justify-between items-center">
+                  <div><p className="text-sm" style={{ color: SLATE }}>🗂️ {mg.month}</p><p className="text-xs" style={{ color: SLATE }}>{mg.count} รายการ · {mg.rows.length} หมวด</p></div>
+                  <div className="flex items-center gap-2"><span className="text-sm font-semibold" style={{ color: SLATE }}>฿{fmt(mg.total)}</span><ChevronRight size={15} color={SLATE} /></div>
+                </div>
+              </Card>
+            </button>
+          ))}
         </>
+      )}
+      {monthPopup && (
+        <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
+          <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[75vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4"><p className="text-sm font-semibold">🗂️ เดือน {monthPopup}</p><button onClick={() => setMonthPopup(null)}><X size={20} color={INK} /></button></div>
+            {(groupedList.monthGroups.find((mg) => mg.month === monthPopup)?.rows || []).map((g) => {
+              const acc = accounts.find((a) => a.id === g.accountId); const src = SOURCES.find((s) => s.id === g.source);
+              const total = g.items.reduce((s, it) => s + Number(it.amount || 0), 0);
+              return (
+                <button key={`${g.source}__${g.accountId}__${g.month}`} onClick={() => setGroupPopup({ label: `${src?.label || g.source} → ${acc?.name || g.accountId || 'ไม่ทราบบัญชี'} · ${g.month}`, items: g.items })} className="w-full text-left" style={{ display: 'block' }}>
+                  <Card>
+                    <div className="flex justify-between items-center">
+                      <div><p className="text-sm">{src?.label || g.source} → {acc?.name || g.accountId || 'ไม่ทราบบัญชี'}</p><p className="text-xs" style={{ color: SLATE }}>{g.items.length} รายการ</p></div>
+                      <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(total)}</span><ChevronRight size={15} color={SLATE} /></div>
+                    </div>
+                  </Card>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
       {groupPopup && (
         <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
