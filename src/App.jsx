@@ -5253,9 +5253,11 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState('อื่นๆ');
   const [note, setNote] = useState('');
+  const [txDate, setTxDate] = useState(new Date().toISOString().slice(0, 10));
   const [editingTx, setEditingTx] = useState(null);
   const [payAmount, setPayAmount] = useState(0);
   const [payNote, setPayNote] = useState('');
+  const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
   const [syncingDue, setSyncingDue] = useState(false);
   const [syncDueMsg, setSyncDueMsg] = useState('');
   const reminderDays = card.reminderDays || [3, 1];
@@ -5281,13 +5283,13 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
   }
   function submit() {
     if (!amount) return;
-    onAddTransaction(card.id, { date: new Date().toISOString().slice(0, 10), amount, category, note });
-    setAmount(0); setNote('');
+    onAddTransaction(card.id, { date: txDate, amount, category, note });
+    setAmount(0); setNote(''); setTxDate(new Date().toISOString().slice(0, 10));
   }
   function submitPayment() {
     if (!payAmount) return;
-    onAddPayment(card.id, { date: new Date().toISOString().slice(0, 10), amount: payAmount, note: payNote });
-    setPayAmount(0); setPayNote('');
+    onAddPayment(card.id, { date: payDate, amount: payAmount, note: payNote });
+    setPayAmount(0); setPayNote(''); setPayDate(new Date().toISOString().slice(0, 10));
   }
 
   return (
@@ -5309,6 +5311,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการจ่ายบัตร (โอนเงินชำระยอด — แยกจากการใช้จ่ายผ่านบัตร)</p>
         <NumInput value={payAmount} onChange={setPayAmount} placeholder="จำนวนเงินที่จ่าย" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <input value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="โน้ต (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <button onClick={submitPayment} style={{ background: GOOD }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกการจ่ายบัตร</button>
         {monthPayments.length > 0 && (
@@ -5349,6 +5352,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกรายจ่ายเข้าบัตรนี้</p>
         <NumInput value={amount} onChange={setAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="หมวดหมู่ เช่น อาหาร" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="โน้ต (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกรายจ่าย</button>
