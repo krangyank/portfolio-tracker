@@ -1329,6 +1329,9 @@ export default function App() {
   const addCreditCardTransaction = (cardId, entry) => persist({ ...state, creditCards: creditCards.map((c) => (c.id === cardId ? { ...c, transactions: [{ id: uid(), ...entry }, ...(c.transactions || [])] } : c)) });
   const removeCreditCardTransaction = (cardId, txId) => persist({ ...state, creditCards: creditCards.map((c) => (c.id === cardId ? { ...c, transactions: (c.transactions || []).filter((t) => t.id !== txId) } : c)) });
   const updateCreditCardTransaction = (cardId, txId, patch) => persist({ ...state, creditCards: creditCards.map((c) => (c.id === cardId ? { ...c, transactions: (c.transactions || []).map((t) => (t.id === txId ? { ...t, ...patch } : t)) } : c)) });
+  // บันทึก "จ่ายบัตร" แยกจาก "ใช้จ่ายผ่านบัตร" — ใช้ตอนโอนเงินไปชำระยอดบัตรจริง เพื่อดูยอดคงค้างที่ยังไม่ได้จ่าย
+  const addCreditCardPayment = (cardId, entry) => persist({ ...state, creditCards: creditCards.map((c) => (c.id === cardId ? { ...c, payments: [{ id: uid(), ...entry }, ...(c.payments || [])] } : c)) });
+  const removeCreditCardPayment = (cardId, payId) => persist({ ...state, creditCards: creditCards.map((c) => (c.id === cardId ? { ...c, payments: (c.payments || []).filter((p) => p.id !== payId) } : c)) });
   // จับคู่ชื่อบัตรที่พูด/พิมพ์มา (เช่น "ttb", "TTB", "บัตร ttb") กับบัตรที่มีอยู่ โดยเทียบจากชื่อธนาคาร/ชื่อบัตร
   function matchCreditCard(spokenName) {
     if (!spokenName) return null;
@@ -1942,6 +1945,7 @@ export default function App() {
       {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onAddCategory={addExpenseCategory}
           creditCards={creditCards} onAddCreditCard={addCreditCard} onUpdateCreditCard={updateCreditCard} onRemoveCreditCard={removeCreditCard}
           onAddCreditCardTransaction={addCreditCardTransaction} onRemoveCreditCardTransaction={removeCreditCardTransaction} onUpdateCreditCardTransaction={updateCreditCardTransaction} onMatchCreditCard={matchCreditCard}
+          onAddCreditCardPayment={addCreditCardPayment} onRemoveCreditCardPayment={removeCreditCardPayment}
           googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} />}
       {tab === 'pets' && (
         <PetsTab dogs={dogs} onUpdateDog={updateDog} onCopyToMultipleDogs={copyToMultipleDogs} onAddWeight={addWeight} onRemoveWeight={removeWeight} onUpdateWeight={updateWeight}
@@ -4779,7 +4783,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-      }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory, creditCards, onAddCreditCard, onUpdateCreditCard, onRemoveCreditCard, onAddCreditCardTransaction, onRemoveCreditCardTransaction, onUpdateCreditCardTransaction, onMatchCreditCard, googleConnected, onAddToCalendar }) {
+      }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory, creditCards, onAddCreditCard, onUpdateCreditCard, onRemoveCreditCard, onAddCreditCardTransaction, onRemoveCreditCardTransaction, onUpdateCreditCardTransaction, onMatchCreditCard, onAddCreditCardPayment, onRemoveCreditCardPayment, googleConnected, onAddToCalendar }) {
   const [mainSection, setMainSection] = useState('cash');
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
@@ -4918,6 +4922,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       {mainSection === 'cards' && (
         <CreditCardsSection creditCards={creditCards} onAddCard={onAddCreditCard} onUpdateCard={onUpdateCreditCard} onRemoveCard={onRemoveCreditCard}
           onAddTransaction={onAddCreditCardTransaction} onRemoveTransaction={onRemoveCreditCardTransaction} onUpdateTransaction={onUpdateCreditCardTransaction}
+          onAddPayment={onAddCreditCardPayment} onRemovePayment={onRemoveCreditCardPayment}
           googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />
       )}
       {mainSection === 'cash' && (
@@ -5178,7 +5183,7 @@ function ExpenseMonthCalendar({ expenses, creditCards, viewDate, onChangeViewDat
     </Card>
   );
 }
-function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, googleConnected, onAddToCalendar }) {
+function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, googleConnected, onAddToCalendar }) {
   const [selectedId, setSelectedId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ bankName: '', cardName: '', last4: '', creditLimit: 0, statementDay: 1, dueDay: 15 });
@@ -5192,7 +5197,7 @@ function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard
     setShowAddForm(false);
   }
 
-  if (selected) return <CreditCardDetail card={selected} onBack={() => setSelectedId(null)} onUpdateCard={onUpdateCard} onRemoveCard={(id) => { onRemoveCard(id); setSelectedId(null); }} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onUpdateTransaction={onUpdateTransaction} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />;
+  if (selected) return <CreditCardDetail card={selected} onBack={() => setSelectedId(null)} onUpdateCard={onUpdateCard} onRemoveCard={(id) => { onRemoveCard(id); setSelectedId(null); }} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onUpdateTransaction={onUpdateTransaction} onAddPayment={onAddPayment} onRemovePayment={onRemovePayment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />;
 
   return (
     <div>
@@ -5244,11 +5249,13 @@ function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard
   );
 }
 
-function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, googleConnected, onAddToCalendar }) {
+function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, googleConnected, onAddToCalendar }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState('อื่นๆ');
   const [note, setNote] = useState('');
   const [editingTx, setEditingTx] = useState(null);
+  const [payAmount, setPayAmount] = useState(0);
+  const [payNote, setPayNote] = useState('');
   const [syncingDue, setSyncingDue] = useState(false);
   const [syncDueMsg, setSyncDueMsg] = useState('');
   const reminderDays = card.reminderDays || [3, 1];
@@ -5257,6 +5264,9 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
   const ym = thisMonth();
   const monthTx = (card.transactions || []).filter((t) => monthKey(t.date) === ym);
   const spent = monthTx.reduce((s, t) => s + Number(t.amount || 0), 0);
+  const monthPayments = (card.payments || []).filter((p) => monthKey(p.date) === ym);
+  const paid = monthPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const remaining = Math.max(0, spent - paid);
   const pct = card.creditLimit ? Math.min(100, (spent / card.creditLimit) * 100) : 0;
 
   function toggleReminderDay(d) {
@@ -5274,6 +5284,11 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
     onAddTransaction(card.id, { date: new Date().toISOString().slice(0, 10), amount, category, note });
     setAmount(0); setNote('');
   }
+  function submitPayment() {
+    if (!payAmount) return;
+    onAddPayment(card.id, { date: new Date().toISOString().slice(0, 10), amount: payAmount, note: payNote });
+    setPayAmount(0); setPayNote('');
+  }
 
   return (
     <div>
@@ -5285,7 +5300,28 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
         </div>
         <p className="text-xs mb-1" style={{ color: SLATE }}>ใช้ไปเดือนนี้ ฿{fmt(spent)} จากวงเงิน ฿{fmt(card.creditLimit)}</p>
         <div style={{ background: PAPER_DIM }} className="h-2 rounded-full overflow-hidden mb-2"><div style={{ width: `${pct}%`, background: pct >= 90 ? BAD : BRASS }} className="h-full rounded-full" /></div>
-        <p className="text-xs" style={{ color: daysToDue <= 3 ? BAD : SLATE }}>ครบกำหนดจ่าย: {dueDate} {daysToDue >= 0 ? `(อีก ${daysToDue} วัน)` : ''}</p>
+        <p className="text-xs mb-1" style={{ color: daysToDue <= 3 ? BAD : SLATE }}>ครบกำหนดจ่าย: {dueDate} {daysToDue >= 0 ? `(อีก ${daysToDue} วัน)` : ''}</p>
+        <div className="flex justify-between items-center pt-2 mt-1" style={{ borderTop: `1px solid ${BORDER}` }}>
+          <p className="text-xs" style={{ color: GOOD }}>จ่ายไปแล้ว ฿{fmt(paid)}</p>
+          <p className="text-xs font-semibold" style={{ color: remaining > 0 ? BAD : GOOD }}>{remaining > 0 ? `คงเหลือต้องจ่าย ฿${fmt(remaining)}` : 'จ่ายครบแล้ว ✓'}</p>
+        </div>
+      </Card>
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการจ่ายบัตร (โอนเงินชำระยอด — แยกจากการใช้จ่ายผ่านบัตร)</p>
+        <NumInput value={payAmount} onChange={setPayAmount} placeholder="จำนวนเงินที่จ่าย" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <input value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="โน้ต (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <button onClick={submitPayment} style={{ background: GOOD }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกการจ่ายบัตร</button>
+        {monthPayments.length > 0 && (
+          <div className="mt-3 pt-2" style={{ borderTop: `1px solid ${BORDER}` }}>
+            <p className="text-[10px] mb-1" style={{ color: SLATE }}>ประวัติการจ่ายเดือนนี้</p>
+            {monthPayments.map((p) => (
+              <div key={p.id} className="flex justify-between items-center py-1">
+                <p className="text-xs" style={{ color: SLATE }}>{p.date}{p.note ? ' · ' + p.note : ''}</p>
+                <div className="flex items-center gap-2"><span className="text-xs" style={{ color: GOOD }}>฿{fmt(p.amount)}</span><button onClick={() => onRemovePayment(card.id, p.id)}><Trash2 size={12} color={BAD} /></button></div>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>ตั้งค่าบัตร</p>
