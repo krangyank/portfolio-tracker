@@ -125,6 +125,7 @@ const EMPTY_STATE = {
   departmentList: ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'],
   doctorDepartments: {},
   customDestinationList: [],
+  cardPaymentNotes: [],
   openToLastTab: false,
   lastUsedTab: 'dashboard',
   insurancePolicies: [],
@@ -955,6 +956,7 @@ export default function App() {
   const departmentList = state?.departmentList || ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'];
   const doctorDepartments = state?.doctorDepartments || {};
   const customDestinationList = state?.customDestinationList || [];
+  const cardPaymentNotes = state?.cardPaymentNotes || [];
   const bloodTestTypeList = state?.bloodTestTypeList || BLOOD_TEST_TYPES;
   const organTypeList = state?.organTypeList || ORGAN_TYPES;
   const imagingTypeList = state?.imagingTypeList || IMAGING_TYPES;
@@ -1361,6 +1363,7 @@ export default function App() {
     persist({ ...state, doctorDepartments: { ...doctorDepartments, [doctorName]: department } });
   }
   function addCustomDestination(name) { if (name && !customDestinationList.includes(name)) persist({ ...state, customDestinationList: [...customDestinationList, name] }); }
+  function addCardPaymentNote(note) { if (note && !cardPaymentNotes.includes(note)) persist({ ...state, cardPaymentNotes: [...cardPaymentNotes, note] }); }
   // ประกันครอบครัว — 1 กรมธรรม์ = สัญญาหลัก + สัญญาเพิ่มเติมได้หลายรายการ (riders)
   const insurancePolicies = state?.insurancePolicies || [];
   const insuranceClaims = state?.insuranceClaims || [];
@@ -1946,6 +1949,7 @@ export default function App() {
           creditCards={creditCards} onAddCreditCard={addCreditCard} onUpdateCreditCard={updateCreditCard} onRemoveCreditCard={removeCreditCard}
           onAddCreditCardTransaction={addCreditCardTransaction} onRemoveCreditCardTransaction={removeCreditCardTransaction} onUpdateCreditCardTransaction={updateCreditCardTransaction} onMatchCreditCard={matchCreditCard}
           onAddCreditCardPayment={addCreditCardPayment} onRemoveCreditCardPayment={removeCreditCardPayment}
+          cardPaymentNotes={cardPaymentNotes} onAddCardPaymentNote={addCardPaymentNote}
           googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} />}
       {tab === 'pets' && (
         <PetsTab dogs={dogs} onUpdateDog={updateDog} onCopyToMultipleDogs={copyToMultipleDogs} onAddWeight={addWeight} onRemoveWeight={removeWeight} onUpdateWeight={updateWeight}
@@ -2353,13 +2357,13 @@ function WeightStatBox({ label, value, trendValues, trendColor, onClick }) {
     </button>
   );
 }
-function DashCategoryCard({ label, value, sub, tone, icon: Icon, fg, bg, onClick }) {
+function DashCategoryCard({ label, value, sub, tone, icon: Icon, gradient, onClick }) {
   return (
-    <button onClick={onClick} style={{ background: 'white', borderRadius: CARD_RADIUS, boxShadow: '0 2px 12px rgba(15,23,42,0.05)' }} className="p-3.5 text-left">
-      <div style={{ background: bg, color: fg }} className="w-8 h-8 rounded-lg flex items-center justify-center mb-2"><Icon size={15} /></div>
-      <p className="text-[11px] mb-0.5" style={{ color: SLATE }}>{label}</p>
-      <p className="text-base font-bold leading-tight" style={{ color: INK }}>{value}</p>
-      <p className="text-[10px] mt-1" style={{ color: tone === 'good' ? GOOD : tone === 'bad' ? BAD : SLATE }}>{sub}</p>
+    <button onClick={onClick} style={{ background: `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})`, borderRadius: CARD_RADIUS, boxShadow: `0 4px 14px ${gradient[1]}40` }} className="p-3.5 text-left">
+      <div style={{ background: '#FFFFFF26', color: 'white' }} className="w-8 h-8 rounded-lg flex items-center justify-center mb-2"><Icon size={15} /></div>
+      <p className="text-[11px] mb-0.5" style={{ color: '#FFFFFFCC' }}>{label}</p>
+      <p className="text-base font-bold leading-tight" style={{ color: 'white' }}>{value}</p>
+      <p className="text-[10px] mt-1" style={{ color: '#FFFFFFB3' }}>{sub}</p>
     </button>
   );
 }
@@ -2479,14 +2483,14 @@ Passive income เดือนนี้: ${fmt(passiveIncome)}, Active income: $
       </Card>
 
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <DashCategoryCard label="หุ้นไทย" value={`฿${fmt(catSetValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} fg={GOOD} bg="#16A34A14" onClick={() => onNavigateTab('accounts')} />
-        <DashCategoryCard label="หุ้นสหรัฐฯ" value={`฿${fmt(catUsValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} fg="#2563EB" bg="#2563EB14" onClick={() => onNavigateTab('accounts')} />
-        <DashCategoryCard label="กองทุนรวม" value={`฿${fmt(catFundValue)}`} sub="ดูรายละเอียด" icon={PiggyBank} fg="#CA8A04" bg="#CA8A0414" onClick={() => onNavigateTab('accounts')} />
-        <DashCategoryCard label="สหกรณ์ออมทรัพย์" value={`฿${fmt(catCoopValue)}`} sub="ดูรายละเอียด" icon={Landmark} fg="#0891B2" bg="#0891B214" onClick={() => onNavigateTab('accounts')} />
-        <DashCategoryCard label="บ้านเช่า" value={`฿${fmt(catRentThisMonth)}`} sub={`เก็บแล้ว ฿${fmt(catRentCollected)}`} tone={catRentCollected >= catRentThisMonth ? 'good' : null} icon={Home} fg="#D97706" bg="#D9770614" onClick={() => onNavigateTab('realestate')} />
-        <DashCategoryCard label="ลูกๆ" value={`฿${fmt(catPetExpenseTotal)}`} sub="ค่าใช้จ่ายสะสม" tone="bad" icon={Dog} fg="#7C3AED" bg="#7C3AED14" onClick={() => onNavigateTab('pets')} />
-        <DashCategoryCard label="รายจ่าย" value={`฿${fmt(catExpenseThisMonth)}`} sub="เดือนนี้" tone="bad" icon={Receipt} fg={BAD} bg="#DC262614" onClick={() => onNavigateTab('expenses')} />
-        <DashCategoryCard label="เงินเข้า" value={`฿${fmt(catSavingsThisMonth)}`} sub="เดือนนี้" tone="good" icon={Wallet} fg={GOOD} bg="#16A34A14" onClick={() => onNavigateTab('savings')} />
+        <DashCategoryCard label="หุ้นไทย" value={`฿${fmt(catSetValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} gradient={['#22C55E', '#15803D']} onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard label="หุ้นสหรัฐฯ" value={`฿${fmt(catUsValue)}`} sub="ดูรายละเอียด" icon={TrendingUp} gradient={['#3B82F6', '#1D4ED8']} onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard label="กองทุนรวม" value={`฿${fmt(catFundValue)}`} sub="ดูรายละเอียด" icon={PiggyBank} gradient={['#F59E0B', '#B45309']} onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard label="สหกรณ์ออมทรัพย์" value={`฿${fmt(catCoopValue)}`} sub="ดูรายละเอียด" icon={Landmark} gradient={['#06B6D4', '#0E7490']} onClick={() => onNavigateTab('accounts')} />
+        <DashCategoryCard label="บ้านเช่า" value={`฿${fmt(catRentThisMonth)}`} sub={`เก็บแล้ว ฿${fmt(catRentCollected)}`} tone={catRentCollected >= catRentThisMonth ? 'good' : null} icon={Home} gradient={['#F97316', '#C2410C']} onClick={() => onNavigateTab('realestate')} />
+        <DashCategoryCard label="ลูกๆ" value={`฿${fmt(catPetExpenseTotal)}`} sub="ค่าใช้จ่ายสะสม" tone="bad" icon={Dog} gradient={['#8B5CF6', '#6D28D9']} onClick={() => onNavigateTab('pets')} />
+        <DashCategoryCard label="รายจ่าย" value={`฿${fmt(catExpenseThisMonth)}`} sub="เดือนนี้" tone="bad" icon={Receipt} gradient={['#E23B7D', '#B6216B']} onClick={() => onNavigateTab('expenses')} />
+        <DashCategoryCard label="เงินเข้า" value={`฿${fmt(catSavingsThisMonth)}`} sub="เดือนนี้" tone="good" icon={Wallet} gradient={['#10B981', '#047857']} onClick={() => onNavigateTab('savings')} />
       </div>
 
       <Card>
@@ -2629,6 +2633,19 @@ async function scanSingleValue(file) {
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   const parsed = safeParseJson(text);
   return { value: Number(parsed.value) || 0, currency: parsed.currency === 'USD' ? 'USD' : 'THB' };
+}
+// สแกนหน้าจอ "ยอดบัตรเครดิต" จากแอปธนาคาร — เก็บเป็น "ยอดทางการ" แยกต่างหาก ไม่ปนกับยอดที่คำนวณจากรายการที่ผู้ใช้บันทึกเอง
+async function scanCardStatement(file) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพหน้าจอสรุปยอดบัตรเครดิตจากแอปธนาคาร อ่านค่าต่อไปนี้ (ถ้าไม่เจอค่าไหนให้ตอบ null):
+- "ยอดที่ต้องชำระ" (Total/Statement Balance)
+- "กำหนดชำระ" (วันครบกำหนดจ่าย)
+- "ยอดที่ใช้" (Current Balance / ยอดใช้จ่ายทั้งหมด)
+- "วงเงินคงเหลือ" (Available Credit)
+- "วงเงินบัตร" (Credit Limit)
+ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amountDue": ตัวเลขไม่มีคอมมาหรือnull, "dueDate": "YYYY-MM-DD หรือ null", "currentBalance": ตัวเลขหรือnull, "availableCredit": ตัวเลขหรือnull, "creditLimit": ตัวเลขหรือnull}`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  return safeParseJson(text);
 }
 async function scanCashBalance(file) {
   const base64 = await readFileAsBase64(file);
@@ -4783,7 +4800,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-      }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory, creditCards, onAddCreditCard, onUpdateCreditCard, onRemoveCreditCard, onAddCreditCardTransaction, onRemoveCreditCardTransaction, onUpdateCreditCardTransaction, onMatchCreditCard, onAddCreditCardPayment, onRemoveCreditCardPayment, googleConnected, onAddToCalendar }) {
+      }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory, creditCards, onAddCreditCard, onUpdateCreditCard, onRemoveCreditCard, onAddCreditCardTransaction, onRemoveCreditCardTransaction, onUpdateCreditCardTransaction, onMatchCreditCard, onAddCreditCardPayment, onRemoveCreditCardPayment, cardPaymentNotes, onAddCardPaymentNote, googleConnected, onAddToCalendar }) {
   const [mainSection, setMainSection] = useState('cash');
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
@@ -4923,6 +4940,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         <CreditCardsSection creditCards={creditCards} onAddCard={onAddCreditCard} onUpdateCard={onUpdateCreditCard} onRemoveCard={onRemoveCreditCard}
           onAddTransaction={onAddCreditCardTransaction} onRemoveTransaction={onRemoveCreditCardTransaction} onUpdateTransaction={onUpdateCreditCardTransaction}
           onAddPayment={onAddCreditCardPayment} onRemovePayment={onRemoveCreditCardPayment}
+          cardPaymentNotes={cardPaymentNotes} onAddCardPaymentNote={onAddCardPaymentNote}
           googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />
       )}
       {mainSection === 'cash' && (
@@ -5183,7 +5201,7 @@ function ExpenseMonthCalendar({ expenses, creditCards, viewDate, onChangeViewDat
     </Card>
   );
 }
-function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, googleConnected, onAddToCalendar }) {
+function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, cardPaymentNotes, onAddCardPaymentNote, googleConnected, onAddToCalendar }) {
   const [selectedId, setSelectedId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ bankName: '', cardName: '', last4: '', creditLimit: 0, statementDay: 1, dueDay: 15 });
@@ -5197,7 +5215,7 @@ function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard
     setShowAddForm(false);
   }
 
-  if (selected) return <CreditCardDetail card={selected} onBack={() => setSelectedId(null)} onUpdateCard={onUpdateCard} onRemoveCard={(id) => { onRemoveCard(id); setSelectedId(null); }} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onUpdateTransaction={onUpdateTransaction} onAddPayment={onAddPayment} onRemovePayment={onRemovePayment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />;
+  if (selected) return <CreditCardDetail card={selected} onBack={() => setSelectedId(null)} onUpdateCard={onUpdateCard} onRemoveCard={(id) => { onRemoveCard(id); setSelectedId(null); }} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onUpdateTransaction={onUpdateTransaction} onAddPayment={onAddPayment} onRemovePayment={onRemovePayment} cardPaymentNotes={cardPaymentNotes} onAddCardPaymentNote={onAddCardPaymentNote} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />;
 
   return (
     <div>
@@ -5249,7 +5267,7 @@ function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard
   );
 }
 
-function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, googleConnected, onAddToCalendar }) {
+function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, cardPaymentNotes, onAddCardPaymentNote, googleConnected, onAddToCalendar }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState('อื่นๆ');
   const [note, setNote] = useState('');
@@ -5260,6 +5278,9 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
   const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
   const [syncingDue, setSyncingDue] = useState(false);
   const [syncDueMsg, setSyncDueMsg] = useState('');
+  const statementFileRef = useRef(null);
+  const [statementScanning, setStatementScanning] = useState(false);
+  const [statementError, setStatementError] = useState('');
   const reminderDays = card.reminderDays || [3, 1];
   const dueDate = nextCardDueDate(card.dueDay);
   const daysToDue = daysUntilGeneric(dueDate);
@@ -5291,6 +5312,27 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
     onAddPayment(card.id, { date: payDate, amount: payAmount, note: payNote });
     setPayAmount(0); setPayNote(''); setPayDate(new Date().toISOString().slice(0, 10));
   }
+  async function handleStatementPhoto(e) {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    setStatementScanning(true); setStatementError('');
+    try {
+      const parsed = await scanCardStatement(file);
+      onUpdateCard(card.id, {
+        officialAmountDue: parsed.amountDue !== null && parsed.amountDue !== undefined ? Number(parsed.amountDue) : card.officialAmountDue,
+        officialDueDate: parsed.dueDate || card.officialDueDate,
+        officialCurrentBalance: parsed.currentBalance !== null && parsed.currentBalance !== undefined ? Number(parsed.currentBalance) : card.officialCurrentBalance,
+        officialAvailableCredit: parsed.availableCredit !== null && parsed.availableCredit !== undefined ? Number(parsed.availableCredit) : card.officialAvailableCredit,
+        officialUpdatedDate: new Date().toISOString().slice(0, 10),
+      });
+      if (parsed.creditLimit) onUpdateCard(card.id, { creditLimit: Number(parsed.creditLimit) });
+    } catch (err) {
+      setStatementError('อ่านภาพไม่สำเร็จ ลองถ่ายใหม่ให้ชัดขึ้น');
+    } finally {
+      setStatementScanning(false);
+    }
+  }
 
   return (
     <div>
@@ -5308,11 +5350,41 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
           <p className="text-xs font-semibold" style={{ color: remaining > 0 ? BAD : GOOD }}>{remaining > 0 ? `คงเหลือต้องจ่าย ฿${fmt(remaining)}` : 'จ่ายครบแล้ว ✓'}</p>
         </div>
       </Card>
+      <Card style={{ background: PAPER_DIM }}>
+        <p className="text-xs font-semibold mb-1" style={{ color: INK }}>📱 ยอดทางการจากธนาคาร</p>
+        <p className="text-[10px] mb-2" style={{ color: SLATE }}>ถ่ายรูปหน้าจอสรุปยอดจากแอปธนาคาร — แยกจากยอดที่คำนวณเองด้านบน เผื่อยอดไม่ตรงกัน</p>
+        <input ref={statementFileRef} type="file" accept="image/*" capture="environment" onChange={handleStatementPhoto} className="hidden" />
+        <button onClick={() => statementFileRef.current && statementFileRef.current.click()} disabled={statementScanning} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-2">
+          {statementScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} {statementScanning ? 'กำลังอ่าน...' : 'ถ่ายรูปยอดบัตรจากแอปธนาคาร'}
+        </button>
+        {statementError && <p className="text-xs mb-2" style={{ color: BAD }}>{statementError}</p>}
+        {card.officialAmountDue !== undefined && (
+          <div className="pt-2" style={{ borderTop: `1px solid ${BORDER}` }}>
+            <div className="flex justify-between items-center mb-1"><p className="text-xs" style={{ color: SLATE }}>ยอดที่ต้องชำระ</p><p className="text-sm font-semibold" style={{ color: BAD }}>฿{fmt(card.officialAmountDue)}</p></div>
+            {card.officialDueDate && <div className="flex justify-between items-center mb-1"><p className="text-xs" style={{ color: SLATE }}>กำหนดชำระ</p><p className="text-xs">{card.officialDueDate}</p></div>}
+            {card.officialCurrentBalance !== undefined && <div className="flex justify-between items-center mb-1"><p className="text-xs" style={{ color: SLATE }}>ยอดที่ใช้</p><p className="text-xs">฿{fmt(card.officialCurrentBalance)}</p></div>}
+            {card.officialAvailableCredit !== undefined && <div className="flex justify-between items-center mb-1"><p className="text-xs" style={{ color: SLATE }}>วงเงินคงเหลือ</p><p className="text-xs">฿{fmt(card.officialAvailableCredit)}</p></div>}
+            <p className="text-[10px] mt-1" style={{ color: SLATE }}>อัปเดตล่าสุด {card.officialUpdatedDate}</p>
+          </div>
+        )}
+      </Card>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการจ่ายบัตร (โอนเงินชำระยอด — แยกจากการใช้จ่ายผ่านบัตร)</p>
         <NumInput value={payAmount} onChange={setPayAmount} placeholder="จำนวนเงินที่จ่าย" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        <input value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="โน้ต (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        {(cardPaymentNotes || []).length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {cardPaymentNotes.map((n) => (
+              <button key={n} onClick={() => setPayNote(n)} className="text-[11px] rounded-full px-2.5 py-1" style={{ background: payNote === n ? GOOD : PAPER_DIM, color: payNote === n ? 'white' : SLATE }}>{n}</button>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-1.5 mb-2">
+          <input value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="โน้ต (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
+          {payNote && !cardPaymentNotes.includes(payNote) && (
+            <button onClick={() => onAddCardPaymentNote(payNote)} className="text-[11px] rounded-lg px-3 whitespace-nowrap" style={{ border: `1px solid ${BRASS}`, color: BRASS }}>+ จำไว้</button>
+          )}
+        </div>
         <button onClick={submitPayment} style={{ background: GOOD }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกการจ่ายบัตร</button>
         {monthPayments.length > 0 && (
           <div className="mt-3 pt-2" style={{ borderTop: `1px solid ${BORDER}` }}>
