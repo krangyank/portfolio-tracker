@@ -138,6 +138,7 @@ const EMPTY_STATE = {
   properties: [],
   creditCards: [],
   investmentNews: { items: [], fetchedAt: '' },
+  dividendCalendar: { items: [], fetchedAt: '' },
 };
 const makeCreditCard = (entry) => ({
   id: uid(), bankName: entry?.bankName || '', cardName: entry?.cardName || '', last4: entry?.last4 || '',
@@ -1419,6 +1420,10 @@ export default function App() {
   function saveInvestmentNews(items) {
     persist({ ...state, investmentNews: { items, fetchedAt: new Date().toISOString() } });
   }
+  const dividendCalendar = state?.dividendCalendar || { items: [], fetchedAt: '' };
+  function saveDividendCalendar(items) {
+    persist({ ...state, dividendCalendar: { items, fetchedAt: new Date().toISOString() } });
+  }
   function addBloodTestType(name) { if (name && !bloodTestTypeList.includes(name)) persist({ ...state, bloodTestTypeList: [...bloodTestTypeList, name] }); }
   function addOrganType(name) { if (name && !organTypeList.includes(name)) persist({ ...state, organTypeList: [...organTypeList, name] }); }
   function addImagingType(name) { if (name && !imagingTypeList.includes(name)) persist({ ...state, imagingTypeList: [...imagingTypeList, name] }); }
@@ -1943,7 +1948,7 @@ export default function App() {
           onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} />
       )}
       {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
-      {tab === 'income' && <NewsTab news={investmentNews} accounts={accounts} onSaved={saveInvestmentNews} />}
+      {tab === 'income' && <NewsTab news={investmentNews} accounts={accounts} onSaved={saveInvestmentNews} dividendCalendar={dividendCalendar} onSavedDividends={saveDividendCalendar} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} />}
       {tab === 'reports' && <ReportsTab contributions={contributions} accounts={accounts} costBasisByAccount={costBasisByAccount} history={history} />}
       {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onAddCategory={addExpenseCategory}
           creditCards={creditCards} onAddCreditCard={addCreditCard} onUpdateCreditCard={updateCreditCard} onRemoveCreditCard={removeCreditCard}
@@ -2604,6 +2609,21 @@ function tryRepairTruncatedJson(str) {
   for (let i = stack.length - 1; i >= 0; i--) truncated += (stack[i] === '{' ? '}' : ']');
   return truncated;
 }
+// เอา tag <cite index="...">...</cite> ที่ Claude บางครั้งแปะมาตอนใช้ web search ออกจากทุกช่อง text แบบรีเคอร์ซีฟ กัน tag หลุดมาโชว์ในแอปตรงๆ
+function stripCiteTags(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/<\/?cite[^>]*>/g, '').trim();
+}
+function deepStripCiteTags(value) {
+  if (typeof value === 'string') return stripCiteTags(value);
+  if (Array.isArray(value)) return value.map(deepStripCiteTags);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const k in value) out[k] = deepStripCiteTags(value[k]);
+    return out;
+  }
+  return value;
+}
 function safeParseJson(text) {
   let clean = text.replace(/```json|```/g, '').trim();
   const firstObj = clean.indexOf('{');
@@ -2618,13 +2638,15 @@ function safeParseJson(text) {
   const end = clean.lastIndexOf(closeChar);
   if (end === -1 || end < start) throw new Error('รูปแบบข้อมูลไม่สมบูรณ์');
   clean = clean.slice(start, end + 1);
+  let parsed;
   try {
-    return JSON.parse(clean);
+    parsed = JSON.parse(clean);
   } catch (e) {
     // คำตอบอาจถูกตัดครึ่งกลางคัน (token limit) ลองซ่อมก่อนยอมแพ้ เพื่อกู้ข้อมูลบางส่วนแทนที่จะเสียทั้งหมด
-    try { return JSON.parse(tryRepairTruncatedJson(clean)); }
+    try { parsed = JSON.parse(tryRepairTruncatedJson(clean)); }
     catch (e2) { throw e; }
   }
+  return deepStripCiteTags(parsed);
 }
 
 async function scanSingleValue(file) {
@@ -2786,6 +2808,20 @@ async function fetchInvestmentNews(symbols) {
 เลือกเฉพาะข่าวใหญ่ที่สำคัญจริงๆ ไม่เกิน 6 ข่าว เรียงตามความสำคัญจากมากไปน้อย ห้ามใส่ข่าวซ้ำหรือข่าวเล็กน้อย
 ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ:
 {"items":[{"headline":"หัวข้อข่าวสั้นๆ ภาษาไทย ไม่เกิน 15 คำ","summary":"สรุปใจความสำคัญ 1 บรรทัด ภาษาไทย ไม่เกิน 30 คำ","relatedSymbol":"สัญลักษณ์สินทรัพย์ที่เกี่ยวข้อง หรือ null ถ้าเป็นข่าวมหภาคทั่วไป","tone":"positive หรือ negative หรือ neutral","date":"YYYY-MM-DD หรือ null"}]}`;
+  const text = await askServer(prompt, null, null, true);
+  const parsed = safeParseJson(text);
+  return (parsed && parsed.items) || [];
+}
+// ค้นวัน XD (ขึ้นเครื่องหมาย XD/ex-dividend) และวันจ่ายปันผล เฉพาะหุ้น/กองทุนที่ถืออยู่จริง — ใช้เว็บเสิร์ชจริงทั้งตลาดไทยและสหรัฐฯ
+// (Finnhub free tier ไม่รองรับ endpoint ปันผลของทั้ง 2 ตลาด เลยใช้วิธีเดียวกันหมด แม่นยำน้อยกว่าข้อมูลโครงสร้าง ควรเช็คซ้ำกับประกาศทางการก่อนตัดสินใจซื้อ/ขาย)
+async function fetchDividendCalendar(symbols) {
+  if (!symbols || symbols.length === 0) return [];
+  const symbolLine = symbols.join(', ');
+  const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นหาวันขึ้นเครื่องหมาย XD (ex-dividend date) และวันจ่ายเงินปันผล (payment date) ล่าสุดหรือที่ประกาศไว้ล่วงหน้า สำหรับหุ้น/กองทุนต่อไปนี้เท่านั้น ใช้เครื่องมือค้นเว็บจริงจากแหล่งทางการ (ตลาดหลักทรัพย์แห่งประเทศไทย/SET, นักลงทุนสัมพันธ์บริษัท, หรือแหล่งข้อมูลการเงินที่น่าเชื่อถือสำหรับหุ้นสหรัฐฯ) ห้ามตอบจากความจำเก่า ห้ามเดา
+หุ้น/กองทุนที่ต้องการ: ${symbolLine}
+ถ้าหาไม่เจอสำหรับตัวไหน ให้ข้ามตัวนั้นไปเลย (ห้ามใส่ข้อมูลเดา) เอาเฉพาะรอบล่าสุดที่ประกาศแล้ว/ใกล้ที่สุด 1 รอบต่อสัญลักษณ์
+ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ:
+{"items":[{"symbol":"สัญลักษณ์","exDate":"YYYY-MM-DD","payDate":"YYYY-MM-DD หรือ null ถ้ายังไม่ประกาศ","amount":จำนวนเงินปันผลต่อหน่วยเป็นตัวเลข หรือ null,"source":"ชื่อแหล่งข้อมูลสั้นๆ"}]}`;
   const text = await askServer(prompt, null, null, true);
   const parsed = safeParseJson(text);
   return (parsed && parsed.items) || [];
@@ -4726,12 +4762,18 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
   );
 }
 
-function NewsTab({ news, accounts, onSaved }) {
+function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, onAddToCalendar, googleConnected }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [view, setView] = useState('news'); // 'news' | 'dividends'
+  const [divLoading, setDivLoading] = useState(false);
+  const [divError, setDivError] = useState('');
+  const [syncingSymbol, setSyncingSymbol] = useState('');
   const items = (news && news.items) || [];
   const fetchedAt = news && news.fetchedAt;
   const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime()) > 24 * 60 * 60 * 1000;
+  const divItems = (dividendCalendar && dividendCalendar.items) || [];
+  const divFetchedAt = dividendCalendar && dividendCalendar.fetchedAt;
 
   function collectSymbols() {
     const set = new Set();
@@ -4748,6 +4790,26 @@ function NewsTab({ news, accounts, onSaved }) {
     finally { setLoading(false); }
   }
 
+  async function runFetchDividends() {
+    setDivLoading(true); setDivError('');
+    try {
+      const newItems = await fetchDividendCalendar(collectSymbols());
+      onSavedDividends(newItems);
+    } catch (e) { setDivError('ดึงข้อมูล XD ไม่สำเร็จ: ' + (e.message || 'ไม่ทราบสาเหตุ')); }
+    finally { setDivLoading(false); }
+  }
+
+  async function syncDividendToCalendar(item) {
+    setSyncingSymbol(item.symbol);
+    const desc = `วันขึ้นเครื่องหมาย XD: ${item.exDate}${item.payDate ? `\nวันจ่ายปันผล (คาด): ${item.payDate}` : ''}${item.amount ? `\nปันผลต่อหน่วย: ${item.amount}` : ''}\nแหล่งข้อมูล: ${item.source || '-'} (ข้อมูลจาก AI เว็บเสิร์ช เช็คซ้ำกับประกาศทางการก่อนตัดสินใจ)`;
+    const r = await onAddToCalendar(`XD ${item.symbol}`, desc, item.exDate, [3, 1], item.calendarEventId);
+    if (r.ok) {
+      const updated = divItems.map((d) => (d.symbol === item.symbol && d.exDate === item.exDate ? { ...d, calendarEventId: r.eventId } : d));
+      onSavedDividends(updated);
+    }
+    setSyncingSymbol('');
+  }
+
   useEffect(() => {
     // ดึงข่าวใหม่อัตโนมัติทุกครั้งที่เข้าแท็บนี้ ถ้าข่าวที่มีอยู่เก่าเกิน 24 ชม. — แก้บั๊กเดิมที่เช็ค items.length === 0 ด้วย ทำให้พอมีข่าวแคชไว้แล้วครั้งแรก จะไม่มีวันดึงใหม่ให้เองอีกเลย
     if (isStale && !loading) runFetch();
@@ -4759,6 +4821,46 @@ function NewsTab({ news, accounts, onSaved }) {
 
   return (
     <div className="px-4 pt-4 pb-24">
+      <div className="flex gap-2 mb-4 p-1 rounded-lg" style={{ background: PAPER_DIM }}>
+        <button onClick={() => setView('news')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={view === 'news' ? { background: 'white', color: INK } : { color: SLATE }}>📰 ข่าวลงทุน</button>
+        <button onClick={() => setView('dividends')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={view === 'dividends' ? { background: 'white', color: INK } : { color: SLATE }}>📅 ปฏิทินปันผล (XD)</button>
+      </div>
+      {view === 'dividends' ? (
+        <div>
+          <div className="flex justify-between items-center mb-3">
+            <div>
+              <p className="text-base font-bold" style={{ color: INK }}>📅 ปฏิทินปันผล (XD)</p>
+              <p className="text-[10px]" style={{ color: SLATE }}>
+                {divFetchedAt ? `อัพเดตล่าสุด ${new Date(divFetchedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}` : 'ยังไม่เคยดึงข้อมูล'}
+              </p>
+            </div>
+            <button onClick={runFetchDividends} disabled={divLoading} style={{ background: INK }} className="text-white rounded-lg px-3 py-2 text-xs flex items-center gap-1.5">
+              {divLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {divLoading ? 'กำลังค้น...' : 'รีเฟรช'}
+            </button>
+          </div>
+          <div style={{ background: '#FEF3E2', border: '1px solid #FDE0A8', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: WARN }} className="mb-3">
+            ⚠️ ข้อมูลนี้มาจาก AI เว็บเสิร์ช (ไม่ใช่ข้อมูลโครงสร้างทางการ) — เช็คซ้ำกับประกาศของ SET/บริษัท หรือแหล่งข้อมูลทางการก่อนตัดสินใจซื้อ-ขายเสมอ
+          </div>
+          {divError && <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: '#991B1B' }} className="mb-3">⚠️ {divError}</div>}
+          {!divLoading && divItems.length === 0 && !divError && <Card><p className="text-xs text-center py-4" style={{ color: SLATE }}>ยังไม่มีข้อมูล กด "รีเฟรช" เพื่อค้นวัน XD ของหุ้นที่ถืออยู่</p></Card>}
+          {divItems.map((it, idx) => (
+            <Card key={idx}>
+              <div className="flex justify-between items-start mb-1">
+                <p className="text-sm font-semibold" style={{ color: INK }}>{it.symbol}</p>
+                {it.amount && <span style={{ background: PAPER_DIM, color: BRASS }} className="text-[10px] font-semibold rounded-full px-2 py-0.5">฿{it.amount}/หน่วย</span>}
+              </div>
+              <p className="text-xs" style={{ color: SLATE }}>วันขึ้นเครื่องหมาย XD: <span style={{ color: INK, fontWeight: 600 }}>{it.exDate}</span></p>
+              {it.payDate && <p className="text-xs" style={{ color: SLATE }}>วันจ่ายปันผล (คาด): <span style={{ color: INK, fontWeight: 600 }}>{it.payDate}</span></p>}
+              {it.source && <p className="text-[9px] mt-1" style={{ color: SLATE }}>ที่มา: {it.source}</p>}
+              <button onClick={() => syncDividendToCalendar(it)} disabled={syncingSymbol === it.symbol || !googleConnected} className="text-xs mt-2 flex items-center gap-1.5" style={{ color: it.calendarEventId ? GOOD : BRASS }}>
+                {syncingSymbol === it.symbol ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />}
+                {it.calendarEventId ? 'อัปเดตในปฏิทินแล้ว ✓ (แตะเพื่ออัปเดตซ้ำ)' : googleConnected ? 'เพิ่มลง Google Calendar' : 'ยังไม่ได้เชื่อมต่อ Google Calendar'}
+              </button>
+            </Card>
+          ))}
+        </div>
+      ) : (
+      <>
       <div className="flex justify-between items-center mb-3">
         <div>
           <p className="text-base font-bold" style={{ color: INK }}>📰 ข่าวลงทุน</p>
@@ -4782,6 +4884,8 @@ function NewsTab({ news, accounts, onSaved }) {
           {it.date && <p className="text-[9px] mt-1" style={{ color: SLATE }}>{it.date}</p>}
         </Card>
       ))}
+      </>
+      )}
     </div>
   );
 }
