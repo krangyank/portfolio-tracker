@@ -2814,8 +2814,8 @@ async function fetchInvestmentNews(symbols) {
 }
 // ค้นวัน XD (ขึ้นเครื่องหมาย XD/ex-dividend) และวันจ่ายปันผล เฉพาะหุ้น/กองทุนที่ถืออยู่จริง — ใช้เว็บเสิร์ชจริงทั้งตลาดไทยและสหรัฐฯ
 // (Finnhub free tier ไม่รองรับ endpoint ปันผลของทั้ง 2 ตลาด เลยใช้วิธีเดียวกันหมด แม่นยำน้อยกว่าข้อมูลโครงสร้าง ควรเช็คซ้ำกับประกาศทางการก่อนตัดสินใจซื้อ/ขาย)
-async function fetchDividendCalendar(symbols) {
-  if (!symbols || symbols.length === 0) return [];
+// แบ่งเป็นชุดละ 2 สัญลักษณ์ ยิงพร้อมกันหลายคำขอ (แทนยิงทีเดียวรวมหมดเป็นคำขอเดียว) เพราะเว็บเสิร์ชรวมหลายหุ้นในคำขอเดียวใช้เวลานาน มักโดน gateway ของ Vercel ตัดก่อนเสร็จ (เจอ error "Failed to fetch")
+async function fetchDividendCalendarBatch(symbols) {
   const symbolLine = symbols.join(', ');
   const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นหาวันขึ้นเครื่องหมาย XD (ex-dividend date) และวันจ่ายเงินปันผล (payment date) ล่าสุดหรือที่ประกาศไว้ล่วงหน้า สำหรับหุ้น/กองทุนต่อไปนี้เท่านั้น ใช้เครื่องมือค้นเว็บจริงจากแหล่งทางการ (ตลาดหลักทรัพย์แห่งประเทศไทย/SET, นักลงทุนสัมพันธ์บริษัท, หรือแหล่งข้อมูลการเงินที่น่าเชื่อถือสำหรับหุ้นสหรัฐฯ) ห้ามตอบจากความจำเก่า ห้ามเดา
 หุ้น/กองทุนที่ต้องการ: ${symbolLine}
@@ -2825,6 +2825,25 @@ async function fetchDividendCalendar(symbols) {
   const text = await askServer(prompt, null, null, true);
   const parsed = safeParseJson(text);
   return (parsed && parsed.items) || [];
+}
+async function fetchDividendCalendar(symbols) {
+  if (!symbols || symbols.length === 0) return [];
+  const BATCH_SIZE = 2;
+  const batches = [];
+  for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
+  // ยิงแต่ละชุดพร้อมกัน (ไม่รอทีละชุด) แต่ถ้าชุดไหนพลาด (timeout/error) ให้ข้ามไปเลย ไม่ทำให้ชุดอื่นที่สำเร็จหายไปด้วย
+  const results = await Promise.allSettled(batches.map((b) => fetchDividendCalendarBatch(b)));
+  const items = [];
+  const failedSymbols = [];
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') items.push(...r.value);
+    else failedSymbols.push(...batches[i]);
+  });
+  if (failedSymbols.length > 0 && items.length === 0) {
+    // ทุกชุดพลาดหมด — โยน error ออกไปให้ผู้ใช้เห็นตามปกติ
+    throw new Error(`ดึงข้อมูลไม่สำเร็จสำหรับ: ${failedSymbols.join(', ')} (ลองกดรีเฟรชใหม่อีกครั้ง)`);
+  }
+  return items;
 }
 
 async function scanReceiptItems(file, cardNames) {
