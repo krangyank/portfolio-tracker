@@ -2800,17 +2800,38 @@ async function scanInsurancePolicyMultiPhoto(files) {
   return merged;
 }
 
-async function fetchInvestmentNews(symbols) {
-  const symbolLine = symbols.length > 0 ? symbols.join(', ') : '(ไม่มีข้อมูลสินทรัพย์ที่ถือ)';
-  const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นข่าวการลงทุนล่าสุด (ภายใน 3-5 วันที่ผ่านมา) ที่สำคัญที่สุดสำหรับพอร์ตนี้ ใช้เครื่องมือค้นเว็บจริง ห้ามตอบจากความจำเก่า
-สินทรัพย์ที่ถืออยู่: ${symbolLine}
-ให้ค้นข่าวที่เกี่ยวข้องกับสินทรัพย์เหล่านี้โดยตรง (เช่น ผลประกอบการ ข่าวใหญ่ของบริษัท) และข่าวเศรษฐกิจมหภาคสำคัญที่กระทบพอร์ตการลงทุน (ดอกเบี้ยนโยบาย Fed, อัตราเงินเฟ้อสหรัฐ, อัตราการว่างงาน, ค่าเงิน USD/THB)
-เลือกเฉพาะข่าวใหญ่ที่สำคัญจริงๆ ไม่เกิน 6 ข่าว เรียงตามความสำคัญจากมากไปน้อย ห้ามใส่ข่าวซ้ำหรือข่าวเล็กน้อย
+// แยกเป็น 2 คำขอ ยิงพร้อมกัน (ข่าวมหภาค + ข่าวเฉพาะหุ้นที่ถือ) แทนยิงรวมทีเดียว เพราะคำขอเดียวรวมข่าวมหภาค+ข่าวหุ้นหลายตัวใช้เวลานาน มักโดน gateway ของ Vercel ตัดก่อนเสร็จ (เจอ error "Failed to fetch")
+async function fetchMacroNews() {
+  const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นข่าวเศรษฐกิจมหภาคล่าสุด (ภายใน 3-5 วันที่ผ่านมา) ที่สำคัญที่สุดที่กระทบพอร์ตการลงทุน (ดอกเบี้ยนโยบาย Fed, อัตราเงินเฟ้อสหรัฐ, อัตราการว่างงาน, ค่าเงิน USD/THB) ใช้เครื่องมือค้นเว็บจริง ห้ามตอบจากความจำเก่า
+เลือกเฉพาะข่าวใหญ่ที่สำคัญจริงๆ ไม่เกิน 3 ข่าว เรียงตามความสำคัญจากมากไปน้อย ห้ามใส่ข่าวซ้ำหรือข่าวเล็กน้อย
 ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ:
-{"items":[{"headline":"หัวข้อข่าวสั้นๆ ภาษาไทย ไม่เกิน 15 คำ","summary":"สรุปใจความสำคัญ 1 บรรทัด ภาษาไทย ไม่เกิน 30 คำ","relatedSymbol":"สัญลักษณ์สินทรัพย์ที่เกี่ยวข้อง หรือ null ถ้าเป็นข่าวมหภาคทั่วไป","tone":"positive หรือ negative หรือ neutral","date":"YYYY-MM-DD หรือ null"}]}`;
+{"items":[{"headline":"หัวข้อข่าวสั้นๆ ภาษาไทย ไม่เกิน 15 คำ","summary":"สรุปใจความสำคัญ 1 บรรทัด ภาษาไทย ไม่เกิน 30 คำ","relatedSymbol":null,"tone":"positive หรือ negative หรือ neutral","date":"YYYY-MM-DD หรือ null"}]}`;
   const text = await askServer(prompt, null, null, true);
   const parsed = safeParseJson(text);
   return (parsed && parsed.items) || [];
+}
+async function fetchSymbolNewsBatch(symbols) {
+  const symbolLine = symbols.join(', ');
+  const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นข่าวการลงทุนล่าสุด (ภายใน 3-5 วันที่ผ่านมา) ที่เกี่ยวข้องโดยตรงกับสินทรัพย์เหล่านี้เท่านั้น (เช่น ผลประกอบการ ข่าวใหญ่ของบริษัท) ใช้เครื่องมือค้นเว็บจริง ห้ามตอบจากความจำเก่า
+สินทรัพย์ที่ต้องการ: ${symbolLine}
+เลือกเฉพาะข่าวใหญ่ที่สำคัญจริงๆ ไม่เกิน 2 ข่าวต่อสัญลักษณ์ ห้ามใส่ข่าวซ้ำหรือข่าวเล็กน้อย ถ้าไม่มีข่าวสำคัญของตัวไหนให้ข้ามไปเลย
+ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ:
+{"items":[{"headline":"หัวข้อข่าวสั้นๆ ภาษาไทย ไม่เกิน 15 คำ","summary":"สรุปใจความสำคัญ 1 บรรทัด ภาษาไทย ไม่เกิน 30 คำ","relatedSymbol":"สัญลักษณ์ที่เกี่ยวข้อง","tone":"positive หรือ negative หรือ neutral","date":"YYYY-MM-DD หรือ null"}]}`;
+  const text = await askServer(prompt, null, null, true);
+  const parsed = safeParseJson(text);
+  return (parsed && parsed.items) || [];
+}
+async function fetchInvestmentNews(symbols) {
+  const BATCH_SIZE = 3;
+  const batches = [];
+  for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
+  const calls = [fetchMacroNews(), ...batches.map((b) => fetchSymbolNewsBatch(b))];
+  const results = await Promise.allSettled(calls);
+  const items = [];
+  let allFailed = true;
+  results.forEach((r) => { if (r.status === 'fulfilled') { items.push(...r.value); allFailed = false; } });
+  if (allFailed && calls.length > 0) throw new Error('ดึงข่าวไม่สำเร็จทั้งหมด ลองกดรีเฟรชใหม่อีกครั้ง');
+  return items.slice(0, 6);
 }
 // ค้นวัน XD (ขึ้นเครื่องหมาย XD/ex-dividend) และวันจ่ายปันผล เฉพาะหุ้น/กองทุนที่ถืออยู่จริง — ใช้เว็บเสิร์ชจริงทั้งตลาดไทยและสหรัฐฯ
 // (Finnhub free tier ไม่รองรับ endpoint ปันผลของทั้ง 2 ตลาด เลยใช้วิธีเดียวกันหมด แม่นยำน้อยกว่าข้อมูลโครงสร้าง ควรเช็คซ้ำกับประกาศทางการก่อนตัดสินใจซื้อ/ขาย)
@@ -4787,7 +4808,18 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
   const [view, setView] = useState('news'); // 'news' | 'dividends'
   const [divLoading, setDivLoading] = useState(false);
   const [divError, setDivError] = useState('');
+  const [divMissing, setDivMissing] = useState([]);
   const [syncingSymbol, setSyncingSymbol] = useState('');
+  const [divSyncPrefs, setDivSyncPrefs] = useState({}); // key: `${symbol}__${exDate}` -> { xd: bool, pay: bool }
+  function getDivPref(item) {
+    const key = `${item.symbol}__${item.exDate}`;
+    return divSyncPrefs[key] || { xd: true, pay: true };
+  }
+  function toggleDivPref(item, field) {
+    const key = `${item.symbol}__${item.exDate}`;
+    const current = getDivPref(item);
+    setDivSyncPrefs({ ...divSyncPrefs, [key]: { ...current, [field]: !current[field] } });
+  }
   const items = (news && news.items) || [];
   const fetchedAt = news && news.fetchedAt;
   const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime()) > 24 * 60 * 60 * 1000;
@@ -4812,18 +4844,33 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
   async function runFetchDividends() {
     setDivLoading(true); setDivError('');
     try {
-      const newItems = await fetchDividendCalendar(collectSymbols());
+      const held = collectSymbols();
+      const newItems = await fetchDividendCalendar(held);
       onSavedDividends(newItems);
+      const foundSymbols = new Set(newItems.map((it) => (it.symbol || '').toUpperCase()));
+      const missing = held.filter((s) => !foundSymbols.has(s));
+      setDivMissing(missing);
     } catch (e) { setDivError('ดึงข้อมูล XD ไม่สำเร็จ: ' + (e.message || 'ไม่ทราบสาเหตุ')); }
     finally { setDivLoading(false); }
   }
 
   async function syncDividendToCalendar(item) {
+    const pref = getDivPref(item);
+    if (!pref.xd && !pref.pay) return;
     setSyncingSymbol(item.symbol);
-    const desc = `วันขึ้นเครื่องหมาย XD: ${item.exDate}${item.payDate ? `\nวันจ่ายปันผล (คาด): ${item.payDate}` : ''}${item.amount ? `\nปันผลต่อหน่วย: ${item.amount}` : ''}\nแหล่งข้อมูล: ${item.source || '-'} (ข้อมูลจาก AI เว็บเสิร์ช เช็คซ้ำกับประกาศทางการก่อนตัดสินใจ)`;
-    const r = await onAddToCalendar(`XD ${item.symbol}`, desc, item.exDate, [3, 1], item.calendarEventId);
-    if (r.ok) {
-      const updated = divItems.map((d) => (d.symbol === item.symbol && d.exDate === item.exDate ? { ...d, calendarEventId: r.eventId } : d));
+    const sourceNote = `แหล่งข้อมูล: ${item.source || '-'} (ข้อมูลจาก AI เว็บเสิร์ช เช็คซ้ำกับประกาศทางการก่อนตัดสินใจ)`;
+    let rXd = { ok: true, eventId: item.calendarEventId };
+    let rPay = { ok: true, eventId: item.calendarEventIdPay };
+    if (pref.xd) {
+      const xdDesc = `หุ้น/กองทุน: ${item.symbol}\nวันขึ้นเครื่องหมาย XD: ${item.exDate}${item.payDate ? `\nวันจ่ายปันผล (คาด): ${item.payDate}` : ''}${item.amount ? `\nปันผลต่อหน่วย: ${item.amount}` : ''}\n${sourceNote}`;
+      rXd = await onAddToCalendar(`XD ${item.symbol} (ขึ้นเครื่องหมาย)`, xdDesc, item.exDate, [3, 1], item.calendarEventId);
+    }
+    if (pref.pay && item.payDate) {
+      const payDesc = `หุ้น/กองทุน: ${item.symbol}\nวันจ่ายปันผล (คาด): ${item.payDate}${item.amount ? `\nปันผลต่อหน่วย: ${item.amount}` : ''}\nวันขึ้นเครื่องหมาย XD: ${item.exDate}\n${sourceNote}`;
+      rPay = await onAddToCalendar(`💰 เงินปันผลเข้า: ${item.symbol}`, payDesc, item.payDate, [1], item.calendarEventIdPay);
+    }
+    if (rXd.ok || rPay.ok) {
+      const updated = divItems.map((d) => (d.symbol === item.symbol && d.exDate === item.exDate ? { ...d, calendarEventId: (pref.xd && rXd.ok) ? rXd.eventId : d.calendarEventId, calendarEventIdPay: (pref.pay && rPay.ok) ? rPay.eventId : d.calendarEventIdPay } : d));
       onSavedDividends(updated);
     }
     setSyncingSymbol('');
@@ -4862,7 +4909,16 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
           </div>
           {divError && <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: '#991B1B' }} className="mb-3">⚠️ {divError}</div>}
           {!divLoading && divItems.length === 0 && !divError && <Card><p className="text-xs text-center py-4" style={{ color: SLATE }}>ยังไม่มีข้อมูล กด "รีเฟรช" เพื่อค้นวัน XD ของหุ้นที่ถืออยู่</p></Card>}
-          {divItems.map((it, idx) => (
+          {divMissing.length > 0 && (
+            <div style={{ background: PAPER_DIM, borderRadius: 12, padding: '10px 12px' }} className="mb-3">
+              <p className="text-[11px]" style={{ color: SLATE }}>🔍 ค้นแล้วแต่ยังไม่พบข้อมูล XD ของ: <span style={{ color: INK, fontWeight: 600 }}>{divMissing.join(', ')}</span></p>
+              <p className="text-[10px] mt-1" style={{ color: SLATE }}>อาจเป็นเพราะยังไม่ประกาศรอบใหม่ หรือ AI หาไม่เจอในรอบนี้ — ลองกด "รีเฟรช" อีกครั้ง หรือเช็คตรงกับที่ถือในแอปว่าสะกดสัญลักษณ์ตรงกันไหม</p>
+            </div>
+          )}
+          {divItems.map((it, idx) => {
+            const pref = getDivPref(it);
+            const syncedLabel = [pref.xd && it.calendarEventId ? 'XD ✓' : null, pref.pay && it.calendarEventIdPay ? 'จ่ายเงิน ✓' : null].filter(Boolean).join(' · ');
+            return (
             <Card key={idx}>
               <div className="flex justify-between items-start mb-1">
                 <p className="text-sm font-semibold" style={{ color: INK }}>{it.symbol}</p>
@@ -4871,12 +4927,23 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
               <p className="text-xs" style={{ color: SLATE }}>วันขึ้นเครื่องหมาย XD: <span style={{ color: INK, fontWeight: 600 }}>{it.exDate}</span></p>
               {it.payDate && <p className="text-xs" style={{ color: SLATE }}>วันจ่ายปันผล (คาด): <span style={{ color: INK, fontWeight: 600 }}>{it.payDate}</span></p>}
               {it.source && <p className="text-[9px] mt-1" style={{ color: SLATE }}>ที่มา: {it.source}</p>}
-              <button onClick={() => syncDividendToCalendar(it)} disabled={syncingSymbol === it.symbol || !googleConnected} className="text-xs mt-2 flex items-center gap-1.5" style={{ color: it.calendarEventId ? GOOD : BRASS }}>
+              <div className="flex gap-3 mt-2">
+                <label className="flex items-center gap-1.5 text-xs" style={{ color: SLATE }}>
+                  <input type="checkbox" checked={pref.xd} onChange={() => toggleDivPref(it, 'xd')} />
+                  แจ้งเตือนวัน XD
+                </label>
+                <label className="flex items-center gap-1.5 text-xs" style={{ color: it.payDate ? SLATE : '#CCC' }}>
+                  <input type="checkbox" checked={pref.pay} onChange={() => toggleDivPref(it, 'pay')} disabled={!it.payDate} />
+                  แจ้งเตือนวันเงินเข้า
+                </label>
+              </div>
+              <button onClick={() => syncDividendToCalendar(it)} disabled={syncingSymbol === it.symbol || !googleConnected || (!pref.xd && !pref.pay)} className="text-xs mt-2 flex items-center gap-1.5" style={{ color: syncedLabel ? GOOD : BRASS }}>
                 {syncingSymbol === it.symbol ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />}
-                {it.calendarEventId ? 'อัปเดตในปฏิทินแล้ว ✓ (แตะเพื่ออัปเดตซ้ำ)' : googleConnected ? 'เพิ่มลง Google Calendar' : 'ยังไม่ได้เชื่อมต่อ Google Calendar'}
+                {syncedLabel ? `เพิ่มในปฏิทินแล้ว: ${syncedLabel} (แตะเพื่ออัปเดตซ้ำ)` : googleConnected ? 'เพิ่มลง Google Calendar' : 'ยังไม่ได้เชื่อมต่อ Google Calendar'}
               </button>
             </Card>
-          ))}
+            );
+          })}
         </div>
       ) : (
       <>
