@@ -4917,7 +4917,8 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       </div>
       {mainSection === 'cards' && (
         <CreditCardsSection creditCards={creditCards} onAddCard={onAddCreditCard} onUpdateCard={onUpdateCreditCard} onRemoveCard={onRemoveCreditCard}
-          onAddTransaction={onAddCreditCardTransaction} onRemoveTransaction={onRemoveCreditCardTransaction} onUpdateTransaction={onUpdateCreditCardTransaction} />
+          onAddTransaction={onAddCreditCardTransaction} onRemoveTransaction={onRemoveCreditCardTransaction} onUpdateTransaction={onUpdateCreditCardTransaction}
+          googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />
       )}
       {mainSection === 'cash' && (
       <>
@@ -5177,7 +5178,7 @@ function ExpenseMonthCalendar({ expenses, creditCards, viewDate, onChangeViewDat
     </Card>
   );
 }
-function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction }) {
+function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, googleConnected, onAddToCalendar }) {
   const [selectedId, setSelectedId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ bankName: '', cardName: '', last4: '', creditLimit: 0, statementDay: 1, dueDay: 15 });
