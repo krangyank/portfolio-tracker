@@ -344,6 +344,7 @@ async function createCalendarEvent(accessToken, evt) {
       start: { dateTime: evt.startDateTime, timeZone: 'Asia/Bangkok' },
       end: { dateTime: evt.endDateTime, timeZone: 'Asia/Bangkok' },
       reminders: { useDefault: false, overrides: evt.reminders || [{ method: 'popup', minutes: 7 * 24 * 60 }, { method: 'popup', minutes: 3 * 24 * 60 }, { method: 'popup', minutes: 24 * 60 }, { method: 'popup', minutes: 120 }] },
+      ...(evt.colorId ? { colorId: evt.colorId } : {}),
     }),
   });
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err.error && err.error.message) || `HTTP ${res.status}`); }
@@ -360,6 +361,7 @@ async function updateCalendarEvent(accessToken, eventId, evt) {
       start: { dateTime: evt.startDateTime, timeZone: 'Asia/Bangkok' },
       end: { dateTime: evt.endDateTime, timeZone: 'Asia/Bangkok' },
       reminders: { useDefault: false, overrides: evt.reminders || [{ method: 'popup', minutes: 7 * 24 * 60 }, { method: 'popup', minutes: 3 * 24 * 60 }, { method: 'popup', minutes: 24 * 60 }, { method: 'popup', minutes: 120 }] },
+      ...(evt.colorId ? { colorId: evt.colorId } : {}),
     }),
   });
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err.error && err.error.message) || `HTTP ${res.status}`); }
@@ -609,6 +611,7 @@ export default function App() {
         summary: `นัดสัตวแพทย์: ${dogName}${appt.purpose ? ' - ' + appt.purpose : ''}`,
         description: `โรงพยาบาล: ${appt.hospital || '-'}\nหมอ: ${appt.doctor || '-'}`,
         startDateTime, endDateTime, reminders,
+        colorId: '4', // Flamingo (ชมพู) — นัดหมอสัตวแพทย์
       };
       if (existingEventId) {
         await withGoogleTokenRetry((token) => updateCalendarEvent(token, existingEventId, evt));
@@ -618,7 +621,7 @@ export default function App() {
       return { ok: true, eventId: created.id };
     } catch (e) { return { ok: false, message: e.message }; }
   }
-  async function addPropertyEventToCalendar(summary, description, date, reminderDays, existingEventId) {
+  async function addPropertyEventToCalendar(summary, description, date, reminderDays, existingEventId, colorId) {
     if (!googleToken) { setCalendarError('ยังไม่ได้เชื่อมต่อ Google Calendar'); return { ok: false }; }
     try {
       const startDateTime = `${date}T09:00:00`;
@@ -626,10 +629,10 @@ export default function App() {
       const days = (reminderDays && reminderDays.length > 0) ? reminderDays : [7, 3, 1];
       const reminders = days.map((d) => ({ method: 'popup', minutes: d * 24 * 60 }));
       if (existingEventId) {
-        await withGoogleTokenRetry((token) => updateCalendarEvent(token, existingEventId, { summary, description, startDateTime, endDateTime, reminders }));
+        await withGoogleTokenRetry((token) => updateCalendarEvent(token, existingEventId, { summary, description, startDateTime, endDateTime, reminders, colorId }));
         return { ok: true, eventId: existingEventId };
       }
-      const created = await withGoogleTokenRetry((token) => createCalendarEvent(token, { summary, description, startDateTime, endDateTime, reminders }));
+      const created = await withGoogleTokenRetry((token) => createCalendarEvent(token, { summary, description, startDateTime, endDateTime, reminders, colorId }));
       return { ok: true, eventId: created.id };
     } catch (e) { return { ok: false, message: e.message }; }
   }
@@ -4678,7 +4681,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
                 {googleConnected && (
                   <button onClick={async () => {
                     setSyncingId(c.id);
-                    const r = await onAddToCalendar(`เก็บเงิน ${src?.label || c.source} → ${destLabel}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0], c.calendarEventId);
+                    const r = await onAddToCalendar(`เก็บเงิน ${src?.label || c.source} → ${destLabel}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0], c.calendarEventId, '10');
                     setSyncMsg((prev) => ({ ...prev, [c.id]: r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}` }));
                     if (r.ok) onUpdate(c.id, { calendarSynced: true, calendarEventId: r.eventId });
                     setSyncingId(null);
@@ -4746,7 +4749,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
                       {googleConnected && (
                         <button onClick={async () => {
                           setSyncingId(c.id);
-                          const r = await onAddToCalendar(`เก็บเงิน ${src2?.label || c.source} → ${destLabel2}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0], c.calendarEventId);
+                          const r = await onAddToCalendar(`เก็บเงิน ${src2?.label || c.source} → ${destLabel2}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0], c.calendarEventId, '10');
                           setSyncMsg((prev) => ({ ...prev, [c.id]: r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}` }));
                           if (r.ok) onUpdate(c.id, { calendarSynced: true, calendarEventId: r.eventId });
                           setSyncingId(null);
@@ -4863,11 +4866,11 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
     let rPay = { ok: true, eventId: item.calendarEventIdPay };
     if (pref.xd) {
       const xdDesc = `หุ้น/กองทุน: ${item.symbol}\nวันขึ้นเครื่องหมาย XD: ${item.exDate}${item.payDate ? `\nวันจ่ายปันผล (คาด): ${item.payDate}` : ''}${item.amount ? `\nปันผลต่อหน่วย: ${item.amount}` : ''}\n${sourceNote}`;
-      rXd = await onAddToCalendar(`XD ${item.symbol} (ขึ้นเครื่องหมาย)`, xdDesc, item.exDate, [3, 1], item.calendarEventId);
+      rXd = await onAddToCalendar(`XD ${item.symbol} (ขึ้นเครื่องหมาย)`, xdDesc, item.exDate, [3, 1], item.calendarEventId, '11');
     }
     if (pref.pay && item.payDate) {
       const payDesc = `หุ้น/กองทุน: ${item.symbol}\nวันจ่ายปันผล (คาด): ${item.payDate}${item.amount ? `\nปันผลต่อหน่วย: ${item.amount}` : ''}\nวันขึ้นเครื่องหมาย XD: ${item.exDate}\n${sourceNote}`;
-      rPay = await onAddToCalendar(`💰 เงินปันผลเข้า: ${item.symbol}`, payDesc, item.payDate, [1], item.calendarEventIdPay);
+      rPay = await onAddToCalendar(`💰 เงินปันผลเข้า: ${item.symbol}`, payDesc, item.payDate, [1], item.calendarEventIdPay, '5');
     }
     if (rXd.ok || rPay.ok) {
       const updated = divItems.map((d) => (d.symbol === item.symbol && d.exDate === item.exDate ? { ...d, calendarEventId: (pref.xd && rXd.ok) ? rXd.eventId : d.calendarEventId, calendarEventIdPay: (pref.pay && rPay.ok) ? rPay.eventId : d.calendarEventIdPay } : d));
@@ -5487,7 +5490,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
   }
   async function syncDueReminder() {
     setSyncingDue(true); setSyncDueMsg('');
-    const r = await onAddToCalendar(`ครบกำหนดจ่ายบัตร: ${card.bankName} ${card.cardName}`, `ยอดใช้เดือนนี้: ฿${fmt(spent)}`, dueDate, reminderDays, card.dueCalendarEventId);
+    const r = await onAddToCalendar(`ครบกำหนดจ่ายบัตร: ${card.bankName} ${card.cardName}`, `ยอดใช้เดือนนี้: ฿${fmt(spent)}`, dueDate, reminderDays, card.dueCalendarEventId, '6');
     if (r.ok) { onUpdateCard(card.id, { dueCalendarEventId: r.eventId, dueCalendarSyncedFor: dueDate }); setSyncDueMsg('เพิ่มลงปฏิทินสำเร็จ ✓'); }
     else setSyncDueMsg(`ไม่สำเร็จ: ${r.message}`);
     setSyncingDue(false);
@@ -6304,7 +6307,7 @@ function PropertyInfoSection({ property: p, onUpdate, googleConnected, onAddToCa
   async function syncContractReminder() {
     if (!p.contractEndDate) return;
     setSyncing(true); setSyncMsg('');
-    const r = await onAddToCalendar(`ครบสัญญาเช่า: ${p.name}`, `ผู้เช่า: ${p.tenantName || '-'}\nค่าเช่า: ${fmt(p.rent)} บาท`, p.contractEndDate, p.reminderDays);
+    const r = await onAddToCalendar(`ครบสัญญาเช่า: ${p.name}`, `ผู้เช่า: ${p.tenantName || '-'}\nค่าเช่า: ${fmt(p.rent)} บาท`, p.contractEndDate, p.reminderDays, undefined, '3');
     setSyncMsg(r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}`);
     setSyncing(false);
   }
@@ -6963,7 +6966,7 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
   async function syncDueReminder() {
     if (!p.nextDueDate) return;
     setSyncingDue(true); setSyncDueMsg('');
-    const r = await onAddToCalendar(`ครบกำหนดจ่ายเบี้ยประกัน: ${p.planName || p.company}`, `บริษัท: ${p.company || '-'}\nเลขกรมธรรม์: ${p.policyNumber || '-'}\nเบี้ย: ฿${fmt(p.premiumAmount)}`, p.nextDueDate, p.reminderDays, p.dueCalendarEventId);
+    const r = await onAddToCalendar(`ครบกำหนดจ่ายเบี้ยประกัน: ${p.planName || p.company}`, `บริษัท: ${p.company || '-'}\nเลขกรมธรรม์: ${p.policyNumber || '-'}\nเบี้ย: ฿${fmt(p.premiumAmount)}`, p.nextDueDate, p.reminderDays, p.dueCalendarEventId, '7');
     if (r.ok) { onUpdate(p.id, { dueCalendarEventId: r.eventId }); setSyncDueMsg('เพิ่มลงปฏิทินสำเร็จ ✓'); }
     else setSyncDueMsg(`ไม่สำเร็จ: ${r.message}`);
     setSyncingDue(false);
