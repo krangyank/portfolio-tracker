@@ -2839,11 +2839,11 @@ async function fetchSymbolNewsBatch(symbols) {
   return (parsed && parsed.items) || [];
 }
 async function fetchInvestmentNews(symbols) {
-  const BATCH_SIZE = 3;
+  const BATCH_SIZE = 8; // เพิ่มจำนวนหุ้นต่อคำขอ ให้จำนวนคำขอรวมน้อยลง (พอร์ตใหญ่ๆ ยิงรัวเกินจะโดนโควต้าจำกัดของ Anthropic API)
   const batches = [];
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
   const taskFns = [() => fetchMacroNews(), ...batches.map((b) => () => fetchSymbolNewsBatch(b))];
-  const results = await runLimited(taskFns, 2); // ยิงพร้อมกันได้สูงสุด 2 คำขอในแต่ละครั้ง กันโดน rate limit ของ Anthropic API
+  const results = await runLimited(taskFns, 1); // ยิงทีละคำขอจริงๆ กันโดน rate limit ของ Anthropic API ให้มากที่สุด
   const items = [];
   let allFailed = true;
   results.forEach((r) => { if (r.status === 'fulfilled') { items.push(...r.value); allFailed = false; } });
@@ -2866,11 +2866,11 @@ async function fetchDividendCalendarBatch(symbols) {
 }
 async function fetchDividendCalendar(symbols) {
   if (!symbols || symbols.length === 0) return [];
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 5; // เพิ่มจำนวนหุ้นต่อคำขอ ให้จำนวนคำขอรวมน้อยลง (พอร์ตใหญ่ๆ 20-30 ตัว ยิงรัวเกินจะโดนโควต้าจำกัดของ Anthropic API)
   const batches = [];
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
-  // ยิงพร้อมกันสูงสุด 2 ชุดต่อครั้ง (กันโดน rate limit) แต่ถ้าชุดไหนพลาด (timeout/error) ให้ข้ามไปเลย ไม่ทำให้ชุดอื่นที่สำเร็จหายไปด้วย
-  const results = await runLimited(batches.map((b) => () => fetchDividendCalendarBatch(b)), 2);
+  // ยิงพร้อมกันสูงสุด 1 ชุดต่อครั้ง (ทีละชุดจริงๆ) กันโดน rate limit ให้มากที่สุด แต่ถ้าชุดไหนพลาด (timeout/error) ให้ข้ามไปเลย ไม่ทำให้ชุดอื่นที่สำเร็จหายไปด้วย
+  const results = await runLimited(batches.map((b) => () => fetchDividendCalendarBatch(b)), 1);
   const items = [];
   const failedSymbols = [];
   results.forEach((r, i) => {
