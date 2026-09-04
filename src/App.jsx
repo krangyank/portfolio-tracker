@@ -2803,6 +2803,20 @@ async function scanInsurancePolicyMultiPhoto(files) {
   return merged;
 }
 
+// รันหลายงานพร้อมกัน แต่จำกัดจำนวนที่ยิงพร้อมกันจริง ๆ ไม่เกิน `limit` ตัว (กัน rate limit ฝั่ง Anthropic API เวลายิงหลายคำขอ web search ใส่กันรัว ๆ)
+async function runLimited(taskFns, limit = 2) {
+  const results = new Array(taskFns.length);
+  let next = 0;
+  async function worker() {
+    while (next < taskFns.length) {
+      const i = next++;
+      try { results[i] = { status: 'fulfilled', value: await taskFns[i]() }; }
+      catch (e) { results[i] = { status: 'rejected', reason: e }; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, taskFns.length) }, worker));
+  return results;
+}
 // แยกเป็น 2 คำขอ ยิงพร้อมกัน (ข่าวมหภาค + ข่าวเฉพาะหุ้นที่ถือ) แทนยิงรวมทีเดียว เพราะคำขอเดียวรวมข่าวมหภาค+ข่าวหุ้นหลายตัวใช้เวลานาน มักโดน gateway ของ Vercel ตัดก่อนเสร็จ (เจอ error "Failed to fetch")
 async function fetchMacroNews() {
   const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นข่าวเศรษฐกิจมหภาคล่าสุด (ภายใน 3-5 วันที่ผ่านมา) ที่สำคัญที่สุดที่กระทบพอร์ตการลงทุน (ดอกเบี้ยนโยบาย Fed, อัตราเงินเฟ้อสหรัฐ, อัตราการว่างงาน, ค่าเงิน USD/THB) ใช้เครื่องมือค้นเว็บจริง ห้ามตอบจากความจำเก่า
@@ -2828,12 +2842,12 @@ async function fetchInvestmentNews(symbols) {
   const BATCH_SIZE = 3;
   const batches = [];
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
-  const calls = [fetchMacroNews(), ...batches.map((b) => fetchSymbolNewsBatch(b))];
-  const results = await Promise.allSettled(calls);
+  const taskFns = [() => fetchMacroNews(), ...batches.map((b) => () => fetchSymbolNewsBatch(b))];
+  const results = await runLimited(taskFns, 2); // ยิงพร้อมกันได้สูงสุด 2 คำขอในแต่ละครั้ง กันโดน rate limit ของ Anthropic API
   const items = [];
   let allFailed = true;
   results.forEach((r) => { if (r.status === 'fulfilled') { items.push(...r.value); allFailed = false; } });
-  if (allFailed && calls.length > 0) throw new Error('ดึงข่าวไม่สำเร็จทั้งหมด ลองกดรีเฟรชใหม่อีกครั้ง');
+  if (allFailed && taskFns.length > 0) throw new Error('ดึงข่าวไม่สำเร็จทั้งหมด ลองกดรีเฟรชใหม่อีกครั้ง');
   return items.slice(0, 6);
 }
 // ค้นวัน XD (ขึ้นเครื่องหมาย XD/ex-dividend) และวันจ่ายปันผล เฉพาะหุ้น/กองทุนที่ถืออยู่จริง — ใช้เว็บเสิร์ชจริงทั้งตลาดไทยและสหรัฐฯ
@@ -2855,8 +2869,8 @@ async function fetchDividendCalendar(symbols) {
   const BATCH_SIZE = 2;
   const batches = [];
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
-  // ยิงแต่ละชุดพร้อมกัน (ไม่รอทีละชุด) แต่ถ้าชุดไหนพลาด (timeout/error) ให้ข้ามไปเลย ไม่ทำให้ชุดอื่นที่สำเร็จหายไปด้วย
-  const results = await Promise.allSettled(batches.map((b) => fetchDividendCalendarBatch(b)));
+  // ยิงพร้อมกันสูงสุด 2 ชุดต่อครั้ง (กันโดน rate limit) แต่ถ้าชุดไหนพลาด (timeout/error) ให้ข้ามไปเลย ไม่ทำให้ชุดอื่นที่สำเร็จหายไปด้วย
+  const results = await runLimited(batches.map((b) => () => fetchDividendCalendarBatch(b)), 2);
   const items = [];
   const failedSymbols = [];
   results.forEach((r, i) => {
