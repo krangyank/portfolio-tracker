@@ -2846,8 +2846,13 @@ async function fetchInvestmentNews(symbols) {
   const results = await runLimited(taskFns, 1); // ยิงทีละคำขอจริงๆ กันโดน rate limit ของ Anthropic API ให้มากที่สุด
   const items = [];
   let allFailed = true;
-  results.forEach((r) => { if (r.status === 'fulfilled') { items.push(...r.value); allFailed = false; } });
-  if (allFailed && taskFns.length > 0) throw new Error('ดึงข่าวไม่สำเร็จทั้งหมด ลองกดรีเฟรชใหม่อีกครั้ง');
+  let firstErrorMsg = '';
+  results.forEach((r) => {
+    if (r.status === 'fulfilled') { items.push(...r.value); allFailed = false; }
+    else if (!firstErrorMsg) firstErrorMsg = (r.reason && r.reason.message) || String(r.reason);
+  });
+  // แสดงข้อความ error ตัวจริงที่ได้จาก Anthropic API ไปเลย (ไม่ใช้ข้อความรวมๆ) จะได้รู้สาเหตุจริงว่าทำไมพัง
+  if (allFailed && taskFns.length > 0) throw new Error(firstErrorMsg || 'ดึงข่าวไม่สำเร็จทั้งหมด ลองกดรีเฟรชใหม่อีกครั้ง');
   return items.slice(0, 6);
 }
 // ค้นวัน XD (ขึ้นเครื่องหมาย XD/ex-dividend) และวันจ่ายปันผล เฉพาะหุ้น/กองทุนที่ถืออยู่จริง — ใช้เว็บเสิร์ชจริงทั้งตลาดไทยและสหรัฐฯ
@@ -2873,13 +2878,14 @@ async function fetchDividendCalendar(symbols) {
   const results = await runLimited(batches.map((b) => () => fetchDividendCalendarBatch(b)), 1);
   const items = [];
   const failedSymbols = [];
+  let firstErrorMsg = '';
   results.forEach((r, i) => {
     if (r.status === 'fulfilled') items.push(...r.value);
-    else failedSymbols.push(...batches[i]);
+    else { failedSymbols.push(...batches[i]); if (!firstErrorMsg) firstErrorMsg = (r.reason && r.reason.message) || String(r.reason); }
   });
   if (failedSymbols.length > 0 && items.length === 0) {
-    // ทุกชุดพลาดหมด — โยน error ออกไปให้ผู้ใช้เห็นตามปกติ
-    throw new Error(`ดึงข้อมูลไม่สำเร็จสำหรับ: ${failedSymbols.join(', ')} (ลองกดรีเฟรชใหม่อีกครั้ง)`);
+    // ทุกชุดพลาดหมด — แสดงข้อความ error ตัวจริงจาก Anthropic API แทนข้อความรวมๆ จะได้รู้สาเหตุจริง
+    throw new Error(firstErrorMsg ? `${firstErrorMsg} (พลาดสำหรับ: ${failedSymbols.join(', ')})` : `ดึงข้อมูลไม่สำเร็จสำหรับ: ${failedSymbols.join(', ')} (ลองกดรีเฟรชใหม่อีกครั้ง)`);
   }
   return items;
 }
