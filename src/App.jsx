@@ -2843,7 +2843,7 @@ async function fetchInvestmentNews(symbols) {
   const batches = [];
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
   const taskFns = [() => fetchMacroNews(), ...batches.map((b) => () => fetchSymbolNewsBatch(b))];
-  const results = await runLimited(taskFns, 1); // ยิงทีละคำขอจริงๆ กันโดน rate limit ของ Anthropic API ให้มากที่สุด
+  const results = await runLimited(taskFns, 2); // ยิงพร้อมกันได้ 2 คำขอ (สาเหตุที่แท้จริงของปัญหาก่อนหน้านี้คือเครดิตหมด ไม่ใช่ rate limit จึงไม่จำเป็นต้องช้าขนาดยิงทีละคำขอ)
   const items = [];
   let allFailed = true;
   let firstErrorMsg = '';
@@ -2875,7 +2875,7 @@ async function fetchDividendCalendar(symbols) {
   const batches = [];
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
   // ยิงพร้อมกันสูงสุด 1 ชุดต่อครั้ง (ทีละชุดจริงๆ) กันโดน rate limit ให้มากที่สุด แต่ถ้าชุดไหนพลาด (timeout/error) ให้ข้ามไปเลย ไม่ทำให้ชุดอื่นที่สำเร็จหายไปด้วย
-  const results = await runLimited(batches.map((b) => () => fetchDividendCalendarBatch(b)), 1);
+  const results = await runLimited(batches.map((b) => () => fetchDividendCalendarBatch(b)), 2); // ยิงพร้อมกันได้ 2 ชุด (สาเหตุที่แท้จริงของปัญหาก่อนหน้านี้คือเครดิตหมด ไม่ใช่ rate limit จึงไม่จำเป็นต้องช้าขนาดยิงทีละชุด)
   const items = [];
   const failedSymbols = [];
   let firstErrorMsg = '';
