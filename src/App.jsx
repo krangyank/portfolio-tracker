@@ -2804,14 +2804,18 @@ async function scanInsurancePolicyMultiPhoto(files) {
 }
 
 // รันหลายงานพร้อมกัน แต่จำกัดจำนวนที่ยิงพร้อมกันจริง ๆ ไม่เกิน `limit` ตัว (กัน rate limit ฝั่ง Anthropic API เวลายิงหลายคำขอ web search ใส่กันรัว ๆ)
-async function runLimited(taskFns, limit = 2) {
+// onProgress(doneCount, total) เรียกทุกครั้งที่งานย่อยเสร็จ 1 อัน ใช้โชว์สถานะ "กำลังค้น X/Y" ให้ผู้ใช้เห็นความคืบหน้าจริง แทนที่จะเห็นแค่ไอคอนหมุนเฉยๆ
+async function runLimited(taskFns, limit = 2, onProgress) {
   const results = new Array(taskFns.length);
   let next = 0;
+  let done = 0;
   async function worker() {
     while (next < taskFns.length) {
       const i = next++;
       try { results[i] = { status: 'fulfilled', value: await taskFns[i]() }; }
       catch (e) { results[i] = { status: 'rejected', reason: e }; }
+      done++;
+      if (onProgress) onProgress(done, taskFns.length);
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, taskFns.length) }, worker));
@@ -2838,12 +2842,12 @@ async function fetchSymbolNewsBatch(symbols) {
   const parsed = safeParseJson(text);
   return (parsed && parsed.items) || [];
 }
-async function fetchInvestmentNews(symbols) {
+async function fetchInvestmentNews(symbols, onProgress) {
   const BATCH_SIZE = 8; // เพิ่มจำนวนหุ้นต่อคำขอ ให้จำนวนคำขอรวมน้อยลง (พอร์ตใหญ่ๆ ยิงรัวเกินจะโดนโควต้าจำกัดของ Anthropic API)
   const batches = [];
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
   const taskFns = [() => fetchMacroNews(), ...batches.map((b) => () => fetchSymbolNewsBatch(b))];
-  const results = await runLimited(taskFns, 2); // ยิงพร้อมกันได้ 2 คำขอ (สาเหตุที่แท้จริงของปัญหาก่อนหน้านี้คือเครดิตหมด ไม่ใช่ rate limit จึงไม่จำเป็นต้องช้าขนาดยิงทีละคำขอ)
+  const results = await runLimited(taskFns, 3, onProgress); // ยิงพร้อมกันได้ 3 คำขอ (สาเหตุที่แท้จริงของปัญหาก่อนหน้านี้คือเครดิตหมด ไม่ใช่ rate limit จึงเร็วขึ้นได้อีก)
   const items = [];
   let allFailed = true;
   let firstErrorMsg = '';
@@ -2869,13 +2873,13 @@ async function fetchDividendCalendarBatch(symbols) {
   const parsed = safeParseJson(text);
   return (parsed && parsed.items) || [];
 }
-async function fetchDividendCalendar(symbols) {
+async function fetchDividendCalendar(symbols, onProgress) {
   if (!symbols || symbols.length === 0) return [];
   const BATCH_SIZE = 5; // เพิ่มจำนวนหุ้นต่อคำขอ ให้จำนวนคำขอรวมน้อยลง (พอร์ตใหญ่ๆ 20-30 ตัว ยิงรัวเกินจะโดนโควต้าจำกัดของ Anthropic API)
   const batches = [];
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) batches.push(symbols.slice(i, i + BATCH_SIZE));
-  // ยิงพร้อมกันสูงสุด 1 ชุดต่อครั้ง (ทีละชุดจริงๆ) กันโดน rate limit ให้มากที่สุด แต่ถ้าชุดไหนพลาด (timeout/error) ให้ข้ามไปเลย ไม่ทำให้ชุดอื่นที่สำเร็จหายไปด้วย
-  const results = await runLimited(batches.map((b) => () => fetchDividendCalendarBatch(b)), 2); // ยิงพร้อมกันได้ 2 ชุด (สาเหตุที่แท้จริงของปัญหาก่อนหน้านี้คือเครดิตหมด ไม่ใช่ rate limit จึงไม่จำเป็นต้องช้าขนาดยิงทีละชุด)
+  // ยิงพร้อมกันสูงสุด 3 ชุดต่อครั้ง (สาเหตุที่แท้จริงของปัญหาก่อนหน้านี้คือเครดิตหมด ไม่ใช่ rate limit จึงเร็วขึ้นได้อีก) แต่ถ้าชุดไหนพลาด (timeout/error) ให้ข้ามไปเลย ไม่ทำให้ชุดอื่นที่สำเร็จหายไปด้วย
+  const results = await runLimited(batches.map((b) => () => fetchDividendCalendarBatch(b)), 3, onProgress);
   const items = [];
   const failedSymbols = [];
   let firstErrorMsg = '';
@@ -4828,9 +4832,11 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
 function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, onAddToCalendar, googleConnected }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState(null); // { done, total }
   const [view, setView] = useState('news'); // 'news' | 'dividends'
   const [divLoading, setDivLoading] = useState(false);
   const [divError, setDivError] = useState('');
+  const [divProgress, setDivProgress] = useState(null); // { done, total }
   const [divMissing, setDivMissing] = useState([]);
   const [syncingSymbol, setSyncingSymbol] = useState('');
   const [divSyncPrefs, setDivSyncPrefs] = useState({}); // key: `${symbol}__${exDate}` -> { xd: bool, pay: bool }
@@ -4856,25 +4862,25 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
   }
 
   async function runFetch() {
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setProgress(null);
     try {
-      const newItems = await fetchInvestmentNews(collectSymbols());
+      const newItems = await fetchInvestmentNews(collectSymbols(), (done, total) => setProgress({ done, total }));
       onSaved(newItems);
     } catch (e) { setError('ดึงข่าวไม่สำเร็จ: ' + (e.message || 'ไม่ทราบสาเหตุ')); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setProgress(null); }
   }
 
   async function runFetchDividends() {
-    setDivLoading(true); setDivError('');
+    setDivLoading(true); setDivError(''); setDivProgress(null);
     try {
       const held = collectSymbols();
-      const newItems = await fetchDividendCalendar(held);
+      const newItems = await fetchDividendCalendar(held, (done, total) => setDivProgress({ done, total }));
       onSavedDividends(newItems);
       const foundSymbols = new Set(newItems.map((it) => (it.symbol || '').toUpperCase()));
       const missing = held.filter((s) => !foundSymbols.has(s));
       setDivMissing(missing);
     } catch (e) { setDivError('ดึงข้อมูล XD ไม่สำเร็จ: ' + (e.message || 'ไม่ทราบสาเหตุ')); }
-    finally { setDivLoading(false); }
+    finally { setDivLoading(false); setDivProgress(null); }
   }
 
   async function syncDividendToCalendar(item) {
@@ -4924,7 +4930,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
               </p>
             </div>
             <button onClick={runFetchDividends} disabled={divLoading} style={{ background: INK }} className="text-white rounded-lg px-3 py-2 text-xs flex items-center gap-1.5">
-              {divLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {divLoading ? 'กำลังค้น...' : 'รีเฟรช'}
+              {divLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {divLoading ? `กำลังค้น...${divProgress ? ` (${divProgress.done}/${divProgress.total})` : ''}` : 'รีเฟรช'}
             </button>
           </div>
           <div style={{ background: '#FEF3E2', border: '1px solid #FDE0A8', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: WARN }} className="mb-3">
@@ -4978,7 +4984,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
           </p>
         </div>
         <button onClick={runFetch} disabled={loading} style={{ background: INK }} className="text-white rounded-lg px-3 py-2 text-xs flex items-center gap-1.5">
-          {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {loading ? 'กำลังค้นข่าว...' : 'รีเฟรช'}
+          {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {loading ? `กำลังค้นข่าว...${progress ? ` (${progress.done}/${progress.total})` : ''}` : 'รีเฟรช'}
         </button>
       </div>
       {error && <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: '#991B1B' }} className="mb-3">⚠️ {error}</div>}
