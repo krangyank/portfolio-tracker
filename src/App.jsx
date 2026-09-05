@@ -77,6 +77,13 @@ function formatDateDMY(dateStr) {
   const [y, m, d] = parts;
   return `${d}/${m}/${y}`;
 }
+// แปลง YYYY-MM-DD เป็น "20 เมษายน 2569" (วัน เดือนเต็ม ปี พ.ศ.)
+function formatDateThai(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return dateStr;
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+}
 const fmt2 = (n) => new Intl.NumberFormat('th-TH', { maximumFractionDigits: 2 }).format(n || 0);
 const uid = () => Math.random().toString(36).slice(2, 10);
 const monthKey = (d) => d.slice(0, 7);
@@ -2864,11 +2871,15 @@ async function fetchInvestmentNews(symbols, onProgress) {
 // แบ่งเป็นชุดละ 2 สัญลักษณ์ ยิงพร้อมกันหลายคำขอ (แทนยิงทีเดียวรวมหมดเป็นคำขอเดียว) เพราะเว็บเสิร์ชรวมหลายหุ้นในคำขอเดียวใช้เวลานาน มักโดน gateway ของ Vercel ตัดก่อนเสร็จ (เจอ error "Failed to fetch")
 async function fetchDividendCalendarBatch(symbols) {
   const symbolLine = symbols.join(', ');
-  const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นหาวันขึ้นเครื่องหมาย XD (ex-dividend date) และวันจ่ายเงินปันผล (payment date) ล่าสุดหรือที่ประกาศไว้ล่วงหน้า สำหรับหุ้น/กองทุนต่อไปนี้เท่านั้น ใช้เครื่องมือค้นเว็บจริงจากแหล่งทางการ (ตลาดหลักทรัพย์แห่งประเทศไทย/SET, นักลงทุนสัมพันธ์บริษัท, หรือแหล่งข้อมูลการเงินที่น่าเชื่อถือสำหรับหุ้นสหรัฐฯ) ห้ามตอบจากความจำเก่า ห้ามเดา
+  const today = new Date().toISOString().slice(0, 10);
+  const prompt = `คุณคือนักวิเคราะห์การลงทุน วันนี้คือ ${today} ค้นหาวันขึ้นเครื่องหมาย XD (ex-dividend date) และวันจ่ายเงินปันผล (payment date) สำหรับหุ้น/กองทุนต่อไปนี้เท่านั้น ใช้เครื่องมือค้นเว็บจริงจากแหล่งทางการ (ตลาดหลักทรัพย์แห่งประเทศไทย/SET, นักลงทุนสัมพันธ์บริษัท, หรือแหล่งข้อมูลการเงินที่น่าเชื่อถือสำหรับหุ้นสหรัฐฯ) ห้ามตอบจากความจำเก่า ห้ามเดา
 หุ้น/กองทุนที่ต้องการ: ${symbolLine}
-ถ้าหาไม่เจอสำหรับตัวไหน ให้ข้ามตัวนั้นไปเลย (ห้ามใส่ข้อมูลเดา) เอาเฉพาะรอบล่าสุดที่ประกาศแล้ว/ใกล้ที่สุด 1 รอบต่อสัญลักษณ์
+กฎสำคัญที่ต้องระวัง (เคยพลาดมาก่อน):
+1. เลือกเฉพาะ "รอบล่าสุดที่ใกล้วันนี้ที่สุด" เท่านั้น (รอบที่เพิ่งประกาศหรือกำลังจะถึง) ห้ามหยิบรอบเก่าปีก่อนๆ มาตอบเด็ดขาด แม้จะเจอในผลค้นหาก็ตาม เช็คปีให้ตรงกับปีปัจจุบันหรือถัดไปเท่านั้น
+2. "amount" ต้องเป็นเงินปันผล**ต่อหน่วยของรอบนั้นรอบเดียว**เท่านั้น (เช่น ปันผลระหว่างกาลรอบนี้) ห้ามเอายอดรวมทั้งปี/หลายรอบมารวมกันตอบเป็นตัวเดียว ถ้าไม่แน่ใจว่าตัวเลขที่เจอเป็นของรอบเดียวหรือยอดรวม ให้ตอบ null แทนการเดา
+3. ถ้าหาไม่เจอสำหรับตัวไหน ให้ข้ามตัวนั้นไปเลย (ห้ามใส่ข้อมูลเดา) เอาเฉพาะรอบล่าสุดที่ประกาศแล้ว/ใกล้ที่สุด 1 รอบต่อสัญลักษณ์
 ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ:
-{"items":[{"symbol":"สัญลักษณ์","exDate":"YYYY-MM-DD","payDate":"YYYY-MM-DD หรือ null ถ้ายังไม่ประกาศ","amount":จำนวนเงินปันผลต่อหน่วยเป็นตัวเลข หรือ null,"source":"ชื่อแหล่งข้อมูลสั้นๆ"}]}`;
+{"items":[{"symbol":"สัญลักษณ์","exDate":"YYYY-MM-DD","payDate":"YYYY-MM-DD หรือ null ถ้ายังไม่ประกาศ","amount":จำนวนเงินปันผลต่อหน่วยของรอบนี้เท่านั้น หรือ null ถ้าไม่แน่ใจ,"source":"ชื่อแหล่งข้อมูลสั้นๆ"}]}`;
   const text = await askServer(prompt, null, null, true);
   const parsed = safeParseJson(text);
   return (parsed && parsed.items) || [];
@@ -4862,6 +4873,11 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
   }
 
   async function runFetch() {
+    // เตือนก่อนถ้าเพิ่งอัพเดตไปไม่นาน กันเผลอกดซ้ำเสียเงินฟรีๆ (เว็บเสิร์ชคิดเงินจริงทุกครั้งที่กด)
+    if (fetchedAt && (Date.now() - new Date(fetchedAt).getTime()) < 3 * 60 * 60 * 1000) {
+      const mins = Math.round((Date.now() - new Date(fetchedAt).getTime()) / 60000);
+      if (!window.confirm(`เพิ่งอัพเดตข่าวไปเมื่อ ${mins} นาทีที่แล้ว การรีเฟรชแต่ละครั้งมีค่าใช้จ่ายจริง (เว็บเสิร์ช) ต้องการรีเฟรชซ้ำอีกไหม?`)) return;
+    }
     setLoading(true); setError(''); setProgress(null);
     try {
       const newItems = await fetchInvestmentNews(collectSymbols(), (done, total) => setProgress({ done, total }));
@@ -4871,6 +4887,10 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
   }
 
   async function runFetchDividends() {
+    if (divFetchedAt && (Date.now() - new Date(divFetchedAt).getTime()) < 3 * 60 * 60 * 1000) {
+      const mins = Math.round((Date.now() - new Date(divFetchedAt).getTime()) / 60000);
+      if (!window.confirm(`เพิ่งอัพเดตปฏิทินปันผลไปเมื่อ ${mins} นาทีที่แล้ว การรีเฟรชแต่ละครั้งมีค่าใช้จ่ายจริง (เว็บเสิร์ชหลายสิบครั้งต่อรอบ) ต้องการรีเฟรชซ้ำอีกไหม?`)) return;
+    }
     setDivLoading(true); setDivError(''); setDivProgress(null);
     try {
       const held = collectSymbols();
@@ -4947,14 +4967,19 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
           {divItems.map((it, idx) => {
             const pref = getDivPref(it);
             const syncedLabel = [pref.xd && it.calendarEventId ? 'XD ✓' : null, pref.pay && it.calendarEventIdPay ? 'จ่ายเงิน ✓' : null].filter(Boolean).join(' · ');
+            // เช็คคร่าวๆ ว่าวัน XD ที่ AI ตอบมาเก่าเกินไปไหม (เกิน 90 วันที่แล้ว) เผื่อ AI หยิบรอบเก่าปีก่อนมาตอบผิด จะได้เตือนให้เช็คซ้ำ
+            const exDateObj = it.exDate ? new Date(it.exDate) : null;
+            const daysSinceEx = exDateObj ? Math.floor((Date.now() - exDateObj.getTime()) / (1000 * 60 * 60 * 24)) : null;
+            const looksStale = daysSinceEx !== null && daysSinceEx > 90;
             return (
             <Card key={idx}>
               <div className="flex justify-between items-start mb-1">
                 <p className="text-sm font-semibold" style={{ color: INK }}>{it.symbol}</p>
                 {it.amount && <span style={{ background: PAPER_DIM, color: BRASS }} className="text-[10px] font-semibold rounded-full px-2 py-0.5">฿{it.amount}/หน่วย</span>}
               </div>
-              <p className="text-xs" style={{ color: SLATE }}>วันขึ้นเครื่องหมาย XD: <span style={{ color: INK, fontWeight: 600 }}>{it.exDate}</span></p>
-              {it.payDate && <p className="text-xs" style={{ color: SLATE }}>วันจ่ายปันผล (คาด): <span style={{ color: INK, fontWeight: 600 }}>{it.payDate}</span></p>}
+              {looksStale && <p className="text-[10px] mb-1 px-2 py-1 rounded" style={{ background: '#FEE2E2', color: '#991B1B' }}>⚠️ วันที่นี้ผ่านมาแล้ว {daysSinceEx} วัน อาจเป็นข้อมูลรอบเก่าที่ AI หยิบผิด เช็คซ้ำก่อนตั้งเตือน</p>}
+              <p className="text-xs" style={{ color: SLATE }}>วันขึ้นเครื่องหมาย XD: <span style={{ color: INK, fontWeight: 600 }}>{formatDateThai(it.exDate)}</span></p>
+              {it.payDate && <p className="text-xs" style={{ color: SLATE }}>วันจ่ายปันผล (คาด): <span style={{ color: INK, fontWeight: 600 }}>{formatDateThai(it.payDate)}</span></p>}
               {it.source && <p className="text-[9px] mt-1" style={{ color: SLATE }}>ที่มา: {it.source}</p>}
               <div className="flex gap-3 mt-2">
                 <label className="flex items-center gap-1.5 text-xs" style={{ color: SLATE }}>
