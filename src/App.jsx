@@ -1452,11 +1452,12 @@ export default function App() {
     const cur = (p.payments || {})[ymKey];
     const nowPaid = !(cur && cur.paid);
     updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { paid: nowPaid, date: nowPaid ? new Date().toISOString().slice(0, 10) : (cur && cur.date), amount: p.rent } } });
-    if (nowPaid && p.lineGroupId) sendLineNotify(`✅ เก็บค่าเช่า ${p.name} ประจำเดือน ${ymKey}: ฿${fmt(p.rent)}`, p.lineGroupId);
+    if (nowPaid) sendLineNotify(`✅ เก็บค่าเช่า ${p.name} ประจำเดือน ${ymKey}: ฿${fmt(p.rent)}`, p.lineGroupId);
   }
   function addPropertyTransaction(propertyId, entry) {
     const p = properties.find((x) => x.id === propertyId);
     updateProperty(propertyId, { transactions: [{ id: uid(), ...entry }, ...(p.transactions || [])] });
+    sendLineNotify(`${entry.type === 'income' ? '💵 รายรับ' : '💸 รายจ่าย'} ${p.name}: ฿${fmt(entry.amount)}${entry.note ? ` (${entry.note})` : ''}`, p.lineGroupId);
   }
   function removePropertyTransaction(propertyId, txId) {
     const p = properties.find((x) => x.id === propertyId);
@@ -1465,7 +1466,7 @@ export default function App() {
   function addPropertyRepair(propertyId, entry) {
     const p = properties.find((x) => x.id === propertyId);
     updateProperty(propertyId, { repairs: [{ id: uid(), ...entry }, ...(p.repairs || [])] });
-    if (p.lineGroupId) sendLineNotify(`🔧 บันทึกซ่อมบำรุง ${p.name}: ${entry.description || entry.note || '-'}${entry.cost ? ` (฿${fmt(entry.cost)})` : ''}`, p.lineGroupId);
+    sendLineNotify(`🔧 บันทึกซ่อมบำรุง ${p.name}: ${entry.description || entry.note || '-'}${entry.cost ? ` (฿${fmt(entry.cost)})` : ''}`, p.lineGroupId);
   }
   function removePropertyRepair(propertyId, repairId) {
     const p = properties.find((x) => x.id === propertyId);
@@ -1514,7 +1515,7 @@ export default function App() {
       const shortfall = Number(p.rent || 0) - totalPaid;
       const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'ฝากเข้าบัญชี', value: accName }];
       if (shortfall > 0) rows.push({ label: 'ยังขาดอีก', value: `฿${fmt(shortfall)} จากยอดเต็ม ฿${fmt(p.rent)}` });
-      sendLineFlex(`รับค่าเช่า ${p.name} ฿${fmt(entry.amount)}`, buildFlexCard({ title: `🏠 รับค่าเช่า ${p.name}`, rows, amount: Number(entry.amount || 0), amountColor: GOOD, tab: 'realestate' }));
+      sendLineFlex(`รับค่าเช่า ${p.name} ฿${fmt(entry.amount)}`, buildFlexCard({ title: `🏠 รับค่าเช่า ${p.name}`, rows, amount: Number(entry.amount || 0), amountColor: GOOD, tab: 'realestate' }), p.lineGroupId);
     }
   }
   function removeRentInstallment(propertyId, ymKey, installmentId) {
@@ -1657,6 +1658,7 @@ export default function App() {
       if (toAdd.length) patch.vetVisits = d.vetVisits.map((v) => (v.id === visit.id ? { ...v, linkedRecords: [...(v.linkedRecords || []), ...toAdd] } : v));
     }
     updateDog(dogId, patch);
+    if (d.lineGroupId) sendLineNotify(`📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateDMY(entry.date)})`, d.lineGroupId);
     return imagingId;
   }
   function addWeight(dogId, entry) {
@@ -1678,6 +1680,7 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.startDate, 'medications', id, { medications: [{ id, ...entry }, ...(d.medications || [])] }));
+    if (d && d.lineGroupId) sendLineNotify(`💊 บันทึกยาใหม่ ${d.name}: ${entry.name || '-'}`, d.lineGroupId);
     return id;
   }
   function updateMedication(dogId, medId, patch) {
@@ -1691,6 +1694,7 @@ export default function App() {
   function logFleaTick(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { fleaTickHistory: [{ id: uid(), ...entry }, ...(d.fleaTickHistory || [])], fleaTick: { ...d.fleaTick, lastGivenDate: entry.date } });
+    if (d && d.lineGroupId) sendLineNotify(`🐛 บันทึกยาเห็บหมัด ${d.name} (${formatDateDMY(entry.date)})`, d.lineGroupId);
   }
   // ลบ/แก้ไขประวัติการให้ยาเห็บหมัด — ต้องคำนวณ "ให้ยาล่าสุด" ใหม่ทุกครั้งด้วย เผื่อลบ/แก้รายการที่เป็นล่าสุดอยู่
   function recomputeLastGivenDate(history) {
@@ -1718,11 +1722,13 @@ export default function App() {
   function addInsuranceClaim(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { insurance: { ...d.insurance, claims: [{ id: uid(), ...entry }, ...(d.insurance.claims || [])] } });
+    if (d && d.lineGroupId) sendLineNotify(`🛡️ เคลมประกัน ${d.name}: ฿${fmt(entry.amount)}${entry.reason ? ` (${entry.reason})` : ''}`, d.lineGroupId);
   }
   function addAppointment(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'appointments', id, { appointments: [{ id, ...entry }, ...(d.appointments || [])] }));
+    if (d && d.lineGroupId) sendLineNotify(`📅 นัดหมายใหม่ ${d.name}: ${entry.purpose || '-'} (${formatDateDMY(entry.date)})`, d.lineGroupId);
     return id;
   }
   function removeAppointment(dogId, apptId) {
@@ -1739,6 +1745,7 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'bloodTests', id, { bloodTests: [{ id, ...entry }, ...(d.bloodTests || [])] }));
+    if (d && d.lineGroupId) sendLineNotify(`🩸 ผลตรวจเลือดใหม่ ${d.name} (${formatDateDMY(entry.date)})`, d.lineGroupId);
     return id;
   }
   function updateBloodTest(dogId, id, patch) {
@@ -1749,6 +1756,7 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'organExams', id, { organExams: [{ id, ...entry }, ...(d.organExams || [])] }));
+    if (d && d.lineGroupId) sendLineNotify(`🩺 ผลตรวจอวัยวะใหม่ ${d.name}: ${entry.organ || '-'} (${formatDateDMY(entry.date)})`, d.lineGroupId);
     return id;
   }
   function updateOrganExam(dogId, id, patch) {
@@ -1759,6 +1767,7 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'imaging', id, { imaging: [{ id, ...entry }, ...(d.imaging || [])] }));
+    if (d && d.lineGroupId) sendLineNotify(`📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateDMY(entry.date)})`, d.lineGroupId);
     return id;
   }
   function updateImaging(dogId, id, patch) {
@@ -1769,6 +1778,7 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'expenses', id, { expenses: [{ id, ...entry }, ...(d.expenses || [])] }));
+    if (d && d.lineGroupId) sendLineNotify(`💰 บันทึกค่าใช้จ่าย ${d.name}: ฿${fmt(entry.amount)}${entry.category ? ` (${entry.category})` : ''}`, d.lineGroupId);
     return id;
   }
   function removeDogExpense(dogId, expId) {
@@ -5927,9 +5937,15 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
                 <Camera size={12} color="white" />
               </div>
             </button>
-            <div>
+            <div className="flex-1">
               <p className="text-lg font-bold" style={{ color: INK }}>{dog.name}</p>
               <p className="text-xs" style={{ color: SLATE }}>{dog.breed || 'ยังไม่ระบุพันธุ์'}</p>
+            </div>
+            <div className="flex flex-col items-center gap-1 flex-shrink-0" title={dog.lineGroupId ? 'ผูก LINE กลุ่มเฉพาะตัวแล้ว' : 'ยังไม่ผูก LINE กลุ่มเฉพาะตัว'}>
+              <div style={{ background: dog.lineGroupId ? '#16A34A14' : PAPER_DIM, color: dog.lineGroupId ? GOOD : '#9CA3AF' }} className="w-9 h-9 rounded-full flex items-center justify-center">
+                <MessageCircle size={16} />
+              </div>
+              <span className="text-[9px]" style={{ color: dog.lineGroupId ? GOOD : '#9CA3AF' }}>{dog.lineGroupId ? 'ผูกแล้ว' : 'ยังไม่ผูก'}</span>
             </div>
           </div>
         </Card>
@@ -6228,6 +6244,11 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
     <Card>
       <div className="flex justify-between items-center mb-3">
         <input value={p.name} onChange={(e) => onUpdate(p.id, { name: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
+        <div className="flex items-center gap-1.5 flex-shrink-0" title={p.lineGroupId ? 'ผูก LINE กลุ่มเฉพาะหลังนี้แล้ว' : 'ยังไม่ผูก LINE กลุ่มเฉพาะหลังนี้'}>
+          <div style={{ background: p.lineGroupId ? '#16A34A14' : PAPER_DIM, color: p.lineGroupId ? GOOD : '#9CA3AF' }} className="w-7 h-7 rounded-full flex items-center justify-center">
+            <MessageCircle size={13} />
+          </div>
+        </div>
         <button onClick={() => onRemove(p.id)}><Trash2 size={16} color={BAD} /></button>
       </div>
       <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
