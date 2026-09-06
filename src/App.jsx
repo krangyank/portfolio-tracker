@@ -7466,19 +7466,19 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
         <p className="text-sm mb-1">แพ้ยา: {dog.drugAllergies || 'ไม่มี'}</p>
         <p className="text-sm mb-1">ยาที่กำลังกิน: {activeMeds.length > 0 ? activeMeds.map((m) => m.name).join(', ') : 'ไม่มี'}</p>
         <button onClick={() => setSection && setSection('vetvisits')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">ไปหาหมอล่าสุด: {lastVetVisit ? `${lastVetVisit.date} - ${lastVetVisit.reason || '-'}` : 'ยังไม่มีบันทึก'}</span>
+          <span className="text-sm">ไปหาหมอล่าสุด: {lastVetVisit ? `${formatDateDMY(lastVetVisit.date)} - ${lastVetVisit.reason || '-'}` : 'ยังไม่มีบันทึก'}</span>
           <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
         </button>
         <button onClick={() => setSection && setSection('appt')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">นัดถัดไป: {nextAppt ? `${nextAppt.date} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</span>
+          <span className="text-sm">นัดถัดไป: {nextAppt ? `${formatDateDMY(nextAppt.date)} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</span>
           <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
         </button>
         <button onClick={() => setSection && setSection('flea')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue || 'ยังไม่ได้ตั้งค่า'}</span>
+          <span className="text-sm">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue ? formatDateDMY(nextFleaDue) : 'ยังไม่ได้ตั้งค่า'}</span>
           <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
         </button>
         <button onClick={() => setSection && setSection('insurance')} className="flex items-center justify-between w-full text-left" style={{ background: 'transparent' }}>
-          <span className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate || 'ไม่มี'}</span>
+          <span className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate ? formatDateDMY(dog.insurance.endDate) : 'ไม่มี'}</span>
           <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
         </button>
       </Card>
@@ -7501,7 +7501,7 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
               <div className="flex justify-between items-center text-sm">
                 <span className="font-semibold">{r.label}</span>
                 <span className="flex items-center gap-1">
-                  <span style={{ color: r.item ? INK : SLATE }}>{r.item ? r.item.date : 'ยังไม่เคยตรวจ'}</span>
+                  <span style={{ color: r.item ? INK : SLATE }}>{r.item ? formatDateDMY(r.item.date) : 'ยังไม่เคยตรวจ'}</span>
                   <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
                 </span>
               </div>
@@ -7564,7 +7564,7 @@ function DogLatestChecksSummary({ dog, setSection }) {
       {rows.map(([label, date], i) => (
         <button key={label} onClick={() => setSection && setSection('records')} className="w-full flex justify-between items-center py-2 text-left" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', background: 'transparent' }}>
           <span className="text-sm" style={{ color: INK }}>{label}</span>
-          <span className="text-xs" style={{ color: SLATE }}>{date}</span>
+          <span className="text-xs" style={{ color: SLATE }}>{formatDateDMY(date)}</span>
         </button>
       ))}
     </Card>
@@ -7592,7 +7592,7 @@ function DogHealthTimeline({ dog, setSection }) {
               {i < groupsByYear[y].length - 1 && <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 14 }} />}
             </div>
             <div className="pb-3.5">
-              <p className="text-[11px]" style={{ color: SLATE }}>{it.date}</p>
+              <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(it.date)}</p>
               <p className="text-sm font-semibold" style={{ color: INK }}>{it.label}</p>
             </div>
           </button>
