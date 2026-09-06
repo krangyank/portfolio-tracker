@@ -10,7 +10,11 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-const FIRESTORE_PATH = ['shared', 'krangya-family', 'data', 'main']; // ต้องตรงกับ path ที่ App.jsx ใช้อยู่จริง เช็คให้ตรงก่อนใช้งาน
+// dividendCalendar เก็บอยู่ในเอกสารส่วนตัวของ Tommy เท่านั้น (users/{uid}/data/portfolio) ไม่ใช่เอกสารกลาง shared/krangya-family
+// UID นี้คือของ krangyank11@gmail.com — ถ้าเปลี่ยนบัญชีในอนาคตต้องมาแก้ตรงนี้ด้วย
+const FIRESTORE_PATH = ['users', '7XDNF2jiEVOXXxtnt5tVvUoSgKV2', 'data', 'portfolio'];
+// บัญชีสหกรณ์ + กองทุน DIME/WealthX ถูกย้ายไปเก็บที่เอกสารกลางนี้ (ใช้ร่วมกับภรรยา) ต้องอ่านมารวมด้วยตอนหาสัญลักษณ์หุ้นที่ถือ
+const SHARED_FIRESTORE_PATH = ['shared', 'krangya-family', 'data', 'main'];
 
 function getDb() {
   if (getApps().length === 0) {
@@ -78,9 +82,14 @@ export default async function handler(req, res) {
     }
     const state = snap.data();
 
-    // รวบรวมสัญลักษณ์หุ้น/กองทุนที่ถืออยู่จริงทั้งหมด
+    // อ่านเอกสารกลาง (บัญชีสหกรณ์ + กองทุน DIME/WealthX ที่ใช้ร่วมกับภรรยา) มารวมด้วย เผื่อพลาดหุ้น/กองทุนบางตัวที่ย้ายไปอยู่ตรงนั้น
+    const sharedDocRef = db.collection(SHARED_FIRESTORE_PATH[0]).doc(SHARED_FIRESTORE_PATH[1]).collection(SHARED_FIRESTORE_PATH[2]).doc(SHARED_FIRESTORE_PATH[3]);
+    const sharedSnap = await sharedDocRef.get();
+    const sharedState = sharedSnap.exists ? sharedSnap.data() : {};
+
+    // รวบรวมสัญลักษณ์หุ้น/กองทุนที่ถืออยู่จริงทั้งหมด (จากทั้งเอกสารส่วนตัวและเอกสารกลาง)
     const symbolSet = new Set();
-    (state.accounts || []).forEach((a) => (a.holdings || []).forEach((h) => { if (h.symbol) symbolSet.add(h.symbol.trim().toUpperCase()); }));
+    [...(state.accounts || []), ...(sharedState.accounts || [])].forEach((a) => (a.holdings || []).forEach((h) => { if (h.symbol) symbolSet.add(h.symbol.trim().toUpperCase()); }));
     const symbols = Array.from(symbolSet);
     if (symbols.length === 0) {
       res.status(200).json({ ok: true, message: 'ไม่มีหุ้น/กองทุนที่ถืออยู่ ข้ามการดึงข้อมูล' });
@@ -113,4 +122,4 @@ export default async function handler(req, res) {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-}
+      }
