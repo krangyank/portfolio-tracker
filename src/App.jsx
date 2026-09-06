@@ -179,23 +179,24 @@ async function askServer(promptText, imageBase64, mediaType, webSearch) {
 let currentNotifyUser = '';
 // สวิตช์เปิด/ปิดแจ้งเตือน LINE ทั้งหมด ตั้งค่าจาก Tracker ตาม state.lineNotifyEnabled (ค่าเริ่มต้นเปิด) — เช็คจุดเดียวตรงนี้ ครอบคลุมทุกจุดเรียกในไฟล์ทันที
 let lineNotifyEnabled = true;
-function sendLineNotify(message) {
+function sendLineNotify(message, to) {
   if (!lineNotifyEnabled) return;
   const tagged = currentNotifyUser ? `${message}\n— โดย ${currentNotifyUser}` : message;
   fetch('/api/line-notify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: tagged }),
+    body: JSON.stringify({ message: tagged, ...(to ? { to } : {}) }),
   }).catch((e) => console.error('sendLineNotify failed', e));
 }
 // ส่งการ์ด Flex Message แทนข้อความล้วน — ใช้ altText เป็นข้อความสำรอง (โชว์ตอนแจ้งเตือน/บนนาฬิกา ที่มองไม่เห็นการ์ดจริง) ต้องแปะ "โดยใคร" ต่อท้ายใน altText เอง เพราะการ์ดไม่มีที่ใส่ชื่อผู้บันทึกแบบข้อความธรรมดา
-function sendLineFlex(altText, contents) {
+// to (ไม่บังคับ): ระบุ LINE Group ID ปลายทางเฉพาะ (เช่น กลุ่มเฉพาะของสัตว์เลี้ยงแต่ละตัว) ถ้าไม่ระบุจะส่งเข้ากลุ่มหลักตามค่า default ฝั่งเซิร์ฟเวอร์
+function sendLineFlex(altText, contents, to) {
   if (!lineNotifyEnabled) return;
   const taggedAlt = currentNotifyUser ? `${altText} — โดย ${currentNotifyUser}` : altText;
   fetch('/api/line-notify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ flex: { altText: taggedAlt, contents } }),
+    body: JSON.stringify({ flex: { altText: taggedAlt, contents }, ...(to ? { to } : {}) }),
   }).catch((e) => console.error('sendLineFlex failed', e));
 }
 const APP_URL = 'https://portfolio-tracker-six-chi.vercel.app';
@@ -1451,6 +1452,7 @@ export default function App() {
     const cur = (p.payments || {})[ymKey];
     const nowPaid = !(cur && cur.paid);
     updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { paid: nowPaid, date: nowPaid ? new Date().toISOString().slice(0, 10) : (cur && cur.date), amount: p.rent } } });
+    if (nowPaid && p.lineGroupId) sendLineNotify(`✅ เก็บค่าเช่า ${p.name} ประจำเดือน ${ymKey}: ฿${fmt(p.rent)}`, p.lineGroupId);
   }
   function addPropertyTransaction(propertyId, entry) {
     const p = properties.find((x) => x.id === propertyId);
@@ -1463,6 +1465,7 @@ export default function App() {
   function addPropertyRepair(propertyId, entry) {
     const p = properties.find((x) => x.id === propertyId);
     updateProperty(propertyId, { repairs: [{ id: uid(), ...entry }, ...(p.repairs || [])] });
+    if (p.lineGroupId) sendLineNotify(`🔧 บันทึกซ่อมบำรุง ${p.name}: ${entry.description || entry.note || '-'}${entry.cost ? ` (฿${fmt(entry.cost)})` : ''}`, p.lineGroupId);
   }
   function removePropertyRepair(propertyId, repairId) {
     const p = properties.find((x) => x.id === propertyId);
@@ -1660,6 +1663,7 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'weights', id, { weights: [{ id, ...entry }, ...(d.weights || [])] }));
+    if (d && d.lineGroupId) sendLineNotify(`⚖️ บันทึกน้ำหนัก ${d.name}: ${entry.weight} กก. (${formatDateDMY(entry.date)})`, d.lineGroupId);
     return id;
   }
   function removeWeight(dogId, wid) {
@@ -1785,6 +1789,7 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, { vetVisits: [{ id, linkedRecords: [], ...entry }, ...(d.vetVisits || [])] });
+    if (d && d.lineGroupId) sendLineNotify(`🏥 บันทึกไปหาหมอ ${d.name}: ${entry.reason || '-'} (${formatDateDMY(entry.date)})${entry.hospital ? `\nที่: ${entry.hospital}` : ''}`, d.lineGroupId);
     return id;
   }
   function updateVetVisit(dogId, visitId, patch) {
@@ -4710,7 +4715,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
         return (
           <Card key={c.id} style={isWithdraw ? { background: BG_WITHDRAW } : isDividend ? { background: BG_DIVIDEND } : undefined}>
             <div className="flex justify-between items-center">
-              <div><p className="text-sm">{isWithdraw ? '💸' : '💰'} {src?.label || c.source} → {destLabel}</p><p className="text-xs" style={{ color: SLATE }}>{c.date}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}</p>{isWithdraw && c.note && <p className="text-xs" style={{ color: SLATE }}>{c.note}</p>}</div>
+              <div><p className="text-sm">{isWithdraw ? '💸' : '💰'} {src?.label || c.source} → {destLabel}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}</p>{isWithdraw && c.note && <p className="text-xs" style={{ color: SLATE }}>{c.note}</p>}</div>
               <div className="flex items-center gap-3">
                 <span className="text-sm" style={{ color: isWithdraw ? BAD : GOOD }}>{isWithdraw ? '-' : '+'}฿{fmt(Math.abs(c.amount))}</span>
                 {googleConnected && (
@@ -4778,7 +4783,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
               return (
                 <Card key={c.id}>
                   <div className="flex justify-between items-center">
-                    <div><p className="text-sm">{c.date}</p>{c.usdAmount ? <p className="text-xs" style={{ color: SLATE }}>{c.usdAmount} USD</p> : null}</div>
+                    <div><p className="text-sm">{formatDateDMY(c.date)}</p>{c.usdAmount ? <p className="text-xs" style={{ color: SLATE }}>{c.usdAmount} USD</p> : null}</div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm">฿{fmt(c.amount)}</span>
                       {googleConnected && (
@@ -5307,17 +5312,21 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
           return filtered.slice(0, 30).map((e) => (
             <Card key={`${e._kind}_${e.id}`} style={e._kind === 'card' ? { background: '#EFF6FF', border: '1px solid #BFDBFE' } : undefined}>
               <div className="flex justify-between items-center">
-                <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
+                <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(e.date)}</p></div>
                 <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => removeCombinedItem(e)}><Trash2 size={14} color={BAD} /></button></div>
               </div>
             </Card>
           ));
         }
         const curMonth = thisMonth();
-        const dayGroups = {}; // date -> items (only current month)
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const dayGroups = {}; // date -> items (only current month, excluding today)
         const monthGroups = {}; // ym -> items (past months)
+        const todayItems = [];
         filtered.forEach((e) => {
-          if (monthKey(e.date) === curMonth) {
+          if (e.date === todayStr) {
+            todayItems.push(e);
+          } else if (monthKey(e.date) === curMonth) {
             (dayGroups[e.date] = dayGroups[e.date] || []).push(e);
           } else {
             (monthGroups[monthKey(e.date)] = monthGroups[monthKey(e.date)] || []).push(e);
@@ -5328,28 +5337,41 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         const rows = [];
         dayKeys.forEach((d) => rows.push({ type: 'day', key: d, items: dayGroups[d], total: dayGroups[d].reduce((s, e) => s + Number(e.amount || 0), 0) }));
         monthKeys.forEach((m) => rows.push({ type: 'month', key: m, items: monthGroups[m], total: monthGroups[m].reduce((s, e) => s + Number(e.amount || 0), 0) }));
-        return rows.map((r) => {
-          const hasCard = r.items.some((e) => e._kind === 'card');
-          return (
-            <Card key={r.key} style={hasCard ? { borderLeft: '3px solid #2563EB' } : undefined}>
-              <button onClick={() => setGroupPopup(r)} className="w-full flex justify-between items-center">
-                <div className="text-left"><p className="text-sm">{r.type === 'day' ? r.key : r.key}{hasCard && <span className="ml-1.5" style={{ color: '#2563EB' }}>💳</span>}</p><p className="text-xs" style={{ color: SLATE }}>{r.items.length} รายการ{r.type === 'month' ? ' (เดือนที่ผ่านมา)' : ''}</p></div>
-                <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(r.total)}</span><ChevronRight size={15} color={SLATE} /></div>
-              </button>
-            </Card>
-          );
-        });
+        return (
+          <>
+            {/* รายการวันนี้ — โชว์แยกเป็นรายการเลยไม่ต้องกดเปิด เพราะเป็นรายการที่เพิ่งเกิดขึ้น อยากเห็นรายละเอียดทันที */}
+            {todayItems.map((e) => (
+              <Card key={`${e._kind}_${e.id}`} style={e._kind === 'card' ? { background: '#EFF6FF', border: '1px solid #BFDBFE' } : undefined}>
+                <div className="flex justify-between items-center">
+                  <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}{e.source === 'line' && <span className="ml-1" style={{ color: '#06C755' }}>📱</span>}</p><p className="text-xs" style={{ color: SLATE }}>วันนี้ · {formatDateDMY(e.date)}</p></div>
+                  <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => removeCombinedItem(e)}><Trash2 size={14} color={BAD} /></button></div>
+                </div>
+              </Card>
+            ))}
+            {rows.map((r) => {
+              const hasCard = r.items.some((e) => e._kind === 'card');
+              return (
+                <Card key={r.key} style={hasCard ? { borderLeft: '3px solid #2563EB' } : undefined}>
+                  <button onClick={() => setGroupPopup(r)} className="w-full flex justify-between items-center">
+                    <div className="text-left"><p className="text-sm">{r.type === 'day' ? formatDateDMY(r.key) : r.key}{hasCard && <span className="ml-1.5" style={{ color: '#2563EB' }}>💳</span>}</p><p className="text-xs" style={{ color: SLATE }}>{r.items.length} รายการ{r.type === 'month' ? ' (เดือนที่ผ่านมา)' : ''}</p></div>
+                    <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(r.total)}</span><ChevronRight size={15} color={SLATE} /></div>
+                  </button>
+                </Card>
+              );
+            })}
+          </>
+        );
       })()}
       {groupPopup && (
         <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(15,23,42,0.45)' }} onClick={() => setGroupPopup(null)}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', borderTopLeftRadius: CARD_RADIUS, borderTopRightRadius: CARD_RADIUS, maxHeight: '85vh' }} className="w-full overflow-y-auto p-4">
             <div className="flex justify-between items-center mb-3">
-              <p className="text-base font-bold" style={{ color: INK }}>{groupPopup.key} · รวม ฿{fmt(groupPopup.total)}</p>
+              <p className="text-base font-bold" style={{ color: INK }}>{groupPopup.type === 'day' ? formatDateDMY(groupPopup.key) : groupPopup.key} · รวม ฿{fmt(groupPopup.total)}</p>
               <button onClick={() => setGroupPopup(null)}><X size={20} color={INK} /></button>
             </div>
             {[...groupPopup.items].sort((a, b) => b.date.localeCompare(a.date)).map((e) => (
               <div key={`${e._kind}_${e.id}`} className="flex justify-between items-center py-2.5 px-2 -mx-2 rounded-lg" style={{ borderTop: `1px solid ${BORDER}`, background: e._kind === 'card' ? '#EFF6FF' : 'transparent' }}>
-                <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div>
+                <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(e.date)}</p></div>
                 <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => { setEditingExpense(e); }} /><button onClick={() => removeCombinedItem(e)}><Trash2 size={14} color={BAD} /></button></div>
               </div>
             ))}
@@ -6382,6 +6404,11 @@ function PropertyInfoSection({ property: p, onUpdate, googleConnected, onAddToCa
         <div><label className="text-[10px]" style={{ color: SLATE }}>วันครบสัญญา</label><input type="date" value={p.contractEndDate || ''} onChange={(e) => onUpdate(p.id, { contractEndDate: e.target.value })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
         <div><label className="text-[10px]" style={{ color: SLATE }}>วันครบกำหนดจ่ายค่าเช่า (ทุกวันที่)</label><NumInput value={p.rentDueDay || 5} onChange={(v) => onUpdate(p.id, { rentDueDay: v })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
         <div className="col-span-2"><label className="text-[10px]" style={{ color: SLATE }}>ราคาซื้อ</label><NumInput value={p.purchasePrice} onChange={(v) => onUpdate(p.id, { purchasePrice: v })} className="text-sm w-full outline-none rounded-lg px-2 py-1.5" style={{ border: `1px solid ${BORDER}` }} /></div>
+      </div>
+      <div style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-3 mb-3">
+        <p className="text-xs font-semibold mb-1" style={{ color: INK }}>🔔 แจ้งเตือน LINE เฉพาะหลังนี้</p>
+        <p className="text-[10px] mb-2" style={{ color: SLATE }}>ถ้ากรอกไว้ ทุกครั้งที่กด "เก็บค่าเช่าแล้ว" หรือบันทึกงานซ่อม จะส่งข้อความเข้ากลุ่ม LINE นี้โดยตรง ต้องเชิญบอทเข้ากลุ่มก่อน แล้วหา Group ID จาก log</p>
+        <input value={p.lineGroupId || ''} onChange={(e) => onUpdate(p.id, { lineGroupId: e.target.value.trim() })} placeholder="วาง Group ID ที่นี่ (ไม่บังคับ)" className="text-sm w-full outline-none rounded-lg px-2.5 py-2" style={{ border: `1px solid ${BORDER}` }} />
       </div>
       <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>ผู้เช่า</p>
       <div className="mb-2"><input value={p.tenantName || ''} onChange={(e) => onUpdate(p.id, { tenantName: e.target.value })} placeholder="ชื่อผู้เช่า" className="text-sm w-full outline-none rounded-lg px-2.5 py-2" style={{ border: `1px solid ${BORDER}` }} /></div>
@@ -7665,6 +7692,7 @@ function DogProfileSection({ dog, onUpdateDog, dogs, onCopyToMultipleDogs }) {
     </div>
   );
   return (
+    <>
     <Card>
       <div className="mb-3"><label className="text-xs" style={{ color: SLATE }}>ชื่อ</label><input value={dog.name} onChange={(e) => onUpdateDog(dog.id, { name: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 font-semibold" style={{ border: '1px solid #E7EAF0' }} /></div>
       {field('ชื่อเล่น', 'nickname')}
@@ -7681,6 +7709,12 @@ function DogProfileSection({ dog, onUpdateDog, dogs, onCopyToMultipleDogs }) {
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>การแพ้ยา</label><textarea value={dog.drugAllergies || ''} onChange={(e) => onUpdateDog(dog.id, { drugAllergies: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
       <div className="mb-1"><label className="text-xs" style={{ color: SLATE }}>หมายเหตุ</label><textarea value={dog.notes || ''} onChange={(e) => onUpdateDog(dog.id, { notes: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} rows={2} /></div>
     </Card>
+    <Card>
+      <p className="text-sm font-semibold mb-1" style={{ color: INK }}>🔔 แจ้งเตือน LINE เฉพาะตัว</p>
+      <p className="text-[11px] mb-2" style={{ color: SLATE }}>ถ้ากรอกไว้ ทุกครั้งที่บันทึก "ไปหาหมอ" หรือ "น้ำหนัก" จะส่งข้อความแจ้งเตือนเข้ากลุ่ม LINE นี้โดยตรง (แยกจากกลุ่มครอบครัวหลัก) ต้องเชิญบอทเข้ากลุ่มนี้ก่อน แล้วหา Group ID จาก log</p>
+      <input value={dog.lineGroupId || ''} onChange={(e) => onUpdateDog(dog.id, { lineGroupId: e.target.value.trim() })} placeholder="วาง Group ID ที่นี่ (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
+    </Card>
+    </>
   );
 }
 
