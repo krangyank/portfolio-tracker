@@ -10,7 +10,9 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-const FIRESTORE_PATH = ['shared', 'krangya-family', 'data', 'main']; // ต้องตรงกับ path ที่ App.jsx / cron-dividends.js ใช้อยู่จริง
+// รายจ่าย (expenses) เก็บอยู่ในเอกสารส่วนตัวของ Tommy เท่านั้น (users/{uid}/data/portfolio) ไม่ใช่เอกสารกลาง shared/krangya-family
+// UID นี้คือของ krangyank11@gmail.com — ถ้าเปลี่ยนบัญชีในอนาคตต้องมาแก้ตรงนี้ด้วย
+const FIRESTORE_PATH = ['users', '7XDNF2jiEVOXXxtnt5tVvUoSgKV2', 'data', 'portfolio'];
 
 function getDb() {
   if (getApps().length === 0) {
