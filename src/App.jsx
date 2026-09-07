@@ -201,7 +201,7 @@ function sendLineFlex(altText, contents, to) {
 }
 const APP_URL = 'https://portfolio-tracker-six-chi.vercel.app';
 // การ์ด Flex Message มาตรฐานที่ใช้ซ้ำได้ทุกจุดแจ้งเตือน — หัวเข้ม, แถว label/value, ยอดเงินตัวใหญ่ (สีเขียว/แดงได้ตามทิศทางเงิน), โน้ตท้ายการ์ด, ปุ่มเปิดแอปไปแท็บที่เกี่ยวข้อง
-function buildFlexCard({ title, rows, amount, amountColor, note, tab }) {
+function buildFlexCard({ title, rows, amount, amountColor, note, tab, heroUrl }) {
   const body = [];
   if (rows && rows.length) {
     body.push({ type: 'box', layout: 'vertical', spacing: 'sm', contents: rows.map((r) => ({
@@ -231,6 +231,7 @@ function buildFlexCard({ title, rows, amount, amountColor, note, tab }) {
     ] },
     body: { type: 'box', layout: 'vertical', paddingAll: 'md', contents: body },
   };
+  if (heroUrl) bubble.hero = { type: 'image', url: heroUrl, size: 'full', aspectRatio: '20:13', aspectMode: 'cover' };
   if (tab) bubble.footer = { type: 'box', layout: 'vertical', contents: [
     { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: 'เปิดในแอป', uri: `${APP_URL}/?tab=${tab}` } },
   ] };
@@ -1680,7 +1681,24 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.startDate, 'medications', id, { medications: [{ id, ...entry }, ...(d.medications || [])] }));
-    if (d && d.lineGroupId) sendLineNotify(`💊 บันทึกยาใหม่ ${d.name}: ${entry.name || '-'}`, d.lineGroupId);
+    if (d && d.lineGroupId) {
+      const rows = [];
+      const row = (label, value) => { if (value) rows.push({ label, value: String(value) }); };
+      row('เริ่มวันที่', entry.startDate ? formatDateDMY(entry.startDate) : null);
+      row('รูปแบบ', entry.form);
+      row('ความแรง', entry.strength);
+      row('ขนาดที่ให้', entry.dose);
+      row('วิธีใช้', entry.usage);
+      row('เวลา/ความถี่', entry.timing);
+      row('โรงพยาบาล', entry.hospital);
+      row('สัตวแพทย์', entry.doctor);
+      const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
+      sendLineFlex(
+        `💊 บันทึกยาใหม่ ${d.name}: ${entry.name || '-'}`,
+        buildFlexCard({ title: `💊 ${d.name} — ยาใหม่: ${entry.name || '-'}`, rows, tab: 'pets', heroUrl }),
+        d.lineGroupId
+      );
+    }
     return id;
   }
   function updateMedication(dogId, medId, patch) {
@@ -2140,6 +2158,14 @@ function TypeSelectWithCustom({ options, value, onChange, onAddToList, className
   );
 }
 
+// ไอคอนรูปบับเบิลแชทมนๆ มีหางชี้ล่างซ้าย (ทรงทั่วไปที่ใช้สื่อว่า "เชื่อมต่อแชท/ข้อความ" ไม่ใช่โลโก้ตราสินค้าใดโดยเฉพาะ) ใช้สีตามสถานะ (เขียว=ผูกแล้ว, เทา=ยังไม่ผูก)
+function ChatBubbleIcon({ size = 16, color = '#9CA3AF' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M4 5C4 3.9 4.9 3 6 3H18C19.1 3 20 3.9 20 5V15C20 16.1 19.1 17 18 17H9L5 20.5V17H6C4.9 17 4 16.1 4 15V5Z" fill={color} />
+    </svg>
+  );
+}
 function EditButton({ onClick }) {
   return <button onClick={onClick} className="text-[11px] underline mr-2" style={{ color: BRASS }}>แก้ไข</button>;
 }
@@ -5942,8 +5968,8 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
               <p className="text-xs" style={{ color: SLATE }}>{dog.breed || 'ยังไม่ระบุพันธุ์'}</p>
             </div>
             <div className="flex flex-col items-center gap-1 flex-shrink-0" title={dog.lineGroupId ? 'ผูก LINE กลุ่มเฉพาะตัวแล้ว' : 'ยังไม่ผูก LINE กลุ่มเฉพาะตัว'}>
-              <div style={{ background: dog.lineGroupId ? '#16A34A14' : PAPER_DIM, color: dog.lineGroupId ? GOOD : '#9CA3AF' }} className="w-9 h-9 rounded-full flex items-center justify-center">
-                <MessageCircle size={16} />
+              <div style={{ background: dog.lineGroupId ? '#16A34A14' : PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center">
+                <ChatBubbleIcon size={17} color={dog.lineGroupId ? GOOD : '#9CA3AF'} />
               </div>
               <span className="text-[9px]" style={{ color: dog.lineGroupId ? GOOD : '#9CA3AF' }}>{dog.lineGroupId ? 'ผูกแล้ว' : 'ยังไม่ผูก'}</span>
             </div>
@@ -6245,8 +6271,8 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
       <div className="flex justify-between items-center mb-3">
         <input value={p.name} onChange={(e) => onUpdate(p.id, { name: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
         <div className="flex items-center gap-1.5 flex-shrink-0" title={p.lineGroupId ? 'ผูก LINE กลุ่มเฉพาะหลังนี้แล้ว' : 'ยังไม่ผูก LINE กลุ่มเฉพาะหลังนี้'}>
-          <div style={{ background: p.lineGroupId ? '#16A34A14' : PAPER_DIM, color: p.lineGroupId ? GOOD : '#9CA3AF' }} className="w-7 h-7 rounded-full flex items-center justify-center">
-            <MessageCircle size={13} />
+          <div style={{ background: p.lineGroupId ? '#16A34A14' : PAPER_DIM }} className="w-7 h-7 rounded-full flex items-center justify-center">
+            <ChatBubbleIcon size={14} color={p.lineGroupId ? GOOD : '#9CA3AF'} />
           </div>
         </div>
         <button onClick={() => onRemove(p.id)}><Trash2 size={16} color={BAD} /></button>
