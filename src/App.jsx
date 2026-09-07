@@ -1659,14 +1659,34 @@ export default function App() {
       if (toAdd.length) patch.vetVisits = d.vetVisits.map((v) => (v.id === visit.id ? { ...v, linkedRecords: [...(v.linkedRecords || []), ...toAdd] } : v));
     }
     updateDog(dogId, patch);
-    if (d.lineGroupId) sendLineNotify(`📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateDMY(entry.date)})`, d.lineGroupId);
+    if (d.lineGroupId) {
+      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      if (organNames && organNames.length) rows.push({ label: 'อวัยวะที่ตรวจ', value: organNames.join(', ') });
+      if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
+      sendLineFlex(
+        `📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateDMY(entry.date)})`,
+        buildFlexCard({ title: `📷 ${d.name} — ผลภาพถ่าย: ${entry.type || '-'}`, rows, tab: 'pets' }),
+        d.lineGroupId
+      );
+    }
     return imagingId;
   }
   function addWeight(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'weights', id, { weights: [{ id, ...entry }, ...(d.weights || [])] }));
-    if (d && d.lineGroupId) sendLineNotify(`⚖️ บันทึกน้ำหนัก ${d.name}: ${entry.weight} กก. (${formatDateDMY(entry.date)})`, d.lineGroupId);
+    if (d && d.lineGroupId) {
+      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      if (entry.location) rows.push({ label: 'สถานที่', value: entry.location });
+      if (entry.weigher) rows.push({ label: 'ผู้ชั่ง', value: entry.weigher });
+      if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
+      const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
+      sendLineFlex(
+        `⚖️ บันทึกน้ำหนัก ${d.name}: ${entry.weight} กก. (${formatDateDMY(entry.date)})`,
+        buildFlexCard({ title: `⚖️ ${d.name} — น้ำหนัก ${entry.weight} กก.`, rows, tab: 'pets', heroUrl }),
+        d.lineGroupId
+      );
+    }
     return id;
   }
   function removeWeight(dogId, wid) {
@@ -1712,7 +1732,17 @@ export default function App() {
   function logFleaTick(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { fleaTickHistory: [{ id: uid(), ...entry }, ...(d.fleaTickHistory || [])], fleaTick: { ...d.fleaTick, lastGivenDate: entry.date } });
-    if (d && d.lineGroupId) sendLineNotify(`🐛 บันทึกยาเห็บหมัด ${d.name} (${formatDateDMY(entry.date)})`, d.lineGroupId);
+    if (d && d.lineGroupId) {
+      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      if (d.fleaTick && d.fleaTick.productName) rows.push({ label: 'ผลิตภัณฑ์', value: d.fleaTick.productName });
+      if (entry.doseGiven) rows.push({ label: 'ปริมาณที่ให้', value: String(entry.doseGiven) });
+      if (entry.cost) rows.push({ label: 'ค่าใช้จ่าย', value: `฿${fmt(entry.cost)}` });
+      sendLineFlex(
+        `🐛 บันทึกยาเห็บหมัด ${d.name} (${formatDateDMY(entry.date)})`,
+        buildFlexCard({ title: `🐛 ${d.name} — ยาเห็บหมัด`, rows, tab: 'pets' }),
+        d.lineGroupId
+      );
+    }
   }
   // ลบ/แก้ไขประวัติการให้ยาเห็บหมัด — ต้องคำนวณ "ให้ยาล่าสุด" ใหม่ทุกครั้งด้วย เผื่อลบ/แก้รายการที่เป็นล่าสุดอยู่
   function recomputeLastGivenDate(history) {
