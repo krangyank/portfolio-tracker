@@ -108,8 +108,10 @@ export default async function handler(req, res) {
 
     // เทียบกับข้อมูลเดิม เพื่อดูว่ามีวัน XD ใหม่ที่เพิ่งประกาศไหม (ไว้แจ้งเตือนใน LINE เฉพาะของใหม่ ไม่ต้องแจ้งซ้ำทุกวัน)
     const oldItems = (state.dividendCalendar && state.dividendCalendar.items) || [];
+    const todayStr = new Date().toISOString().slice(0, 10);
     const isNew = (item) => !oldItems.some((o) => o.symbol === item.symbol && o.exDate === item.exDate);
-    const freshItems = newItems.filter(isNew);
+    const isUpcoming = (item) => item.exDate && item.exDate >= todayStr; // ไม่แจ้งเตือนวัน XD ที่ผ่านไปแล้ว แม้จะเพิ่งเจอเป็นครั้งแรกก็ตาม (ข้อมูลเก่า ไม่ใช่ข่าวใหม่)
+    const freshItems = newItems.filter((it) => isNew(it) && isUpcoming(it));
 
     await docRef.set({ dividendCalendar: { items: newItems, fetchedAt: new Date().toISOString() } }, { merge: true });
 
@@ -122,4 +124,4 @@ export default async function handler(req, res) {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-      }
+}
