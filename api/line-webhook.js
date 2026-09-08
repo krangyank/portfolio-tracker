@@ -6,13 +6,22 @@
 // - LINE_CHANNEL_ACCESS_TOKEN
 // เพิ่มใหม่ (ไม่บังคับ แต่แนะนำ กันคนนอกยิงเข้ามาปนหรือมือถือเปลี่ยนกลุ่ม):
 // - LINE_GROUP_ID  (ถ้าตั้งไว้ จะประมวลผลเฉพาะข้อความจากกลุ่มนี้เท่านั้น ข้อความจากที่อื่นจะถูกข้าม)
+//
+// แยกเจ้าของรายจ่ายด้วย "ปุ่ม Quick Reply" แทน LINE userId เพราะ Tommy กับภรรยาใช้บัญชี LINE เดียวกัน
+// (ตรวจสอบแล้วหลายรอบ 8 ก.ย. 2026 — userId ออกมาเหมือนกันทุกครั้งไม่ว่าใครพิมพ์ ไม่สามารถแยกได้)
+// ทุกข้อความบันทึกเข้าบัญชี Tommy เป็นค่าเริ่มต้นเสมอ แล้วแนบปุ่ม "ย้ายเป็นของภรรยา" มาด้วย
+// ถ้ากดปุ่มนั้น ระบบจะย้ายรายการนั้นจากบัญชี Tommy ไปบัญชีภรรยาให้อัตโนมัติ
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// รายจ่าย (expenses) เก็บอยู่ในเอกสารส่วนตัวของ Tommy เท่านั้น (users/{uid}/data/portfolio) ไม่ใช่เอกสารกลาง shared/krangya-family
-// UID นี้คือของ krangyank11@gmail.com — ถ้าเปลี่ยนบัญชีในอนาคตต้องมาแก้ตรงนี้ด้วย
-const FIRESTORE_PATH = ['users', '7XDNF2jiEVOXXxtnt5tVvUoSgKV2', 'data', 'portfolio'];
+// รายจ่าย (expenses) เก็บอยู่ในเอกสารส่วนตัวของแต่ละคน (users/{uid}/data/portfolio) ไม่ใช่เอกสารกลาง shared/krangya-family
+// UID ของ Tommy: krangyank11@gmail.com — UID ของภรรยา: หาได้จาก Firebase Console > Authentication > Users
+// ถ้าเปลี่ยนบัญชีในอนาคตต้องมาแก้ตรงนี้ด้วย
+const OWNERS = {
+  tommy: { label: '', path: ['users', '7XDNF2jiEVOXXxtnt5tVvUoSgKV2', 'data', 'portfolio'] },
+  wife: { label: 'ภรรยา', path: ['users', 'bHbdGCk6G0OK9EXHVdjTfNqJuYr2', 'data', 'portfolio'] },
+};
 
 function getDb() {
   if (getApps().length === 0) {
@@ -24,6 +33,11 @@ function getDb() {
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function ownerDocRef(db, ownerKey) {
+  const owner = OWNERS[ownerKey] || OWNERS.tommy;
+  return db.collection(owner.path[0]).doc(owner.path[1]).collection(owner.path[2]).doc(owner.path[3]);
 }
 
 // ดาวน์โหลดรูปที่ส่งเข้ากลุ่ม LINE มาเป็น base64 (ใช้ LINE Content API ต้องมี channel access token)
@@ -70,15 +84,19 @@ async function extractExpense({ text, imageBase64 }) {
   return JSON.parse(match[0]);
 }
 
-async function replyToLine(replyToken, text) {
+async function replyToLine(replyToken, text, quickReplyItems) {
   if (!replyToken) return;
+  const message = { type: 'text', text };
+  if (quickReplyItems && quickReplyItems.length > 0) {
+    message.quickReply = { items: quickReplyItems };
+  }
   await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
     },
-    body: JSON.stringify({ replyToken, messages: [{ type: 'text', text }] }),
+    body: JSON.stringify({ replyToken, messages: [message] }),
   });
 }
 
@@ -120,7 +138,8 @@ async function handleMessageEvent(event, db) {
     source: 'line',
   };
 
-  const docRef = db.collection(FIRESTORE_PATH[0]).doc(FIRESTORE_PATH[1]).collection(FIRESTORE_PATH[2]).doc(FIRESTORE_PATH[3]);
+  // ทุกข้อความบันทึกเข้าบัญชี Tommy เป็นค่าเริ่มต้นเสมอ (แยกด้วย userId ไม่ได้ — ดูหมายเหตุบนสุดของไฟล์)
+  const docRef = ownerDocRef(db, 'tommy');
   const snap = await docRef.get();
   if (!snap.exists) {
     await replyToLine(replyToken, 'บันทึกไม่สำเร็จ: ไม่พบข้อมูลบัญชี (ตรวจสอบ path Firestore)');
@@ -130,7 +149,62 @@ async function handleMessageEvent(event, db) {
   const expenses = [record, ...(state.expenses || [])];
   await docRef.set({ expenses }, { merge: true });
 
-  await replyToLine(replyToken, `บันทึกแล้ว ✓ ${record.category} ฿${record.amount.toLocaleString('th-TH')}${record.note ? ` (${record.note})` : ''}`);
+  const quickReply = [
+    {
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: 'ย้ายเป็นของภรรยา',
+        data: `move:${record.id}`,
+        displayText: 'ย้ายเป็นของภรรยา',
+      },
+    },
+  ];
+  await replyToLine(
+    replyToken,
+    `บันทึกแล้ว ✓ ${record.category} ฿${record.amount.toLocaleString('th-TH')}${record.note ? ` (${record.note})` : ''}`,
+    quickReply
+  );
+}
+
+async function handlePostbackEvent(event, db) {
+  const replyToken = event.replyToken;
+  const data = (event.postback && event.postback.data) || '';
+  const match = data.match(/^move:(.+)$/);
+  if (!match) return;
+  const recordId = match[1];
+
+  const fromRef = ownerDocRef(db, 'tommy');
+  const toRef = ownerDocRef(db, 'wife');
+
+  const fromSnap = await fromRef.get();
+  if (!fromSnap.exists) {
+    await replyToLine(replyToken, 'ย้ายไม่สำเร็จ: ไม่พบข้อมูลบัญชี Tommy');
+    return;
+  }
+  const fromState = fromSnap.data();
+  const fromExpenses = fromState.expenses || [];
+  const record = fromExpenses.find((e) => e.id === recordId);
+  if (!record) {
+    await replyToLine(replyToken, 'ไม่พบรายการนี้แล้ว (อาจถูกย้ายไปแล้ว หรือมีรายการใหม่มาแทนที่)');
+    return;
+  }
+
+  const remainingExpenses = fromExpenses.filter((e) => e.id !== recordId);
+  await fromRef.set({ expenses: remainingExpenses }, { merge: true });
+
+  const toSnap = await toRef.get();
+  if (!toSnap.exists) {
+    // เอากลับเข้าบัญชี Tommy เหมือนเดิม ถ้าบัญชีภรรยาไม่มีอยู่จริง กันข้อมูลหาย
+    await fromRef.set({ expenses: fromExpenses }, { merge: true });
+    await replyToLine(replyToken, 'ย้ายไม่สำเร็จ: ไม่พบบัญชีภรรยา (ตรวจสอบ path Firestore) — รายการยังอยู่ที่บัญชีคุณเหมือนเดิม');
+    return;
+  }
+  const toState = toSnap.data();
+  const toExpenses = [record, ...(toState.expenses || [])];
+  await toRef.set({ expenses: toExpenses }, { merge: true });
+
+  await replyToLine(replyToken, `ย้ายแล้ว ✓ ${record.category} ฿${Number(record.amount).toLocaleString('th-TH')}${record.note ? ` (${record.note})` : ''} → บัญชีภรรยา`);
 }
 
 export default async function handler(req, res) {
@@ -150,6 +224,9 @@ export default async function handler(req, res) {
       if (e.type === 'message') {
         try { await handleMessageEvent(e, db); }
         catch (err) { console.error('handleMessageEvent error', err); }
+      } else if (e.type === 'postback') {
+        try { await handlePostbackEvent(e, db); }
+        catch (err) { console.error('handlePostbackEvent error', err); }
       }
     }
   } catch (err) {
