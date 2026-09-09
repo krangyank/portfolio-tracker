@@ -2,13 +2,19 @@ export const config = {
   maxDuration: 60,
 };
 
+// Haiku ถูกกว่า Sonnet มาก เหมาะกับงานอ่านตัวเลข/ฟิลด์ง่ายๆ จากภาพเดียว (ยอดบัตร, น้ำหนัก, ฉลากยา ฯลฯ)
+// client จะส่ง fast:true มาสำหรับงานพวกนี้ (ดู askServer ใน App.jsx) — งานที่ต้องตีความซับซ้อนกว่า
+// (กรมธรรม์หลายหน้า, ตารางออเดอร์ที่ต้องกรองสถานะ, web search) ยังใช้ Sonnet ตามเดิมเป็นค่า default
+const FAST_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_MODEL = 'claude-sonnet-5';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
   try {
-    const { prompt, imageBase64, mediaType, webSearch } = req.body;
+    const { prompt, imageBase64, mediaType, webSearch, fast } = req.body;
     const content = [];
     if (imageBase64) {
       content.push({ type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } });
@@ -16,7 +22,7 @@ export default async function handler(req, res) {
     content.push({ type: 'text', text: prompt });
 
     const body = {
-      model: 'claude-sonnet-5',
+      model: fast && !webSearch ? FAST_MODEL : DEFAULT_MODEL,
       max_tokens: 8192,
       messages: [{ role: 'user', content }],
     };
