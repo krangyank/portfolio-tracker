@@ -5611,6 +5611,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
   const [syncingDue, setSyncingDue] = useState(false);
   const [syncDueMsg, setSyncDueMsg] = useState('');
   const statementFileRef = useRef(null);
+  const statementGalleryRef = useRef(null);
   const [statementScanning, setStatementScanning] = useState(false);
   const [statementError, setStatementError] = useState('');
   const reminderDays = card.reminderDays || [3, 1];
@@ -5686,9 +5687,15 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
         <p className="text-xs font-semibold mb-1" style={{ color: INK }}>📱 ยอดทางการจากธนาคาร</p>
         <p className="text-[10px] mb-2" style={{ color: SLATE }}>ถ่ายรูปหน้าจอสรุปยอดจากแอปธนาคาร — แยกจากยอดที่คำนวณเองด้านบน เผื่อยอดไม่ตรงกัน</p>
         <input ref={statementFileRef} type="file" accept="image/*" capture="environment" onChange={handleStatementPhoto} className="hidden" />
-        <button onClick={() => statementFileRef.current && statementFileRef.current.click()} disabled={statementScanning} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-2">
-          {statementScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} {statementScanning ? 'กำลังอ่าน...' : 'ถ่ายรูปยอดบัตรจากแอปธนาคาร'}
-        </button>
+        <input ref={statementGalleryRef} type="file" accept="image/*" onChange={handleStatementPhoto} className="hidden" />
+        <div className="flex gap-2 mb-2">
+          <button onClick={() => statementFileRef.current && statementFileRef.current.click()} disabled={statementScanning} style={{ background: INK }} className="flex-1 text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">
+            {statementScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} {statementScanning ? 'กำลังอ่าน...' : 'ถ่ายรูป'}
+          </button>
+          <button onClick={() => statementGalleryRef.current && statementGalleryRef.current.click()} disabled={statementScanning} style={{ background: PAPER, border: `1px solid ${BORDER}`, color: INK }} className="flex-1 rounded-lg py-2 text-sm flex items-center justify-center gap-2">
+            <ImageIcon size={14} /> เลือกจากอัลบั้ม
+          </button>
+        </div>
         {statementError && <p className="text-xs mb-2" style={{ color: BAD }}>{statementError}</p>}
         {card.officialAmountDue !== undefined && (
           <div className="pt-2" style={{ borderTop: `1px solid ${BORDER}` }}>
