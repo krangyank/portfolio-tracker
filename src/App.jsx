@@ -203,7 +203,7 @@ function sendLineFlex(altText, contents, to) {
 }
 const APP_URL = 'https://portfolio-tracker-six-chi.vercel.app';
 // การ์ด Flex Message มาตรฐานที่ใช้ซ้ำได้ทุกจุดแจ้งเตือน — หัวเข้ม, แถว label/value, ยอดเงินตัวใหญ่ (สีเขียว/แดงได้ตามทิศทางเงิน), โน้ตท้ายการ์ด, ปุ่มเปิดแอปไปแท็บที่เกี่ยวข้อง
-function buildFlexCard({ title, rows, amount, amountColor, note, tab, heroUrl }) {
+function buildFlexCard({ title, rows, amount, amountColor, note, tab, heroUrl, headerColor }) {
   const body = [];
   if (rows && rows.length) {
     body.push({ type: 'box', layout: 'vertical', spacing: 'sm', contents: rows.map((r) => ({
@@ -213,12 +213,21 @@ function buildFlexCard({ title, rows, amount, amountColor, note, tab, heroUrl })
       ],
     })) });
   }
+  // สีพื้นหลังหัวการ์ด + ป้ายยอดเงิน: ถ้าไม่ได้ระบุ headerColor มาตรงๆ ให้ไล่ตาม amountColor อัตโนมัติ
+  // (เขียว = เงินเข้า, แดง = เงินออก) เพื่อให้การ์ดดูมีสีสัน สื่อความหมายชัดเจนขึ้นโดยไม่ต้องแก้ทุกจุดที่เรียกใช้
+  const resolvedHeaderColor = headerColor || (amountColor === GOOD ? GOOD : amountColor === BAD ? BAD : '#1C2029');
+  const amountTint = amountColor === GOOD ? '#E8F5EE' : amountColor === BAD ? '#FDEDEB' : null;
   if (amount != null) {
     if (rows && rows.length) body.push({ type: 'separator', margin: 'md' });
-    body.push({ type: 'box', layout: 'baseline', margin: rows && rows.length ? 'md' : undefined, contents: [
+    const amountRow = { type: 'box', layout: 'baseline', contents: [
       { type: 'text', text: 'จำนวนเงิน', size: 'sm', color: '#767268', flex: 2 },
       { type: 'text', text: `฿${fmt(Math.abs(amount))}`, size: 'lg', weight: 'bold', flex: 3, align: 'end', color: amountColor || '#1C2029' },
-    ] });
+    ] };
+    if (amountTint) {
+      body.push({ type: 'box', layout: 'vertical', margin: rows && rows.length ? 'md' : undefined, paddingAll: 'sm', cornerRadius: 'md', backgroundColor: amountTint, contents: [amountRow] });
+    } else {
+      body.push({ ...amountRow, margin: rows && rows.length ? 'md' : undefined });
+    }
   }
   if (note) body.push({ type: 'text', text: note, size: 'xs', color: '#767268', wrap: true, margin: 'md' });
   // แสดง "บันทึกโดย" ในตัวการ์ดเองด้วย เดิมมีแค่ใน altText (ข้อความสำรองตอนแจ้งเตือน) ซึ่งมองไม่เห็นแล้วหลังเปิดแชทเข้ามาดูการ์ดจริง
@@ -228,7 +237,7 @@ function buildFlexCard({ title, rows, amount, amountColor, note, tab, heroUrl })
   ] });
   const bubble = {
     type: 'bubble',
-    header: { type: 'box', layout: 'horizontal', backgroundColor: '#1C2029', paddingAll: 'md', contents: [
+    header: { type: 'box', layout: 'horizontal', backgroundColor: resolvedHeaderColor, paddingAll: 'md', contents: [
       { type: 'text', text: title, color: '#FFFFFF', weight: 'bold', size: 'md', wrap: true },
     ] },
     body: { type: 'box', layout: 'vertical', paddingAll: 'md', contents: body },
@@ -2743,13 +2752,13 @@ async function scanSingleValue(file) {
 async function scanCardStatement(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพหน้าจอสรุปยอดบัตรเครดิตจากแอปธนาคาร อ่านค่าต่อไปนี้ (ถ้าไม่เจอค่าไหนให้ตอบ null):
-- "ยอดที่ต้องชำระ" (Total/Statement Balance)
+- "ยอดที่ต้องชำระ" (Total/Statement Balance) — อาจเขียนว่า "ยอดที่ต้องชำระ" ตรงๆ
 - "กำหนดชำระ" (วันครบกำหนดจ่าย)
 - "ยอดที่ใช้" (Current Balance / ยอดใช้จ่ายทั้งหมด)
-- "วงเงินคงเหลือ" (Available Credit)
-- "วงเงินบัตร" (Credit Limit)
+- "วงเงินคงเหลือ" (Available Credit) — ระวัง: บางแอปเขียนแค่ "คงเหลือ" สั้นๆ ใกล้กับ "ยอดที่ใช้" โดยไม่มีคำว่า "วงเงิน" นำหน้า ให้ถือว่าเป็นค่านี้ (available credit) เสมอ ไม่ใช่ creditLimit
+- "วงเงินบัตร" (Credit Limit) — ใส่ค่านี้เฉพาะเมื่อภาพระบุชัดเจนว่าเป็น "วงเงินบัตร"/"Credit Limit"/"วงเงินทั้งหมด" เท่านั้น ถ้าเจอแค่คำว่า "คงเหลือ" เฉยๆ ห้ามเอามาใส่ตรงนี้ ให้ตอบ null แทน
 ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amountDue": ตัวเลขไม่มีคอมมาหรือnull, "dueDate": "YYYY-MM-DD หรือ null", "currentBalance": ตัวเลขหรือnull, "availableCredit": ตัวเลขหรือnull, "creditLimit": ตัวเลขหรือnull}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
 async function scanCashBalance(file) {
