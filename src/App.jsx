@@ -4754,9 +4754,9 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           <select value={summaryPeriod} onChange={(e) => setSummaryPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }}>{summaryPeriods.map((p) => <option key={p} value={p}>{p}</option>)}</select>
         ) : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
         {bySourceThisPeriod.map((r) => (
-          <div key={r.src} className="flex justify-between text-sm mb-1.5"><span>{r.label}</span><span>฿{fmt(r.total)}</span></div>
+          <div key={r.src} className="flex justify-between text-sm mb-1.5"><span>{r.label}</span><span style={{ color: r.total < 0 ? BAD : undefined }}>฿{fmt(r.total)}</span></div>
         ))}
-        {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span>฿{fmt(periodGrandTotal)}</span></div>}
+        {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span style={{ color: periodGrandTotal < 0 ? BAD : undefined }}>฿{fmt(periodGrandTotal)}</span></div>}
       </Card>
       <Card>
         <p className="text-xs mb-3" style={{ color: SLATE }}>สรุปแยกตามปลายทาง (ไปลงที่ไหนบ้าง)</p>
@@ -4765,11 +4765,11 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           const items = contributions.filter((c) => summaryKeyFn(c.date) === summaryPeriod && ((accounts.find((a) => a.id === c.accountId)?.name || c.accountId || 'ไม่ทราบปลายทาง') === r.dest));
           return (
             <button key={r.dest} onClick={() => setDestPopup({ label: `${r.dest} · ${summaryPeriod}`, items })} className="w-full flex justify-between text-sm mb-1.5 text-left">
-              <span>{r.dest}</span><span>฿{fmt(r.total)}</span>
+              <span>{r.dest}</span><span style={{ color: r.total < 0 ? BAD : undefined }}>฿{fmt(r.total)}</span>
             </button>
           );
         })}
-        {summaryPeriod && byDestinationThisPeriod.length > 0 && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span>฿{fmt(byDestinationThisPeriod.reduce((s, r) => s + r.total, 0))}</span></div>}
+        {summaryPeriod && byDestinationThisPeriod.length > 0 && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span style={{ color: byDestinationThisPeriod.reduce((s, r) => s + r.total, 0) < 0 ? BAD : undefined }}>฿{fmt(byDestinationThisPeriod.reduce((s, r) => s + r.total, 0))}</span></div>}
       </Card>
       {destPopup && (
         <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
