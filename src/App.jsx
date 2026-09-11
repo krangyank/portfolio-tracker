@@ -80,6 +80,7 @@ const TAB_MASCOTS = {
   pets: { emoji: '🐶', bg: '#EFE7FE' },
   realestate: { emoji: '🏡', bg: '#DDF4F4' },
   insurance: { emoji: '🛡️', bg: '#DCE8FE' },
+  vehicles: { emoji: '🚗', bg: '#FDE6D3' },
   reports: { emoji: '🦉', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=200&fit=crop' },
 };
 const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'ข่าว', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', vehicles: 'รถยนต์', reports: 'รายงาน' };
