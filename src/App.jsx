@@ -976,6 +976,9 @@ export default function App() {
   const creditCards = state?.creditCards || [];
   const dogs = (sharedState?.dogs && sharedState.dogs.length > 0) ? sharedState.dogs : DEFAULT_DOGS;
   const properties = (sharedState?.properties && sharedState.properties.length > 0) ? sharedState.properties : DEFAULT_PROPERTIES;
+  // ต้องประกาศ vehicles ไว้ตรงนี้ (ก่อน tabAlert useMemo ด้านล่าง) ไม่ใช่ตรงจุดที่ใช้ addVehicle/updateVehicle เพราะ useMemo
+  // เรียก factory function ทันทีตอน render — ถ้า vehicles ถูกประกาศทีหลังในฟังก์ชันเดียวกัน จะชน temporal dead zone (ReferenceError)
+  const vehicles = sharedState?.vehicles || [];
   // สรุปสิ่งที่ต้องรีบทำ/ต้องระวังของแต่ละแท็บ ใช้โชว์ในหัวเรื่องเล็กแทนตัวเลขสินทรัพย์สุทธิ (ยกเว้นหน้าภาพรวมที่ยังโชว์แบบเดิม)
   const tabAlert = useMemo(() => {
     if (tab === 'pets') {
@@ -1412,8 +1415,7 @@ export default function App() {
 
   function updateDog(dogId, patch) { persistShared({ ...sharedState, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
 
-  // รถยนต์ (ภาษี/พ.ร.บ./ประกันภัยชั้น 1) — เก็บในเอกสารกลาง (ใช้ร่วมกับภรรยา) เหมือนลูกๆ/บ้านเช่า
-  const vehicles = sharedState?.vehicles || [];
+  // รถยนต์ (ภาษี/พ.ร.บ./ประกันภัยชั้น 1) — เก็บในเอกสารกลาง (ใช้ร่วมกับภรรยา) เหมือนลูกๆ/บ้านเช่า (ตัว vehicles เองประกาศไว้ข้างบนแล้ว ใกล้ dogs/properties)
   function addVehicle(entry) {
     const id = uid();
     persistShared({ ...sharedState, vehicles: [{ id, name: entry.name || 'รถใหม่', plate: entry.plate || '', photos: [], tax: {}, compulsory: {}, insurance: {} }, ...vehicles] });
