@@ -1,11 +1,13 @@
 // รับข้อความ/รูปจากกลุ่ม LINE แล้วให้ AI อ่านเป็นรายจ่าย บันทึกเข้า Firestore ให้อัตโนมัติ พร้อมตอบกลับในกลุ่มว่าบันทึกสำเร็จหรือไม่
+// นอกจากนี้ยังรองรับ "กลุ่มผู้เช่า" — แต่ละบ้านเช่ามีกลุ่ม LINE แยกของตัวเอง (ผูกไว้ใน property.lineGroupId อยู่แล้วสำหรับแจ้งเตือนขาออก)
+// ถ้ารูปที่ส่งเข้ามาอยู่ในกลุ่มที่ตรงกับ lineGroupId ของบ้านไหน จะอ่านเป็นสลิปโอนค่าเช่าแทนรายจ่ายส่วนตัวอัตโนมัติ (ผู้เช่าส่งแค่รูปเปล่าๆ ไม่ต้องพิมพ์อะไร)
 //
 // สิ่งที่ต้องตั้งค่าไว้แล้ว (ถ้าตั้ง cron-dividends.js ไปแล้วจะมีครบอยู่แล้ว):
 // - FIREBASE_SERVICE_ACCOUNT
 // - ANTHROPIC_API_KEY
 // - LINE_CHANNEL_ACCESS_TOKEN
 // เพิ่มใหม่ (ไม่บังคับ แต่แนะนำ กันคนนอกยิงเข้ามาปนหรือมือถือเปลี่ยนกลุ่ม):
-// - LINE_GROUP_ID  (ถ้าตั้งไว้ จะประมวลผลเฉพาะข้อความจากกลุ่มนี้เท่านั้น ข้อความจากที่อื่นจะถูกข้าม)
+// - LINE_GROUP_ID  (ถ้าตั้งไว้ จะประมวลผลเฉพาะข้อความจากกลุ่มนี้เท่านั้น ข้อความจากที่อื่นจะถูกข้าม — ยกเว้นกลุ่มผู้เช่าที่ยังประมวลผลได้เสมอ)
 //
 // แยกเจ้าของรายจ่ายด้วย "ปุ่ม Quick Reply" แทน LINE userId เพราะ Tommy กับภรรยาใช้บัญชี LINE เดียวกัน
 // (ตรวจสอบแล้วหลายรอบ 8 ก.ย. 2026 — userId ออกมาเหมือนกันทุกครั้งไม่ว่าใครพิมพ์ ไม่สามารถแยกได้)
@@ -18,6 +20,9 @@ import { getFirestore } from 'firebase-admin/firestore';
 // รายจ่าย (expenses) เก็บอยู่ในเอกสารส่วนตัวของแต่ละคน (users/{uid}/data/portfolio) ไม่ใช่เอกสารกลาง shared/krangya-family
 // UID ของ Tommy: krangyank11@gmail.com — UID ของภรรยา: หาได้จาก Firebase Console > Authentication > Users
 // ถ้าเปลี่ยนบัญชีในอนาคตต้องมาแก้ตรงนี้ด้วย
+// properties (บ้านเช่าทุกหลัง) เก็บอยู่ในเอกสารกลางเดียวกับ dogs/vehicles (ใช้ร่วมกับภรรยา)
+const SHARED_FIRESTORE_PATH = ['shared', 'krangya-family', 'data', 'main'];
+
 const OWNERS = {
   tommy: { label: '', path: ['users', '7XDNF2jiEVOXXxtnt5tVvUoSgKV2', 'data', 'portfolio'] },
   wife: { label: 'ภรรยา', path: ['users', 'bHbdGCk6G0OK9EXHVdjTfNqJuYr2', 'data', 'portfolio'] },
@@ -84,6 +89,37 @@ async function extractExpense({ text, imageBase64 }) {
   return JSON.parse(match[0]);
 }
 
+// อ่านสลิปโอนเงินค่าเช่าที่ผู้เช่าส่งเข้ากลุ่มของบ้านตัวเอง (ส่งแค่รูปเปล่าๆ ไม่มีข้อความกำกับ)
+async function extractRentSlip(imageBase64) {
+  const prompt = `นี่คือภาพสลิปโอนเงิน/หลักฐานการโอนเงินค่าเช่าที่ผู้เช่าส่งเข้ากลุ่ม LINE ของบ้านเช่า อ่านแล้วสรุป:
+- "amount" จำนวนเงินที่โอน (ตัวเลขไม่มีคอมมา)
+- "date" วันที่ทำรายการบนสลิป รูปแบบ YYYY-MM-DD (ถ้าอ่านไม่ได้ให้ตอบ null)
+ถ้าภาพนี้ไม่ใช่สลิปโอนเงิน (เช่นเป็นรูปอื่นที่ไม่เกี่ยวกับการโอนเงินเลย) ให้ตอบ {"amount": null}
+ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ: {"amount": ตัวเลขหรือnull, "date": "YYYY-MM-DD หรือ null"}`;
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-5',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
+        { type: 'text', text: prompt },
+      ] }],
+    }),
+  });
+  const data = await response.json();
+  if (data.type === 'error' || data.error) throw new Error((data.error && data.error.message) || 'Anthropic API error');
+  const rawText = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+  const match = rawText.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('AI ไม่ได้ตอบเป็น JSON');
+  return JSON.parse(match[0]);
+}
+
 async function replyToLine(replyToken, text, quickReplyItems) {
   if (!replyToken) return;
   const message = { type: 'text', text };
@@ -100,10 +136,68 @@ async function replyToLine(replyToken, text, quickReplyItems) {
   });
 }
 
+// ผู้เช่าส่งสลิปเข้ากลุ่มของบ้านตัวเอง (ส่งแค่รูปเปล่าๆ) — อ่านยอด+วันที่ แล้วบันทึกเป็นงวดค่าเช่าของเดือนนั้น
+// ใช้โครงสร้าง payments[ymKey] เดียวกับที่ addRentInstallment() ใน App.jsx เขียนไว้ทุกประการ เพื่อให้ในแอปเห็นข้อมูลตรงกันเป๊ะ
+async function handleRentSlipEvent(event, sharedDocRef, sharedState, property) {
+  const msg = event.message;
+  const replyToken = event.replyToken;
+
+  if (msg.type !== 'image') return; // ผู้เช่าคุยเล่น/พิมพ์อย่างอื่น ไม่ใช่สลิป — เงียบไว้ ไม่รบกวน
+
+  let extracted;
+  try {
+    const imageBase64 = await getLineImageBase64(msg.id);
+    extracted = await extractRentSlip(imageBase64);
+  } catch (err) {
+    console.error('extractRentSlip error', err);
+    await replyToLine(replyToken, `อ่านสลิปไม่สำเร็จ: ${err.message}`);
+    return;
+  }
+
+  if (!extracted || extracted.amount === null || extracted.amount === undefined || Number(extracted.amount) <= 0) {
+    // ไม่ใช่สลิปโอนเงิน (เช่นส่งรูปอื่นเข้ามา) — เงียบไว้ ไม่ต้องตอบกลับกวนกลุ่ม
+    return;
+  }
+
+  const amount = Number(extracted.amount);
+  const date = extracted.date || new Date().toISOString().slice(0, 10);
+  const ymKey = date.slice(0, 7); // YYYY-MM ตรงกับ key ที่ payments ใช้ในแอป
+
+  const properties = sharedState.properties || [];
+  const cur = (property.payments || {})[ymKey] || {};
+  const installments = [{ id: uid(), amount, date, note: 'ผู้เช่าโอนผ่าน LINE', accountId: '' }, ...(cur.installments || [])];
+  const totalPaid = installments.reduce((s, it) => s + Number(it.amount || 0), 0);
+  const paid = cur.manualConfirm || totalPaid >= Number(property.rent || 0);
+  const nextPayments = { ...(property.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid, date: paid ? (cur.date || date) : cur.date } };
+
+  const nextProperties = properties.map((p) => (p.id === property.id ? { ...p, payments: nextPayments } : p));
+  await sharedDocRef.set({ properties: nextProperties }, { merge: true });
+
+  const shortfall = Number(property.rent || 0) - totalPaid;
+  const lines = [`🏠 ได้รับสลิปค่าเช่า ${property.name}`, `จำนวนเงิน: ฿${amount.toLocaleString('th-TH')}`, `วันที่: ${date}`];
+  if (paid) lines.push('✅ ครบยอดค่าเช่าเดือนนี้แล้ว');
+  else if (shortfall > 0) lines.push(`ยังขาดอีก ฿${shortfall.toLocaleString('th-TH')} จากยอดเต็ม ฿${Number(property.rent || 0).toLocaleString('th-TH')}`);
+  await replyToLine(replyToken, lines.join('\n'));
+}
+
 async function handleMessageEvent(event, db) {
   const msg = event.message;
   const replyToken = event.replyToken;
   const groupId = event.source && event.source.groupId;
+
+  // เช็คก่อนว่ากลุ่มนี้เป็นกลุ่มของบ้านเช่าหลังไหนหรือเปล่า (ผูกไว้ใน property.lineGroupId) — ถ้าใช่ ไปทางสลิปค่าเช่าเลย ไม่ผ่านตัวกรอง LINE_GROUP_ID ด้านล่าง เพราะเป็นคนละกลุ่มกับกลุ่มครอบครัวโดยตั้งใจ
+  if (groupId) {
+    const sharedDocRef = db.collection(SHARED_FIRESTORE_PATH[0]).doc(SHARED_FIRESTORE_PATH[1]).collection(SHARED_FIRESTORE_PATH[2]).doc(SHARED_FIRESTORE_PATH[3]);
+    const sharedSnap = await sharedDocRef.get();
+    if (sharedSnap.exists) {
+      const sharedState = sharedSnap.data();
+      const property = (sharedState.properties || []).find((p) => p.lineGroupId && p.lineGroupId === groupId);
+      if (property) {
+        await handleRentSlipEvent(event, sharedDocRef, sharedState, property);
+        return;
+      }
+    }
+  }
 
   // กันข้อความจากนอกกลุ่มที่ตั้งใจไว้ (ถ้าตั้งค่า LINE_GROUP_ID ไว้)
   if (process.env.LINE_GROUP_ID && groupId && groupId !== process.env.LINE_GROUP_ID) return;
