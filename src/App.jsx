@@ -20,6 +20,38 @@ const BRASS = '#A87C2E';
 const SLATE = '#767268';
 const GOOD = '#1F8A54';
 const BAD = '#C0392E';
+
+// ระบบ pop-up ยืนยันก่อนลบแบบใช้ร่วมกันได้ทั้งแอป (เรียกจากที่ไหนก็ได้โดยไม่ต้องส่ง prop ผ่านหลายชั้น)
+// วิธีใช้: confirmDelete('ข้อความยืนยัน', () => ฟังก์ชันลบจริง())
+let _confirmDeleteSetter = null;
+function confirmDelete(message, onConfirm) {
+  if (_confirmDeleteSetter) _confirmDeleteSetter({ message, onConfirm });
+  else if (window.confirm(message)) onConfirm(); // สำรองเผื่อ host ยังไม่ mount
+}
+function ConfirmDeleteHost() {
+  const [state, setState] = useState(null);
+  useEffect(() => {
+    _confirmDeleteSetter = setState;
+    return () => { _confirmDeleteSetter = null; };
+  }, []);
+  if (!state) return null;
+  return (
+    <div className="fixed inset-0 flex items-center justify-center px-6" style={{ background: 'rgba(28,32,41,0.5)', zIndex: 200 }} onClick={() => setState(null)}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', borderRadius: 16 }} className="w-full max-w-xs p-5">
+        <div className="flex items-start gap-3 mb-4">
+          <div style={{ background: '#FDEDEB', borderRadius: 999, width: 36, height: 36, flexShrink: 0 }} className="flex items-center justify-center">
+            <Trash2 size={18} color={BAD} />
+          </div>
+          <p className="text-sm pt-1.5">{state.message}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setState(null)} style={{ background: PAPER, border: `1px solid ${BORDER}`, color: INK }} className="flex-1 rounded-lg py-2 text-sm">ยกเลิก</button>
+          <button onClick={() => { const fn = state.onConfirm; setState(null); fn(); }} style={{ background: BAD }} className="flex-1 rounded-lg py-2 text-sm text-white">ลบเลย</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 const WARN = '#B45309';
 const BORDER = '#E4E1D8';
 const CARD_RADIUS = 12;
@@ -1932,6 +1964,7 @@ export default function App() {
 
   return (
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK, fontVariantNumeric: 'tabular-nums' }} className="pb-24">
+      <ConfirmDeleteHost />
       {saveError && (
         <div style={{ background: BAD, position: 'sticky', top: 0, zIndex: 100 }} className="px-4 py-3 text-white text-xs flex items-start gap-2">
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -3250,7 +3283,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
                 <div className="flex items-center gap-2">
                   <span className="text-sm" style={{ color: s.gain >= 0 ? GOOD : BAD }}>฿{fmt(s.amount)}</span>
                   <EditButton onClick={() => setEditingAllSell(s)} />
-                  <button onClick={() => onRemoveSell(s.accountId, s.holdingId, s.id)}><Trash2 size={14} color={BAD} /></button>
+                  <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveSell(s.accountId, s.holdingId, s.id))}><Trash2 size={14} color={BAD} /></button>
                 </div>
               </div>
             </Card>
@@ -3284,7 +3317,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
                       <div className="flex items-center gap-2">
                         <span className="text-sm" style={{ color: s.gain >= 0 ? GOOD : BAD }}>฿{fmt(s.amount)}</span>
                         <EditButton onClick={() => setEditingAllSell(s)} />
-                        <button onClick={() => onRemoveSell(s.accountId, s.holdingId, s.id)}><Trash2 size={14} color={BAD} /></button>
+                        <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveSell(s.accountId, s.holdingId, s.id))}><Trash2 size={14} color={BAD} /></button>
                       </div>
                     </div>
                   </Card>
@@ -3322,7 +3355,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
                 <div className="flex items-center gap-2">
                   <span className="text-sm" style={{ color: BAD }}>฿{fmt(b.amount)}</span>
                   <EditButton onClick={() => setEditingAllBuy(b)} />
-                  <button onClick={() => onRemoveBuy(b.accountId, b.holdingId, b.id)}><Trash2 size={14} color={BAD} /></button>
+                  <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveBuy(b.accountId, b.holdingId, b.id))}><Trash2 size={14} color={BAD} /></button>
                 </div>
               </div>
             </Card>
@@ -3356,7 +3389,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
                       <div className="flex items-center gap-2">
                         <span className="text-sm" style={{ color: BAD }}>฿{fmt(b.amount)}</span>
                         <EditButton onClick={() => setEditingAllBuy(b)} />
-                        <button onClick={() => onRemoveBuy(b.accountId, b.holdingId, b.id)}><Trash2 size={14} color={BAD} /></button>
+                        <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveBuy(b.accountId, b.holdingId, b.id))}><Trash2 size={14} color={BAD} /></button>
                       </div>
                     </div>
                   </Card>
@@ -3640,7 +3673,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
   }
   return (
     <Card>
-      <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} />{a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}<button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button></div>
+      <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} />{a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}<button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(a.id))}><Trash2 size={16} color={BAD} /></button></div>
       <div className="flex items-center mt-2 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={a.value} onChange={(v) => onUpdate(a.id, { value: v })} className="text-lg font-semibold flex-1 outline-none" style={{ border: 'none' }} /></div>
       {basis > 0 && <p className="text-xs mb-2" style={{ color: gain >= 0 ? GOOD : BAD }}>ต้นทุนสะสม ฿{fmt(basis)} · {gain >= 0 ? '+' : ''}฿{fmt(gain)}</p>}
       {onScanValue && <ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { value: v })} />}
@@ -3953,7 +3986,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         <div style={{ background: `${categoryColor}1F`, color: categoryColor, flexShrink: 0 }} className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold">{(a.name || '?').trim().slice(0, 2).toUpperCase()}</div>
         <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} />
         {a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}
-        <button onClick={() => onRemove(a.id)}><Trash2 size={16} color={BAD} /></button>
+        <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(a.id))}><Trash2 size={16} color={BAD} /></button>
       </div>
       {a.category === 'mutual_fund' && (
         <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0', color: SLATE }} />
@@ -4370,7 +4403,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
 
   return (
     <div style={{ background: PAPER_DIM }} className="rounded-lg p-3 mb-2">
-      <div className="flex gap-2 mb-2"><input value={h.symbol} onChange={(e) => onUpdate(accountId, h.id, { symbol: e.target.value.toUpperCase() })} placeholder="สัญลักษณ์" className="text-sm font-semibold flex-1 outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /><button onClick={() => onRemove(accountId, h.id)}><Trash2 size={14} color={BAD} /></button></div>
+      <div className="flex gap-2 mb-2"><input value={h.symbol} onChange={(e) => onUpdate(accountId, h.id, { symbol: e.target.value.toUpperCase() })} placeholder="สัญลักษณ์" className="text-sm font-semibold flex-1 outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(accountId, h.id))}><Trash2 size={14} color={BAD} /></button></div>
       <div className="grid grid-cols-2 gap-2 mb-2">
         <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={h.shares} onChange={(v) => onUpdate(accountId, h.id, { shares: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
         <div><label className="text-[10px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย/หุ้น ({h.currency})</label><NumInput value={h.avgCost} onChange={(v) => onUpdate(accountId, h.id, { avgCost: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
@@ -4494,7 +4527,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       {showBuys && (h.buys || []).map((b) => (
         <div key={b.id} className="flex justify-between text-xs mt-1">
           <span>{b.date} · ซื้อ {b.shares} หุ้น @ {b.price}{b.estimated && <span className="text-[9px]" style={{ color: WARN }}> (ประมาณการจากภาพสรุป)</span>}</span>
-          <span className="text-[10px] flex items-center gap-2" style={{ color: SLATE }}>฿{fmt(b.amount)} <EditButton onClick={() => setEditingBuy(b)} /><button onClick={() => onRemoveBuy(accountId, h.id, b.id)}><Trash2 size={11} color={BAD} /></button></span>
+          <span className="text-[10px] flex items-center gap-2" style={{ color: SLATE }}>฿{fmt(b.amount)} <EditButton onClick={() => setEditingBuy(b)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveBuy(accountId, h.id, b.id))}><Trash2 size={11} color={BAD} /></button></span>
         </div>
       ))}
       {editingBuy && (
@@ -4566,7 +4599,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       {showSells && (h.sells || []).map((s) => (
         <div key={s.id} className="flex justify-between text-xs mt-1">
           <span>{s.date} · ขาย {s.shares} หุ้น @ {s.price}{s.estimated && <span className="text-[9px]" style={{ color: WARN }}> (ประมาณการจากภาพสรุป)</span>}</span>
-          <span className="flex items-center gap-2" style={{ color: s.gain >= 0 ? GOOD : BAD }}>{s.gain >= 0 ? '+' : ''}฿{fmt(s.gain)} <EditButton onClick={() => setEditingSell(s)} /><button onClick={() => onRemoveSell(accountId, h.id, s.id)}><Trash2 size={11} color={BAD} /></button></span>
+          <span className="flex items-center gap-2" style={{ color: s.gain >= 0 ? GOOD : BAD }}>{s.gain >= 0 ? '+' : ''}฿{fmt(s.gain)} <EditButton onClick={() => setEditingSell(s)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveSell(accountId, h.id, s.id))}><Trash2 size={11} color={BAD} /></button></span>
         </div>
       ))}
       {editingSell && (
@@ -4612,7 +4645,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             {(allAccounts || []).map((acc) => <option key={acc.id} value={acc.id}>นำไปลงทุนต่อที่: {acc.name}</option>)}
           </select>
           <button onClick={() => { onAddDividend(accountId, h.id, { date: divDate, amount: divAmount, reinvestAccountId: divReinvest || undefined }); setDivAmount(0); setDivReinvest(''); }} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 w-full mb-2">บันทึกปันผล</button>
-          {(h.dividends || []).map((d) => <div key={d.id} className="flex justify-between text-xs mb-1"><span>{d.date}{d.reinvestAccountId && ` · ลงทุนต่อ`}</span><span className="flex items-center gap-2">฿{fmt(d.amount)} <EditButton onClick={() => setEditingDiv(d)} /><button onClick={() => onRemoveDividend(accountId, h.id, d.id)}><Trash2 size={11} color={BAD} /></button></span></div>)}
+          {(h.dividends || []).map((d) => <div key={d.id} className="flex justify-between text-xs mb-1"><span>{d.date}{d.reinvestAccountId && ` · ลงทุนต่อ`}</span><span className="flex items-center gap-2">฿{fmt(d.amount)} <EditButton onClick={() => setEditingDiv(d)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveDividend(accountId, h.id, d.id))}><Trash2 size={11} color={BAD} /></button></span></div>)}
         </div>
       )}
       {editingDiv && (
@@ -4805,7 +4838,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
                   }}>{syncingId === c.id ? <Loader2 size={14} className="animate-spin" color={BRASS} /> : <Calendar size={14} color={BRASS} />}</button>
                 )}
                 <EditButton onClick={() => setEditing(c)} />
-                <button onClick={() => onRemove(c.id)}><Trash2 size={14} color={BAD} /></button>
+                <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(c.id))}><Trash2 size={14} color={BAD} /></button>
               </div>
             </div>
             {syncMsg[c.id] ? (
@@ -4873,7 +4906,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
                         }}>{syncingId === c.id ? <Loader2 size={14} className="animate-spin" color={BRASS} /> : <Calendar size={14} color={BRASS} />}</button>
                       )}
                       <EditButton onClick={() => { setEditing(c); setGroupPopup(null); }} />
-                      <button onClick={() => { onRemove(c.id); setGroupPopup({ ...groupPopup, items: groupPopup.items.filter((x) => x.id !== c.id) }); }}><Trash2 size={14} color={BAD} /></button>
+                      <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => { onRemove(c.id); setGroupPopup({ ...groupPopup, items: groupPopup.items.filter((x) => x.id !== c.id) }); })}><Trash2 size={14} color={BAD} /></button>
                     </div>
                   </div>
                   {syncMsg[c.id] ? (
@@ -5119,7 +5152,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       <div className="flex justify-between items-center mb-2"><p className="text-sm font-semibold">แหล่งรายได้ประจำ</p><button onClick={onAdd} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><PlusCircle size={14} /> เพิ่ม</button></div>
       {income.map((i) => (
         <Card key={i.id}>
-          <div className="flex justify-between items-center gap-2"><input value={i.name} onChange={(e) => onUpdate(i.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} /><button onClick={() => onRemove(i.id)}><Trash2 size={16} color={BAD} /></button></div>
+          <div className="flex justify-between items-center gap-2"><input value={i.name} onChange={(e) => onUpdate(i.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(i.id))}><Trash2 size={16} color={BAD} /></button></div>
           <div className="flex items-center mt-2 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={i.amount} onChange={(v) => onUpdate(i.id, { amount: v })} className="text-lg font-semibold flex-1 outline-none" style={{ border: 'none' }} /><span className="text-xs" style={{ color: SLATE }}>/เดือน</span></div>
           <select value={i.tag || 'other'} onChange={(e) => onUpdate(i.id, { tag: e.target.value })} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-2 py-1 text-xs">{SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
         </Card>
@@ -5390,7 +5423,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
             <Card key={`${e._kind}_${e.id}`} style={e._kind === 'card' ? { background: '#EFF6FF', border: '1px solid #BFDBFE' } : undefined}>
               <div className="flex justify-between items-center">
                 <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(e.date)}</p></div>
-                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => removeCombinedItem(e)}><Trash2 size={14} color={BAD} /></button></div>
+                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => removeCombinedItem(e))}><Trash2 size={14} color={BAD} /></button></div>
               </div>
             </Card>
           ));
@@ -5421,7 +5454,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
               <Card key={`${e._kind}_${e.id}`} style={e._kind === 'card' ? { background: '#EFF6FF', border: '1px solid #BFDBFE' } : undefined}>
                 <div className="flex justify-between items-center">
                   <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}{e.source === 'line' && <span className="ml-1" style={{ color: '#06C755' }}>📱</span>}</p><p className="text-xs" style={{ color: SLATE }}>วันนี้ · {formatDateDMY(e.date)}</p></div>
-                  <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => removeCombinedItem(e)}><Trash2 size={14} color={BAD} /></button></div>
+                  <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => removeCombinedItem(e))}><Trash2 size={14} color={BAD} /></button></div>
                 </div>
               </Card>
             ))}
@@ -5449,7 +5482,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
             {[...groupPopup.items].sort((a, b) => b.date.localeCompare(a.date)).map((e) => (
               <div key={`${e._kind}_${e.id}`} className="flex justify-between items-center py-2.5 px-2 -mx-2 rounded-lg" style={{ borderTop: `1px solid ${BORDER}`, background: e._kind === 'card' ? '#EFF6FF' : 'transparent' }}>
                 <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(e.date)}</p></div>
-                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => { setEditingExpense(e); }} /><button onClick={() => removeCombinedItem(e)}><Trash2 size={14} color={BAD} /></button></div>
+                <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => { setEditingExpense(e); }} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => removeCombinedItem(e))}><Trash2 size={14} color={BAD} /></button></div>
               </div>
             ))}
           </div>
@@ -5684,7 +5717,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
       <Card>
         <div className="flex justify-between items-center mb-2">
           <p className="text-base font-bold" style={{ color: INK }}>💳 {card.bankName} {card.cardName}</p>
-          <button onClick={() => onRemoveCard(card.id)}><Trash2 size={16} color={BAD} /></button>
+          <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveCard(card.id))}><Trash2 size={16} color={BAD} /></button>
         </div>
         <p className="text-xs mb-1" style={{ color: SLATE }}>ใช้ไปเดือนนี้ ฿{fmt(spent)} จากวงเงิน ฿{fmt(card.creditLimit)}</p>
         <div style={{ background: PAPER_DIM }} className="h-2 rounded-full overflow-hidden mb-2"><div style={{ width: `${pct}%`, background: pct >= 90 ? BAD : BRASS }} className="h-full rounded-full" /></div>
@@ -5742,7 +5775,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
             {monthPayments.map((p) => (
               <div key={p.id} className="flex justify-between items-center py-1">
                 <p className="text-xs" style={{ color: SLATE }}>{p.date}{p.note ? ' · ' + p.note : ''}</p>
-                <div className="flex items-center gap-2"><span className="text-xs" style={{ color: GOOD }}>฿{fmt(p.amount)}</span><button onClick={() => onRemovePayment(card.id, p.id)}><Trash2 size={12} color={BAD} /></button></div>
+                <div className="flex items-center gap-2"><span className="text-xs" style={{ color: GOOD }}>฿{fmt(p.amount)}</span><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemovePayment(card.id, p.id))}><Trash2 size={12} color={BAD} /></button></div>
               </div>
             ))}
           </div>
@@ -5784,7 +5817,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
         <Card key={t.id}>
           <div className="flex justify-between items-center">
             <div><p className="text-sm">{t.category}{t.note ? ` · ${t.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{t.date}</p></div>
-            <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(t.amount)}</span><EditButton onClick={() => setEditingTx(t)} /><button onClick={() => onRemoveTransaction(card.id, t.id)}><Trash2 size={14} color={BAD} /></button></div>
+            <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(t.amount)}</span><EditButton onClick={() => setEditingTx(t)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveTransaction(card.id, t.id))}><Trash2 size={14} color={BAD} /></button></div>
           </div>
         </Card>
       ))}
@@ -6323,7 +6356,7 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
             <ChatBubbleIcon size={14} color={p.lineGroupId ? GOOD : '#9CA3AF'} />
           </div>
         </div>
-        <button onClick={() => onRemove(p.id)}><Trash2 size={16} color={BAD} /></button>
+        <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(p.id))}><Trash2 size={16} color={BAD} /></button>
       </div>
       <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
         {[{ id: 'info', l: 'ข้อมูล' }, { id: 'rent', l: 'รับเงิน' }, { id: 'money', l: 'รายรับจ่าย' }, { id: 'repairs', l: 'ซ่อม' }, { id: 'roi', l: 'ROI' }, { id: 'docs', l: 'เอกสาร' }].map((s) => (
@@ -6426,7 +6459,7 @@ function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemove
         return (
           <div key={it.id} style={{ border: `1px solid ${BORDER}` }} className="rounded-xl px-3 py-2 mb-2 flex justify-between items-center">
             <div><p className="text-sm font-semibold">฿{fmt(it.amount)}</p><p className="text-xs" style={{ color: SLATE }}>{it.date}{it.note ? ` · ${it.note}` : ''}</p>{acc ? <p className="text-xs font-semibold mt-0.5" style={{ color: BRASS }}>💰 นำไปลง: {acc.name}</p> : <p className="text-xs mt-0.5" style={{ color: SLATE }}>ยังไม่ได้ระบุว่านำไปลงที่ไหน</p>}</div>
-            <div className="flex items-center gap-3"><EditButton onClick={() => setEditingInstallment(it)} /><button onClick={() => onRemoveInstallment(p.id, ym, it.id)}><Trash2 size={14} color={BAD} /></button></div>
+            <div className="flex items-center gap-3"><EditButton onClick={() => setEditingInstallment(it)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveInstallment(p.id, ym, it.id))}><Trash2 size={14} color={BAD} /></button></div>
           </div>
         );
       })}
@@ -6563,7 +6596,7 @@ function PropertyInfoSection({ property: p, onUpdate, googleConnected, onAddToCa
       <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm mb-3">บันทึก</button>
       <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>ประวัติทั้งหมด</p>
       {(p.transactions || []).map((t) => (
-        <div key={t.id} className="flex justify-between items-center text-sm mb-1.5"><span>{t.date} · {t.category}</span><div className="flex items-center gap-2"><span style={{ color: t.type === 'income' ? GOOD : BAD }}>{t.type === 'income' ? '+' : '-'}฿{fmt(t.amount)}</span><button onClick={() => onRemoveTransaction(p.id, t.id)}><Trash2 size={12} color={BAD} /></button></div></div>
+        <div key={t.id} className="flex justify-between items-center text-sm mb-1.5"><span>{t.date} · {t.category}</span><div className="flex items-center gap-2"><span style={{ color: t.type === 'income' ? GOOD : BAD }}>{t.type === 'income' ? '+' : '-'}฿{fmt(t.amount)}</span><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveTransaction(p.id, t.id))}><Trash2 size={12} color={BAD} /></button></div></div>
       ))}
     </div>
   );
@@ -6585,7 +6618,7 @@ function PropertyRepairsSection({ property: p, onAddRepair, onRemoveRepair }) {
       </div>
       <p className="text-xs mb-2" style={{ color: SLATE }}>รวมค่าซ่อมทั้งหมด ฿{fmt(total)}</p>
       {(p.repairs || []).map((r) => (
-        <div key={r.id} className="flex justify-between items-center text-sm mb-2 pb-2" style={{ borderBottom: `1px solid ${BORDER}` }}><span>{r.date} · {r.item}</span><div className="flex items-center gap-2"><span>฿{fmt(r.amount)}</span><button onClick={() => onRemoveRepair(p.id, r.id)}><Trash2 size={12} color={BAD} /></button></div></div>
+        <div key={r.id} className="flex justify-between items-center text-sm mb-2 pb-2" style={{ borderBottom: `1px solid ${BORDER}` }}><span>{r.date} · {r.item}</span><div className="flex items-center gap-2"><span>฿{fmt(r.amount)}</span><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveRepair(p.id, r.id))}><Trash2 size={12} color={BAD} /></button></div></div>
       ))}
     </div>
   );
@@ -6663,7 +6696,7 @@ function PropertyDocsSection({ property: p, onAddPhoto, onRemovePhoto, onAddDocu
       {(p.documents || []).map((doc) => (
         <a key={doc.id} href={doc.url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ border: `1px solid ${BORDER}` }}>
           <div className="flex items-center gap-2 flex-1 min-w-0"><ClipboardList size={16} color={BRASS} style={{ flexShrink: 0 }} /><div className="min-w-0"><p className="text-sm truncate" style={{ color: INK }}>{doc.name}</p><p className="text-[11px]" style={{ color: SLATE }}>{doc.uploadedAt}</p></div></div>
-          <button onClick={(e) => { e.preventDefault(); onRemoveDocument(p.id, doc.id); }} style={{ flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
+          <button onClick={(e) => { e.preventDefault(); confirmDelete('ลบเอกสารนี้? ข้อมูลจะหายถาวร', () => onRemoveDocument(p.id, doc.id)); }} style={{ flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
         </a>
       ))}
     </div>
@@ -6841,7 +6874,7 @@ function RiderBenefitItems({ items, onChange }) {
               <input value={it.label} onChange={(e) => updateItem(it.id, { label: e.target.value })} placeholder="รายการ" className="rounded px-1.5 py-1 text-[10px]" style={{ border: `1px solid ${BORDER}`, width: '38%' }} />
               <input value={it.value} onChange={(e) => updateItem(it.id, { value: e.target.value })} placeholder="ผลประโยชน์ (บาท)" className="rounded px-1.5 py-1 text-[10px]" style={{ border: `1px solid ${BORDER}`, width: '30%' }} />
               <input value={it.maxCount} onChange={(e) => updateItem(it.id, { maxCount: e.target.value })} placeholder="จำนวนสูงสุด" className="rounded px-1.5 py-1 text-[10px]" style={{ border: `1px solid ${BORDER}`, width: '22%' }} />
-              <button onClick={() => removeItem(it.id)}><Trash2 size={12} color={BAD} /></button>
+              <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => removeItem(it.id))}><Trash2 size={12} color={BAD} /></button>
             </div>
           ))}
           <div className="flex flex-wrap gap-1 mt-1.5 mb-1">
@@ -7155,7 +7188,7 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
       <Card>
         <div className="flex justify-between items-center mb-2">
           <input value={p.planName || ''} onChange={(e) => onUpdate(p.id, { planName: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
-          <button onClick={onRemove}><Trash2 size={16} color={BAD} /></button>
+          <button onClick={() => confirmDelete('ลบกรมธรรม์นี้? ข้อมูลทั้งหมดจะหายถาวร', onRemove)}><Trash2 size={16} color={BAD} /></button>
         </div>
         {dl !== null && <p className="text-xs mb-2" style={{ color: dl < 0 ? BAD : dl <= 30 ? WARN : GOOD }}>{dl < 0 ? '⚫ หมดอายุแล้ว' : `🟢 มีผลคุ้มครอง (ต่ออายุอีก ${dl} วัน)`}</p>}
         <label className="text-[10px]" style={{ color: SLATE }}>บริษัทประกัน</label>
@@ -7199,7 +7232,7 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
           <div key={r.id} style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-3 mb-2">
             <div className="flex justify-between items-center mb-2">
               <input value={r.name || ''} onChange={(e) => onUpdateRider(p.id, r.id, { name: e.target.value })} placeholder="ชื่อสัญญา" className="rounded px-2 py-1 text-xs flex-1 mr-2" style={{ border: `1px solid ${BORDER}` }} />
-              <button onClick={() => onRemoveRider(p.id, r.id)}><Trash2 size={14} color={BAD} /></button>
+              <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveRider(p.id, r.id))}><Trash2 size={14} color={BAD} /></button>
             </div>
             <select value={r.type} onChange={(e) => onUpdateRider(p.id, r.id, { type: e.target.value })} className="rounded px-2 py-1 text-xs w-full mb-2" style={{ border: `1px solid ${BORDER}` }}>
               {RIDER_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
@@ -7230,7 +7263,7 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
         {(p.documents || []).map((d) => (
           <div key={d.id} className="flex justify-between items-center py-2" style={{ borderTop: `1px solid ${BORDER}` }}>
             <button onClick={() => setLightboxUrl(d.url)} className="text-xs text-left flex-1" style={{ color: INK }}>📄 {d.name}</button>
-            <button onClick={() => onRemoveDocument(p.id, d.id)}><Trash2 size={13} color={BAD} /></button>
+            <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveDocument(p.id, d.id))}><Trash2 size={13} color={BAD} /></button>
           </div>
         ))}
       </Card>
@@ -7412,7 +7445,7 @@ function InsuranceClaimsSection({ policies, claims, onAddClaim, onUpdateClaim, o
           <Card key={c.id}>
             <div className="flex justify-between items-center">
               <div><p className="text-sm" style={{ color: INK }}>{c.hospital} · {c.type.toUpperCase()}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(c.date)}{pol ? ` · ${pol.planName || pol.company}` : ''}</p></div>
-              <div className="flex items-center gap-2"><span className="text-sm font-semibold" style={{ color: GOOD }}>+฿{fmt(c.paidByInsurance)}</span><button onClick={() => onRemoveClaim(c.id)}><Trash2 size={14} color={BAD} /></button></div>
+              <div className="flex items-center gap-2"><span className="text-sm font-semibold" style={{ color: GOOD }}>+฿{fmt(c.paidByInsurance)}</span><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveClaim(c.id))}><Trash2 size={14} color={BAD} /></button></div>
             </div>
           </Card>
         );
@@ -7901,7 +7934,7 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, ho
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติ</p>
       {[...weights].reverse().map((w) => (
         <Card key={w.id}>
-          <div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}{w.weigher && ` · ${w.weigher}`}</p><p className="text-xs" style={{ color: SLATE }}>{w.date} {w.time}</p></div><div className="flex items-center gap-2"><EditButton onClick={() => setEditingWeight(w)} /><button onClick={() => onRemoveWeight(dog.id, w.id)}><Trash2 size={14} color={BAD} /></button></div></div>
+          <div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}{w.weigher && ` · ${w.weigher}`}</p><p className="text-xs" style={{ color: SLATE }}>{w.date} {w.time}</p></div><div className="flex items-center gap-2"><EditButton onClick={() => setEditingWeight(w)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveWeight(dog.id, w.id))}><Trash2 size={14} color={BAD} /></button></div></div>
           {onAddMedicalPhoto && <MedicalPhotoAttach record={w} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'weights', w.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'weights', w.id, pid)} />}
         </Card>
       ))}
@@ -8033,7 +8066,7 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
               {!m.stopDate && <span className="text-[10px] rounded-full px-2 py-1" style={{ background: 'white', color: GOOD }}>กำลังใช้</span>}
               {m.stopDate && <span className="text-[10px] rounded-full px-2 py-1" style={{ background: 'white', color: SLATE }}>หยุดใช้แล้ว</span>}
               <EditButton onClick={() => setEditingMed(m)} />
-              <button onClick={() => onRemoveMedication(dog.id, m.id)}><Trash2 size={14} color={BAD} /></button>
+              <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveMedication(dog.id, m.id))}><Trash2 size={14} color={BAD} /></button>
             </div>
           </div>
           {!m.stopDate && (
@@ -8204,7 +8237,7 @@ function parseFraction(s) {
             <div className="flex items-center gap-2">
               <span>{h.cost ? `฿${fmt(h.cost)}` : ''}</span>
               <EditButton onClick={() => setEditingHistory(h)} />
-              <button onClick={() => onRemoveFleaTickHistory(dog.id, h.id)}><Trash2 size={14} color={BAD} /></button>
+              <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveFleaTickHistory(dog.id, h.id))}><Trash2 size={14} color={BAD} /></button>
             </div>
           </div>
         </Card>
@@ -8328,7 +8361,7 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
         {(ins.documents || []).map((doc) => (
           <a key={doc.id} href={doc.url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ border: `1px solid ${BORDER}` }}>
             <div className="flex items-center gap-2 flex-1 min-w-0"><ClipboardList size={16} color={BRASS} style={{ flexShrink: 0 }} /><div className="min-w-0"><p className="text-sm truncate" style={{ color: INK }}>{doc.name}</p><p className="text-[11px]" style={{ color: SLATE }}>{doc.uploadedAt}</p></div></div>
-            <button onClick={(e) => { e.preventDefault(); onRemoveInsuranceDocument(dog.id, doc.id); }} style={{ flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
+            <button onClick={(e) => { e.preventDefault(); confirmDelete('ลบเอกสารนี้? ข้อมูลจะหายถาวร', () => onRemoveInsuranceDocument(dog.id, doc.id)); }} style={{ flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
           </a>
         ))}
       </Card>
@@ -8488,7 +8521,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
                   else if (res.sharedWithPhotos) setShareStatus((prev) => ({ ...prev, [a.id]: { loading: false, message: `ส่งรูปแล้ว — บางแอป (เช่น LINE) อาจไม่แปะข้อความสรุปมาด้วยตอนส่งพร้อมรูป ${res.textCopiedToClipboard ? 'ผมคัดลอกข้อความไว้ในคลิปบอร์ดให้แล้ว วางเพิ่มในแชทได้เลย' : ''}`, isError: false } }));
                   else setShareStatus((prev) => ({ ...prev, [a.id]: null }));
                 }}><Share2 size={14} color={BRASS} /></button>
-                <EditButton onClick={() => setEditingAppt(a)} /><button onClick={() => onRemoveAppointment(dog.id, a.id)}><Trash2 size={14} color={BAD} /></button>
+                <EditButton onClick={() => setEditingAppt(a)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveAppointment(dog.id, a.id))}><Trash2 size={14} color={BAD} /></button>
               </div>
             </div>
             {shareStatus[a.id] && (
@@ -9085,7 +9118,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
               else if (res.sharedWithPhotos) setShareStatus({ loading: false, message: `ส่งรูปแล้ว — บางแอป (เช่น LINE) อาจไม่แปะข้อความสรุปมาด้วยตอนส่งพร้อมรูป ${res.textCopiedToClipboard ? 'ผมคัดลอกข้อความไว้ในคลิปบอร์ดให้แล้ว วางเพิ่มในแชทได้เลย' : ''}`, isError: false });
               else setShareStatus(null);
             }}><Share2 size={16} color={BRASS} /></button>
-            <button onClick={() => onRemoveVetVisit(visit.id)}><Trash2 size={16} color={BAD} /></button>
+            <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveVetVisit(visit.id))}><Trash2 size={16} color={BAD} /></button>
           </div>
         </div>
         {shareStatus && (
@@ -9254,7 +9287,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
               </div>
               <div className="flex items-center gap-2">
                 {targetTab && <ChevronRight size={14} color={SLATE} />}
-                <button onClick={(e) => { e.stopPropagation(); onUnlinkRecordFromVisit(dog.id, visit.id, lr.type, lr.id); }}><Trash2 size={13} color={BAD} /></button>
+                <button onClick={(e) => { e.stopPropagation(); confirmDelete('เลิกเชื่อมรายการนี้จากการนัดหมายนี้?', () => onUnlinkRecordFromVisit(dog.id, visit.id, lr.type, lr.id)); }}><Trash2 size={13} color={BAD} /></button>
               </div>
             </button>
           );
@@ -9605,7 +9638,7 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
         {periods.length > 0 ? <select value={selPeriod} onChange={(e) => setSelPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }}>{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
         {selPeriod && <p className="text-xl">รวม ฿{fmt(periodTotal)}</p>}
       </Card>
-      {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => onRemoveDogExpense(dog.id, e.id)}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
+      {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveDogExpense(dog.id, e.id))}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
       {editingExp && (
         <EditModal title="แก้ไขค่าใช้จ่าย" onClose={() => setEditingExp(null)}
           initialValues={{ date: editingExp.date, amount: editingExp.amount, category: editingExp.category, hospital: editingExp.hospital || '', note: editingExp.note || '' }}
