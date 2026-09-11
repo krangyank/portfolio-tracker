@@ -53,6 +53,14 @@ function safeParseJson(text) {
   }
 }
 
+// แปลง YYYY-MM-DD เป็น DD/MM/YYYY ให้ตรงกับฟอร์แมตวันที่ที่ใช้ทั้งแอป (ดู formatDateThai ใน App.jsx)
+function formatDateDMY(dateStr) {
+  if (!dateStr) return '-';
+  const [y, m, d] = dateStr.split('-');
+  if (!y || !m || !d) return dateStr;
+  return `${d}/${m}/${y}`;
+}
+
 async function sendLineNotify(message) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const groupId = process.env.LINE_GROUP_ID;
@@ -116,7 +124,7 @@ export default async function handler(req, res) {
     await docRef.set({ dividendCalendar: { items: newItems, fetchedAt: new Date().toISOString() } }, { merge: true });
 
     if (freshItems.length > 0) {
-      const lines = freshItems.map((it) => `• ${it.symbol}: XD ${it.exDate}${it.payDate ? ` · จ่าย ${it.payDate}` : ''}`).join('\n');
+      const lines = freshItems.map((it) => `• ${it.symbol}: XD ${formatDateDMY(it.exDate)}${it.payDate ? ` · จ่าย ${formatDateDMY(it.payDate)}` : ''}`).join('\n');
       await sendLineNotify(`📅 พบวัน XD ใหม่ที่เพิ่งประกาศ:\n${lines}\n\nเข้าแอป > ข่าว > ปฏิทินปันผล เพื่อตั้งเตือนในปฏิทิน`);
     }
 
