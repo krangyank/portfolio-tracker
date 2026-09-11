@@ -5,7 +5,7 @@ import {
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
   Dog, Scale, Syringe, Shield, Bug, Stethoscope, Eye, EyeOff, Search, Upload,
-  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper, Rss,
+  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper, Rss, Car,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
@@ -82,7 +82,8 @@ const TAB_MASCOTS = {
   insurance: { emoji: '🛡️', bg: '#DCE8FE' },
   reports: { emoji: '🦉', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=200&fit=crop' },
 };
-const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'ข่าว', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', reports: 'รายงาน' };
+const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'ข่าว', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', vehicles: 'รถยนต์', reports: 'รายงาน' };
+const VEHICLE_ITEM_LABELS = { tax: '🚙 ภาษีรถยนต์', compulsory: '📄 พ.ร.บ.', insurance: '🛡️ ประกันภัยชั้น 1' };
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -1005,8 +1006,17 @@ export default function App() {
       if (pending) { const daysSince = Math.abs(daysUntil(pending.date)); return { tone: daysSince >= 7 ? 'warn' : 'ok', icon: '💰', title: `มีเงิน ฿${fmt(pending.amount)} ค้างใน "${pending.accountId}"`, sub: daysSince > 0 ? `ยังไม่ได้ย้ายไปลงทุน มา ${daysSince} วันแล้ว` : 'เพิ่งบันทึกวันนี้' }; }
       return { tone: 'ok', icon: '✅', title: 'เงินเข้าทุกรายการลงบัญชีจริงแล้ว', sub: '' };
     }
+    if (tab === 'vehicles') {
+      const items = [];
+      (vehicles || []).forEach((v) => ['tax', 'compulsory', 'insurance'].forEach((k) => { const it = v[k]; if (it && it.expiryDate) { const dl = daysUntil(it.expiryDate); if (dl !== null) items.push({ name: v.name, label: VEHICLE_ITEM_LABELS[k], dl }); } }));
+      items.sort((a, b) => a.dl - b.dl);
+      const nearest = items[0];
+      if (!nearest) return { tone: 'ok', icon: '✅', title: 'ยังไม่มีข้อมูลภาษี/พรบ/ประกัน', sub: '' };
+      if (nearest.dl <= 30) return { tone: nearest.dl <= 7 ? 'bad' : 'warn', icon: '⚠️', title: `${nearest.name} — ${nearest.label} ${nearest.dl < 0 ? 'หมดอายุแล้ว' : `เหลืออีก ${nearest.dl} วัน`}`, sub: '' };
+      return { tone: 'ok', icon: '✅', title: 'ไม่มีรายการใกล้หมดอายุใน 30 วันนี้', sub: `ใกล้สุด: ${nearest.name} อีก ${nearest.dl} วัน` };
+    }
     return null;
-  }, [tab, dogs, properties, creditCards, contributions, accounts]);
+  }, [tab, dogs, properties, creditCards, contributions, accounts, vehicles]);
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
   const doctorList = state?.doctorList || [];
   const departmentList = state?.departmentList || ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'];
@@ -1401,6 +1411,51 @@ export default function App() {
   }
 
   function updateDog(dogId, patch) { persistShared({ ...sharedState, dogs: dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d)) }); }
+
+  // รถยนต์ (ภาษี/พ.ร.บ./ประกันภัยชั้น 1) — เก็บในเอกสารกลาง (ใช้ร่วมกับภรรยา) เหมือนลูกๆ/บ้านเช่า
+  const vehicles = sharedState?.vehicles || [];
+  function addVehicle(entry) {
+    const id = uid();
+    persistShared({ ...sharedState, vehicles: [{ id, name: entry.name || 'รถใหม่', plate: entry.plate || '', photos: [], tax: {}, compulsory: {}, insurance: {} }, ...vehicles] });
+    return id;
+  }
+  function updateVehicle(vehicleId, patch) { persistShared({ ...sharedState, vehicles: vehicles.map((v) => (v.id === vehicleId ? { ...v, ...patch } : v)) }); }
+  function removeVehicle(vehicleId) { persistShared({ ...sharedState, vehicles: vehicles.filter((v) => v.id !== vehicleId) }); }
+  // บันทึก/แก้ไขรายการต่ออายุ (ภาษี/พรบ/ประกัน) ของรถคันหนึ่ง — แจ้งเตือน LINE เฉพาะตอนกดบันทึก (มีปุ่มบันทึกแยก ไม่ใช่ auto-save ทุกตัวอักษร กันแจ้งเตือนถี่เกินไป)
+  function updateVehicleItem(vehicleId, itemKey, patch) {
+    const v = vehicles.find((x) => x.id === vehicleId);
+    if (!v) return;
+    const nextItem = { ...(v[itemKey] || {}), ...patch };
+    updateVehicle(vehicleId, { [itemKey]: nextItem });
+    const rows = [];
+    if (nextItem.company) rows.push({ label: 'บริษัท', value: nextItem.company });
+    if (nextItem.cost) rows.push({ label: 'ค่าใช้จ่าย', value: `฿${fmt(nextItem.cost)}` });
+    if (nextItem.purchaseDate) rows.push({ label: 'วันที่ซื้อ', value: formatDateDMY(nextItem.purchaseDate) });
+    if (nextItem.expiryDate) rows.push({ label: 'วันหมดอายุ', value: formatDateDMY(nextItem.expiryDate) });
+    if (nextItem.expiryDate) {
+      sendLineFlex(
+        `${VEHICLE_ITEM_LABELS[itemKey]} ${v.name}: หมดอายุ ${formatDateDMY(nextItem.expiryDate)}`,
+        buildFlexCard({ title: `${VEHICLE_ITEM_LABELS[itemKey]} — ${v.name}`, rows, tab: 'vehicles' })
+      );
+    }
+  }
+  async function uploadVehiclePhoto(vehicleId, file) {
+    const path = `properties/${FAMILY_SHARE_ID}/vehicles/${vehicleId}/${Date.now()}_${file.name}`;
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    return { id: uid(), url, path };
+  }
+  function addVehiclePhoto(vehicleId, photo) {
+    const v = vehicles.find((x) => x.id === vehicleId);
+    if (!v) return;
+    updateVehicle(vehicleId, { photos: [photo, ...(v.photos || [])] });
+  }
+  function removeVehiclePhoto(vehicleId, photoId) {
+    const v = vehicles.find((x) => x.id === vehicleId);
+    if (!v) return;
+    updateVehicle(vehicleId, { photos: (v.photos || []).filter((p) => p.id !== photoId) });
+  }
   // ใช้สำหรับ "คัดลอกไปยังตัวอื่น" ที่เลือกได้หลายตัวพร้อมกัน — คำนวณ patch ของทุกตัวแล้วเขียนทีเดียวใน persistShared เดียว
   // กันปัญหาที่ถ้าเรียก updateDog/updateFleaTickInfo/updateInsurance วนซ้ำหลายครั้งติดกัน (forEach) แต่ละครั้งจะคำนวณจาก
   // dogs อาร์เรย์เดิมที่ยังไม่อัปเดต (เพราะ React ยังไม่ re-render ระหว่าง loop) ทำให้การเขียนครั้งหลังไปเขียนทับของครั้งก่อน
@@ -2015,7 +2070,7 @@ export default function App() {
               <Wallet size={22} color="white" />
               <div className="absolute flex items-center justify-center" style={{ bottom: -2, right: -2, width: 20, height: 20, borderRadius: '50%', background: tab === 'expenses' ? BAD : GOOD, border: `2px solid ${INK}`, fontSize: 13, fontWeight: 900, color: 'white' }}>{tab === 'expenses' ? '−' : '+'}</div>
             </div>
-          ) : ((tab === 'pets' || tab === 'realestate') && headerPhotoOverride) ? (
+          ) : ((tab === 'pets' || tab === 'realestate' || tab === 'vehicles') && headerPhotoOverride) ? (
             <img src={headerPhotoOverride} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           ) : (TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).photo ? (
             <img src={(TAB_MASCOTS[tab] || TAB_MASCOTS.dashboard).photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -2098,9 +2153,13 @@ export default function App() {
           onAddClaim={addInsuranceClaim} onUpdateClaim={updateInsuranceClaim} onRemoveClaim={removeInsuranceClaim}
           googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} />
       )}
+      {tab === 'vehicles' && (
+        <VehiclesTab vehicles={vehicles} onAdd={addVehicle} onUpdate={updateVehicle} onRemove={removeVehicle} onUpdateItem={updateVehicleItem}
+          onUploadPhoto={uploadVehiclePhoto} onAddPhoto={addVehiclePhoto} onRemovePhoto={removeVehiclePhoto} onCurrentPhotoChange={setHeaderPhotoOverride} />
+      )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ข่าว', icon: Rss }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ข่าว', icon: Rss }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'vehicles', label: 'รถยนต์', icon: Car }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
             <t.icon size={17} color={tab === t.id ? '#FFFFFF' : '#94A3B8'} /><span className="text-[8px]" style={{ color: tab === t.id ? '#FFFFFF' : '#94A3B8' }}>{t.label}</span>
           </button>
@@ -6900,6 +6959,156 @@ function allRiders(policies) {
   const list = [];
   (policies || []).forEach((p) => (p.riders || []).forEach((r) => list.push({ ...r, policyId: p.id, policyName: p.planName || p.company, owner: p.owner, company: p.company })));
   return list;
+}
+
+// รถยนต์ — ภาษี/พ.ร.บ./ประกันภัยชั้น 1 ของรถแต่ละคัน พร้อมรูปและแจ้งเตือน LINE ก่อนหมดอายุ
+function VehiclesTab({ vehicles, onAdd, onUpdate, onRemove, onUpdateItem, onUploadPhoto, onAddPhoto, onRemovePhoto, onCurrentPhotoChange }) {
+  const [selected, setSelected] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftPlate, setDraftPlate] = useState('');
+  const vehicle = (vehicles || []).find((v) => v.id === selected);
+
+  useEffect(() => { if (onCurrentPhotoChange) onCurrentPhotoChange(vehicle && vehicle.photos && vehicle.photos[0] ? vehicle.photos[0].url : null); }, [selected]);
+
+  if (vehicle) {
+    return (
+      <VehicleDetail vehicle={vehicle} onBack={() => setSelected(null)} onUpdate={onUpdate}
+        onRemove={() => confirmDelete('ลบรถคันนี้? ข้อมูลทั้งหมด (ภาษี/พรบ/ประกัน/รูป) จะหายถาวร', () => { onRemove(vehicle.id); setSelected(null); })}
+        onUpdateItem={onUpdateItem} onUploadPhoto={onUploadPhoto} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} />
+    );
+  }
+
+  return (
+    <div className="px-4 pt-4 pb-24">
+      <h2 className="text-xl font-bold mb-4">รถยนต์</h2>
+      {(vehicles || []).length === 0 && <p className="text-sm mb-3" style={{ color: SLATE }}>ยังไม่มีรถยนต์ในระบบ เพิ่มคันแรกได้เลย</p>}
+      {(vehicles || []).map((v) => {
+        const items = ['tax', 'compulsory', 'insurance'].map((k) => ({ key: k, ...(v[k] || {}) })).filter((it) => it.expiryDate);
+        const nearest = items.map((it) => ({ ...it, dl: daysUntil(it.expiryDate) })).filter((it) => it.dl !== null).sort((a, b) => a.dl - b.dl)[0];
+        return (
+          <button key={v.id} onClick={() => setSelected(v.id)} className="w-full text-left mb-3">
+            <Card>
+              <div className="flex items-center gap-3">
+                {v.photos && v.photos[0] ? (
+                  <img src={v.photos[0].url} alt="" className="w-14 h-14 rounded-lg object-cover" style={{ flexShrink: 0 }} />
+                ) : (
+                  <div style={{ background: PAPER_DIM, width: 56, height: 56, borderRadius: 10, flexShrink: 0 }} className="flex items-center justify-center"><Car size={22} color={SLATE} /></div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm truncate">{v.name}{v.plate ? ` · ${v.plate}` : ''}</p>
+                  {nearest ? (
+                    <p className="text-xs mt-0.5" style={{ color: nearest.dl < 0 ? BAD : nearest.dl <= 30 ? BRASS : SLATE }}>
+                      {VEHICLE_ITEM_LABELS[nearest.key]}: {nearest.dl < 0 ? `หมดอายุแล้ว ${Math.abs(nearest.dl)} วัน` : `อีก ${nearest.dl} วัน`}
+                    </p>
+                  ) : <p className="text-xs mt-0.5" style={{ color: SLATE }}>ยังไม่มีข้อมูลภาษี/พรบ/ประกัน</p>}
+                </div>
+                <ChevronRight size={16} color={SLATE} style={{ flexShrink: 0 }} />
+              </div>
+            </Card>
+          </button>
+        );
+      })}
+      {showAdd ? (
+        <Card>
+          <p className="text-xs mb-2" style={{ color: SLATE }}>เพิ่มรถยนต์ใหม่</p>
+          <input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder="ชื่อรุ่น เช่น Toyota Camry" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: `1px solid ${BORDER}` }} />
+          <input value={draftPlate} onChange={(e) => setDraftPlate(e.target.value)} placeholder="ทะเบียนรถ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: `1px solid ${BORDER}` }} />
+          <div className="flex gap-2">
+            <button onClick={() => { setShowAdd(false); setDraftName(''); setDraftPlate(''); }} style={{ background: PAPER, border: `1px solid ${BORDER}`, color: INK }} className="flex-1 rounded-lg py-2 text-sm">ยกเลิก</button>
+            <button onClick={() => { if (!draftName.trim()) return; onAdd({ name: draftName.trim(), plate: draftPlate.trim() }); setDraftName(''); setDraftPlate(''); setShowAdd(false); }} style={{ background: INK }} className="flex-1 rounded-lg py-2 text-sm text-white">บันทึก</button>
+          </div>
+        </Card>
+      ) : (
+        <button onClick={() => setShowAdd(true)} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm flex items-center justify-center gap-2"><PlusCircle size={16} /> เพิ่มรถยนต์</button>
+      )}
+    </div>
+  );
+}
+
+function VehicleDetail({ vehicle, onBack, onUpdate, onRemove, onUpdateItem, onUploadPhoto, onAddPhoto, onRemovePhoto }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  async function handlePhoto(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try { const photo = await onUploadPhoto(vehicle.id, file); onAddPhoto(vehicle.id, photo); } catch (err) { /* เงียบไว้ */ }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
+  }
+  return (
+    <div className="px-4 pt-4 pb-24">
+      <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูรถทั้งหมด</button>
+      <Card>
+        <div className="flex justify-between items-center mb-2">
+          <input value={vehicle.name} onChange={(e) => onUpdate(vehicle.id, { name: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
+          <button onClick={onRemove}><Trash2 size={16} color={BAD} /></button>
+        </div>
+        <input value={vehicle.plate || ''} onChange={(e) => onUpdate(vehicle.id, { plate: e.target.value })} placeholder="ทะเบียนรถ" className="text-sm w-full outline-none" style={{ border: 'none', color: SLATE }} />
+      </Card>
+      <Card>
+        <p className="text-xs mb-2" style={{ color: SLATE }}>รูปรถ</p>
+        <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} className="hidden" />
+        <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-xs mb-2" style={{ color: BRASS }}>
+          {uploading ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />} {uploading ? 'กำลังอัพโหลด...' : 'เพิ่มรูป'}
+        </button>
+        {(vehicle.photos || []).length > 0 && (
+          <div className="grid grid-cols-4 gap-1.5">
+            {vehicle.photos.map((ph) => (
+              <div key={ph.id} className="relative">
+                <img src={ph.url} alt="" className="w-full h-16 object-cover rounded-lg" />
+                <button onClick={() => confirmDelete('ลบรูปนี้?', () => onRemovePhoto(vehicle.id, ph.id))} style={{ background: 'rgba(0,0,0,0.5)' }} className="absolute top-0.5 right-0.5 rounded-full p-0.5"><Trash2 size={10} color="white" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      {['tax', 'compulsory', 'insurance'].map((key) => (
+        <VehicleItemCard key={key} itemKey={key} item={vehicle[key] || {}} onSave={(patch) => onUpdateItem(vehicle.id, key, patch)} />
+      ))}
+    </div>
+  );
+}
+
+function VehicleItemCard({ itemKey, item, onSave }) {
+  const [company, setCompany] = useState(item.company || '');
+  const [cost, setCost] = useState(item.cost != null ? item.cost : '');
+  const [purchaseDate, setPurchaseDate] = useState(item.purchaseDate || '');
+  const [expiryDate, setExpiryDate] = useState(item.expiryDate || '');
+  const [reminderDays, setReminderDays] = useState(item.reminderDays && item.reminderDays.length ? item.reminderDays : [30, 15, 7]);
+  useEffect(() => {
+    setCompany(item.company || ''); setCost(item.cost != null ? item.cost : ''); setPurchaseDate(item.purchaseDate || ''); setExpiryDate(item.expiryDate || '');
+    setReminderDays(item.reminderDays && item.reminderDays.length ? item.reminderDays : [30, 15, 7]);
+  }, [item.company, item.cost, item.purchaseDate, item.expiryDate, item.reminderDays]);
+  const dl = expiryDate ? daysUntil(expiryDate) : null;
+  function toggleDay(d) { setReminderDays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => b - a))); }
+  return (
+    <Card>
+      <p className="text-sm font-semibold mb-2">{VEHICLE_ITEM_LABELS[itemKey]}</p>
+      {dl !== null && <p className="text-xs mb-2" style={{ color: dl < 0 ? BAD : dl <= 30 ? BRASS : GOOD }}>{dl < 0 ? `⚫ หมดอายุแล้ว ${Math.abs(dl)} วัน` : `🟢 เหลืออีก ${dl} วัน`}</p>}
+      <label className="text-[10px]" style={{ color: SLATE }}>บริษัท</label>
+      <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="ชื่อบริษัท" className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+      <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่าย (บาท)</label>
+      <NumInput value={cost} onChange={setCost} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+      <div className="flex gap-2 mb-2">
+        <div className="flex-1">
+          <label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label>
+          <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: `1px solid ${BORDER}` }} />
+        </div>
+        <div className="flex-1">
+          <label className="text-[10px]" style={{ color: SLATE }}>วันหมดอายุ</label>
+          <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: `1px solid ${BORDER}` }} />
+        </div>
+      </div>
+      <label className="text-[10px]" style={{ color: SLATE }}>แจ้งเตือนล่วงหน้า (วัน) — เลือกได้หลายค่า</label>
+      <div className="flex gap-1.5 flex-wrap mt-1 mb-3">
+        {[60, 30, 15, 7, 3, 1].map((d) => (
+          <button key={d} onClick={() => toggleDay(d)} style={{ background: reminderDays.includes(d) ? INK : PAPER, color: reminderDays.includes(d) ? 'white' : INK, border: `1px solid ${reminderDays.includes(d) ? INK : BORDER}` }} className="text-xs rounded-full px-3 py-1">{d} วัน</button>
+        ))}
+      </div>
+      <button onClick={() => onSave({ company: company.trim(), cost: cost === '' ? null : Number(cost), purchaseDate: purchaseDate || null, expiryDate: expiryDate || null, reminderDays })} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึก</button>
+    </Card>
+  );
 }
 
 function InsuranceTab({ policies, claims, onAddPolicy, onUpdatePolicy, onRemovePolicy, onAddRider, onUpdateRider, onRemoveRider, onAddDocument, onRemoveDocument, onAddClaim, onUpdateClaim, onRemoveClaim, googleConnected, onAddToCalendar }) {
