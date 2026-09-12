@@ -2187,6 +2187,49 @@ export default function App() {
 
 function Card({ children, style }) { return <div style={{ background: 'white', borderRadius: CARD_RADIUS, boxShadow: '0 2px 12px rgba(15,23,42,0.05)', ...style }} className="p-4 mb-4">{children}</div>; }
 
+// ปัดซ้ายเพื่อโชว์ปุ่มถังขยะ (เหมือน list ทั่วไปในมือถือ) แตะถังขยะแล้วมี confirmDelete ก่อนลบจริงเสมอ
+function SwipeToDeleteRow({ children, onDelete, confirmMessage }) {
+  const [dragX, setDragX] = useState(0);
+  const [open, setOpen] = useState(false);
+  const startX = useRef(0);
+  const dragging = useRef(false);
+  const REVEAL = 72;
+
+  function handleStart(x) { dragging.current = true; startX.current = x + (open ? -REVEAL : 0); }
+  function handleMove(x) {
+    if (!dragging.current) return;
+    const next = Math.min(0, Math.max(-REVEAL, x - startX.current));
+    setDragX(next);
+  }
+  function handleEnd() {
+    dragging.current = false;
+    const shouldOpen = dragX < -REVEAL / 2;
+    setOpen(shouldOpen);
+    setDragX(shouldOpen ? -REVEAL : 0);
+  }
+
+  return (
+    <div className="relative overflow-hidden mb-4" style={{ borderRadius: CARD_RADIUS }}>
+      <button
+        onClick={() => { setOpen(false); setDragX(0); confirmDelete(confirmMessage || 'ลบรายการนี้?', onDelete); }}
+        style={{ background: BAD, width: REVEAL }}
+        className="absolute right-0 top-0 h-full flex items-center justify-center text-white"
+      >
+        <Trash2 size={18} />
+      </button>
+      <div
+        onTouchStart={(e) => handleStart(e.touches[0].clientX)}
+        onTouchMove={(e) => handleMove(e.touches[0].clientX)}
+        onTouchEnd={handleEnd}
+        style={{ transform: `translateX(${dragX}px)`, transition: dragging.current ? 'none' : 'transform 0.2s ease', position: 'relative' }}
+        onClick={() => { if (open) { setOpen(false); setDragX(0); } }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // Popup แก้ไขรายการทั่วไป (ฟีเจอร์ O) — ใช้ร่วมกันทุก Tab ที่มีปุ่มลบ ยกเว้นตัวหุ้น/บัญชีทั้งก้อน
 // fields: [{ key, label, type: 'text'|'number'|'date'|'time'|'select'|'textarea', options }]
 // เลือกบัญชีปลายทางจากลิสต์จริง หรือพิมพ์เองได้ (เช่น "ตู้เซฟ", "ฝากเด็กร้านขายยา") เผื่อเก็บเงินไว้ก่อนยังไม่ได้ฝากเข้าบัญชีลงทุนจริง
@@ -5149,7 +5192,8 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
             const daysSinceEx = exDateObj ? Math.floor((Date.now() - exDateObj.getTime()) / (1000 * 60 * 60 * 24)) : null;
             const looksStale = daysSinceEx !== null && daysSinceEx > 90;
             return (
-            <Card key={idx}>
+            <SwipeToDeleteRow key={idx} confirmMessage={`ลบ ${it.symbol} ออกจากปฏิทินปันผล? (จะกลับมาอีกถ้ารีเฟรชแล้ว AI เจอข้อมูลนี้อีก)`} onDelete={() => onSavedDividends(divItems.filter((_, i) => i !== idx))}>
+            <Card>
               <div className="flex justify-between items-start mb-1">
                 <p className="text-sm font-semibold" style={{ color: INK }}>{it.symbol}</p>
                 {it.amount && <span style={{ background: PAPER_DIM, color: BRASS }} className="text-[10px] font-semibold rounded-full px-2 py-0.5">฿{it.amount}/หน่วย</span>}
@@ -5173,6 +5217,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
                 {syncedLabel ? `เพิ่มในปฏิทินแล้ว: ${syncedLabel} (แตะเพื่ออัปเดตซ้ำ)` : googleConnected ? 'เพิ่มลง Google Calendar' : 'ยังไม่ได้เชื่อมต่อ Google Calendar'}
               </button>
             </Card>
+            </SwipeToDeleteRow>
             );
           })}
         </div>
