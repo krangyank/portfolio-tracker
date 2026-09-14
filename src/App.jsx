@@ -2528,11 +2528,12 @@ function MedicalPhotoAttach({ record, onAddPhoto, onRemovePhoto }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState(null);
+  const [attachError, setAttachError] = useState('');
   async function handleFile(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    setUploading(true);
-    try { await onAddPhoto(file); } catch (err) { /* เงียบไว้ */ }
+    setUploading(true); setAttachError('');
+    try { await onAddPhoto(file); } catch (err) { setAttachError('แนบรูปไม่สำเร็จ: ' + (err && err.message ? err.message : 'ไม่ทราบสาเหตุ')); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
   }
   return (
@@ -2541,6 +2542,7 @@ function MedicalPhotoAttach({ record, onAddPhoto, onRemovePhoto }) {
       <button onClick={() => fileRef.current && fileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
         {uploading ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {uploading ? 'กำลังอัพโหลด...' : 'แนบรูปผลตรวจ'}
       </button>
+      {attachError && <p className="text-[11px] mt-1" style={{ color: BAD }}>{attachError}</p>}
       {(record.photos || []).length > 0 && (
         <div className="grid grid-cols-4 gap-1.5 mt-2">
           {record.photos.map((ph) => (
@@ -3250,8 +3252,9 @@ async function scanMedicalResult(file, kind) {
   const kindLabel = kind === 'bloodTest' ? 'ผลตรวจเลือด' : kind === 'organExam' ? 'ผลตรวจอวัยวะ (อัลตราซาวด์/คลำ/ตรวจร่างกาย)' : 'ผล Imaging (X-ray/CT/MRI/Ultrasound)';
   const optionsHint = kind === 'bloodTest' ? `ประเภทตรวจที่ใกล้เคียงจากรายการนี้ถ้ามี: ${BLOOD_TEST_TYPES.join(', ')}` : kind === 'organExam' ? `อวัยวะที่ใกล้เคียงจากรายการนี้ถ้ามี: ${ORGAN_TYPES.join(', ')}` : `ประเภทที่ใกล้เคียงจากรายการนี้ถ้ามี: ${IMAGING_TYPES.join(', ')}`;
   const prompt = `นี่คือภาพ${kindLabel}ของสัตว์เลี้ยง ความละเอียดอาจแตกต่างกันมาก อ่านเท่าที่มีในภาพจริงเท่านั้น ห้ามเดามั่ว ${optionsHint}
-ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"type": "ประเภท/อวัยวะที่ตรวจ ใกล้เคียงจากรายการที่ให้ไว้ หรือค่าว่างถ้าไม่แน่ใจ", "date": "YYYY-MM-DD ถ้ามีวันที่ระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ/ค่าที่ได้/ลักษณะที่พบสั้นๆ"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+สำคัญ: ถ้าในภาพเป็นภาษาอังกฤษ (เช่น รายงานผล X-ray/Ultrasound ที่หมอเขียนเป็นศัพท์แพทย์ภาษาอังกฤษ) ให้ "แปลเป็นภาษาไทย" ในช่อง note ด้วย ห้ามคัดลอกข้อความภาษาอังกฤษมาใส่ตรงๆ แปลให้เป็นภาษาไทยที่เจ้าของสัตว์อ่านเข้าใจง่าย แต่ยังคงศัพท์ทางการแพทย์ที่จำเป็น (เช่น ชื่ออวัยวะ) ไว้ได้ถ้าจำเป็น
+ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"type": "ประเภท/อวัยวะที่ตรวจ ใกล้เคียงจากรายการที่ให้ไว้ หรือค่าว่างถ้าไม่แน่ใจ", "date": "YYYY-MM-DD ถ้ามีวันที่ระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ/ค่าที่ได้/ลักษณะที่พบสั้นๆ เป็นภาษาไทย"}`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   return safeParseJson(text);
 }
 
@@ -9829,7 +9832,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
             <textarea value={bt.note} onChange={(e) => setBt({ ...bt, note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
             <button onClick={() => submitWithPhoto('bloodTests', bt, btScan, onAddBloodTest, () => setBt({ ...bt, note: '' }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
           </Card>
-          {[...(dog.bloodTests || [])].reverse().map((r) => (
+          {[...(dog.bloodTests || [])].map((r) => (
             <Card key={r.id}>
               <div className="flex justify-between items-start">
                 <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
@@ -9849,7 +9852,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
             <textarea value={oe.note} onChange={(e) => setOe({ ...oe, note: e.target.value })} placeholder="ผลตรวจ/ลักษณะที่พบ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
             <button onClick={() => submitWithPhoto('organExams', oe, oeScan, onAddOrganExam, () => setOe({ ...oe, note: '' }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจอวัยวะ</button>
           </Card>
-          {[...(dog.organExams || [])].reverse().map((r) => (
+          {[...(dog.organExams || [])].map((r) => (
             <Card key={r.id}>
               <div className="flex justify-between items-start">
                 <div><p className="text-sm font-semibold">{r.organ} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
@@ -9888,7 +9891,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
               imScan.setScannedFile(null);
             }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผล Imaging</button>
           </Card>
-          {[...(dog.imaging || [])].reverse().map((r) => (
+          {[...(dog.imaging || [])].map((r) => (
             <Card key={r.id}>
               <div className="flex justify-between items-start">
                 <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
