@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { doc, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion, onSnapshot } from 'firebase/firestore';
 import {
   PlusCircle, Trash2, TrendingUp, Wallet, PiggyBank, Flame, Landmark,
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
@@ -316,7 +316,7 @@ function buildVetVisitFlexCard(dogName, form, meds, nextApptDate, heroUrl) {
   }
   if (nextApptDate) {
     body.push({ type: 'box', layout: 'baseline', margin: 'md', backgroundColor: '#FAEEDA', cornerRadius: 'md', paddingAll: 'sm', contents: [
-      { type: 'text', text: `📆 นัดครั้งถัดไป ${formatDateDMY(nextApptDate)}`, size: 'xs', color: '#854F0B' },
+      { type: 'text', text: `📆 นัดครั้งถัดไป ${formatDateThai(nextApptDate)}`, size: 'xs', color: '#854F0B' },
     ] });
   }
   if (currentNotifyUser) body.push({ type: 'box', layout: 'baseline', margin: 'md', contents: [
@@ -795,6 +795,8 @@ export default function App() {
   const sharedDocRef = doc(db, 'shared', FAMILY_SHARE_ID, 'data', 'main');
   const [sharedState, setSharedState] = useState(null);
   const sharedStateRef = useRef(null);
+  // true หลังโหลด/ย้ายข้อมูลรอบแรกเสร็จแล้วเท่านั้น — กันไม่ให้ listener เรียลไทม์ด้านล่างแทรกกลางตอน effect นี้กำลังย้ายข้อมูล (migratedToShared) อยู่
+  const sharedInitialLoadDoneRef = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -868,6 +870,7 @@ export default function App() {
       setState(data);
       stateRef.current = data;
       sharedStateRef.current = shared;
+      sharedInitialLoadDoneRef.current = true;
       // จำหน้าที่เปิดล่าสุด — ใช้ได้เฉพาะตอนเข้าหน้าแรกปกติ (ไม่ใช่ deep-link เฉพาะ เช่น /expense) และต้องเปิดใช้ในตั้งค่าไว้ก่อน
       if (!appliedLastTabRef.current) {
         appliedLastTabRef.current = true;
@@ -880,6 +883,23 @@ export default function App() {
        setSaveError(`โหลดข้อมูลไม่สำเร็จ: ${e.message || e.code || e}`);
      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.uid]);
+
+  // ซิงค์เอกสารกลาง (ลูกๆ/บ้านเช่า/บัญชีที่แชร์กับภรรยา) แบบเรียลไทม์ — ป้องกันบั๊ก "ข้อมูลหาย" ที่เกิดจาก
+  // เปิดแอปค้างไว้หลายเครื่องพร้อมกัน (เช่น Tommy กับภรรยา) แล้วอีกฝั่งบันทึกทับด้วยข้อมูลเก่าที่ค้างอยู่ในเครื่อง
+  // เดิมระบบโหลดเอกสารกลางแค่ครั้งเดียวตอนเปิดแอป ทำให้เครื่องที่เปิดค้างไว้นานไม่เห็นการเปลี่ยนแปลงจากอีกฝั่งเลย
+  // จนกว่าจะกดรีเฟรชเอง — ตอนนี้ฟัง Firestore แบบเรียลไทม์แทน พอฝั่งใดฝั่งหนึ่งบันทึก อีกฝั่งจะได้ข้อมูลล่าสุดภายในเสี้ยววินาที
+  // ลดโอกาสเขียนทับข้อมูลกันเองลงมาก (ยังมีโอกาสชนกันได้เล็กน้อยถ้าบันทึกพร้อมกันเป๊ะๆ ในเสี้ยววินาทีเดียวกัน แต่กรณีนั้นเกิดยากมากในทางปฏิบัติ)
+  useEffect(() => {
+    const unsub = onSnapshot(sharedDocRef, (snap) => {
+      if (!sharedInitialLoadDoneRef.current) return; // ยังไม่โหลด/ย้ายข้อมูลรอบแรกเสร็จ ปล่อยให้ effect ด้านบนจัดการก่อน
+      if (!snap.exists()) return;
+      const next = snap.data();
+      setSharedState(next);
+      sharedStateRef.current = next;
+    }, (e) => { console.error('shared onSnapshot error', e); });
+    return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.uid]);
 
@@ -990,8 +1010,8 @@ export default function App() {
       items.sort((a, b) => a.daysLeft - b.daysLeft);
       const nearest = items[0];
       if (!nearest) return { tone: 'ok', icon: '✅', title: 'ยังไม่มีนัดหมายบันทึกไว้', sub: '' };
-      if (nearest.daysLeft <= 7) return { tone: nearest.daysLeft <= 1 ? 'bad' : 'warn', icon: '⚠️', title: `${nearest.dogName} มีนัด "${nearest.purpose}" อีก ${nearest.daysLeft} วัน`, sub: formatDateDMY(nearest.date) };
-      return { tone: 'ok', icon: '✅', title: 'ไม่มีนัดด่วนใน 7 วันนี้', sub: `นัดถัดไป: ${nearest.dogName} ${formatDateDMY(nearest.date)}` };
+      if (nearest.daysLeft <= 7) return { tone: nearest.daysLeft <= 1 ? 'bad' : 'warn', icon: '⚠️', title: `${nearest.dogName} มีนัด "${nearest.purpose}" อีก ${nearest.daysLeft} วัน`, sub: formatDateThai(nearest.date) };
+      return { tone: 'ok', icon: '✅', title: 'ไม่มีนัดด่วนใน 7 วันนี้', sub: `นัดถัดไป: ${nearest.dogName} ${formatDateThai(nearest.date)}` };
     }
     if (tab === 'realestate') {
       const ym = thisMonth();
@@ -1763,11 +1783,11 @@ export default function App() {
     }
     updateDog(dogId, patch);
     if (d.lineGroupId) {
-      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      const rows = [{ label: 'วันที่', value: formatDateThai(entry.date) }];
       if (organNames && organNames.length) rows.push({ label: 'อวัยวะที่ตรวจ', value: organNames.join(', ') });
       if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
       sendLineFlex(
-        `📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateDMY(entry.date)})`,
+        `📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateThai(entry.date)})`,
         buildFlexCard({ title: `📷 ${d.name} — ผลภาพถ่าย: ${entry.type || '-'}`, rows, tab: 'pets' }),
         d.lineGroupId
       );
@@ -1779,13 +1799,13 @@ export default function App() {
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'weights', id, { weights: [{ id, ...entry }, ...(d.weights || [])] }));
     if (d && d.lineGroupId) {
-      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      const rows = [{ label: 'วันที่', value: formatDateThai(entry.date) }];
       if (entry.location) rows.push({ label: 'สถานที่', value: entry.location });
       if (entry.weigher) rows.push({ label: 'ผู้ชั่ง', value: entry.weigher });
       if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
       const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
       sendLineFlex(
-        `⚖️ บันทึกน้ำหนัก ${d.name}: ${entry.weight} กก. (${formatDateDMY(entry.date)})`,
+        `⚖️ บันทึกน้ำหนัก ${d.name}: ${entry.weight} กก. (${formatDateThai(entry.date)})`,
         buildFlexCard({ title: `⚖️ ${d.name} — น้ำหนัก ${entry.weight} กก.`, rows, tab: 'pets', heroUrl }),
         d.lineGroupId
       );
@@ -1807,7 +1827,7 @@ export default function App() {
     if (d && d.lineGroupId) {
       const rows = [];
       const row = (label, value) => { if (value) rows.push({ label, value: String(value) }); };
-      row('เริ่มวันที่', entry.startDate ? formatDateDMY(entry.startDate) : null);
+      row('เริ่มวันที่', entry.startDate ? formatDateThai(entry.startDate) : null);
       row('รูปแบบ', entry.form);
       row('ความแรง', entry.strength);
       row('ขนาดที่ให้', entry.dose);
@@ -1836,12 +1856,12 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { fleaTickHistory: [{ id: uid(), ...entry }, ...(d.fleaTickHistory || [])], fleaTick: { ...d.fleaTick, lastGivenDate: entry.date } });
     if (d && d.lineGroupId) {
-      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      const rows = [{ label: 'วันที่', value: formatDateThai(entry.date) }];
       if (d.fleaTick && d.fleaTick.productName) rows.push({ label: 'ผลิตภัณฑ์', value: d.fleaTick.productName });
       if (entry.doseGiven) rows.push({ label: 'ปริมาณที่ให้', value: String(entry.doseGiven) });
       if (entry.cost) rows.push({ label: 'ค่าใช้จ่าย', value: `฿${fmt(entry.cost)}` });
       sendLineFlex(
-        `🐛 บันทึกยาเห็บหมัด ${d.name} (${formatDateDMY(entry.date)})`,
+        `🐛 บันทึกยาเห็บหมัด ${d.name} (${formatDateThai(entry.date)})`,
         buildFlexCard({ title: `🐛 ${d.name} — ยาเห็บหมัด`, rows, tab: 'pets' }),
         d.lineGroupId
       );
@@ -1880,12 +1900,12 @@ export default function App() {
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'appointments', id, { appointments: [{ id, ...entry }, ...(d.appointments || [])] }));
     if (d && d.lineGroupId) {
-      const rows = [{ label: 'วันที่', value: `${formatDateDMY(entry.date)}${entry.time ? ' ' + entry.time + ' น.' : ''}` }];
+      const rows = [{ label: 'วันที่', value: `${formatDateThai(entry.date)}${entry.time ? ' ' + entry.time + ' น.' : ''}` }];
       if (entry.hospital) rows.push({ label: 'โรงพยาบาล', value: entry.hospital });
       if (entry.doctor) rows.push({ label: 'สัตวแพทย์', value: entry.doctor });
       const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
       sendLineFlex(
-        `📅 นัดหมายใหม่ ${d.name}: ${entry.purpose || '-'} (${formatDateDMY(entry.date)})`,
+        `📅 นัดหมายใหม่ ${d.name}: ${entry.purpose || '-'} (${formatDateThai(entry.date)})`,
         buildFlexCard({ title: `📅 ${d.name} — นัดหมายใหม่: ${entry.purpose || '-'}`, rows, tab: 'pets', heroUrl }),
         d.lineGroupId
       );
@@ -1907,12 +1927,12 @@ export default function App() {
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'bloodTests', id, { bloodTests: [{ id, ...entry }, ...(d.bloodTests || [])] }));
     if (d && d.lineGroupId) {
-      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      const rows = [{ label: 'วันที่', value: formatDateThai(entry.date) }];
       if (entry.type) rows.push({ label: 'ประเภท', value: entry.type });
       if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
       const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
       sendLineFlex(
-        `🩸 ผลตรวจเลือดใหม่ ${d.name} (${formatDateDMY(entry.date)})`,
+        `🩸 ผลตรวจเลือดใหม่ ${d.name} (${formatDateThai(entry.date)})`,
         buildFlexCard({ title: `🩸 ${d.name} — ผลตรวจเลือด`, rows, tab: 'pets', heroUrl }),
         d.lineGroupId
       );
@@ -1928,12 +1948,12 @@ export default function App() {
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'organExams', id, { organExams: [{ id, ...entry }, ...(d.organExams || [])] }));
     if (d && d.lineGroupId) {
-      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      const rows = [{ label: 'วันที่', value: formatDateThai(entry.date) }];
       if (entry.organ) rows.push({ label: 'อวัยวะ', value: entry.organ });
       if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
       const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
       sendLineFlex(
-        `🩺 ผลตรวจอวัยวะใหม่ ${d.name}: ${entry.organ || '-'} (${formatDateDMY(entry.date)})`,
+        `🩺 ผลตรวจอวัยวะใหม่ ${d.name}: ${entry.organ || '-'} (${formatDateThai(entry.date)})`,
         buildFlexCard({ title: `🩺 ${d.name} — ผลตรวจอวัยวะ: ${entry.organ || '-'}`, rows, tab: 'pets', heroUrl }),
         d.lineGroupId
       );
@@ -1949,12 +1969,12 @@ export default function App() {
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'imaging', id, { imaging: [{ id, ...entry }, ...(d.imaging || [])] }));
     if (d && d.lineGroupId) {
-      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      const rows = [{ label: 'วันที่', value: formatDateThai(entry.date) }];
       if (entry.type) rows.push({ label: 'ประเภท', value: entry.type });
       if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
       const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
       sendLineFlex(
-        `📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateDMY(entry.date)})`,
+        `📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateThai(entry.date)})`,
         buildFlexCard({ title: `📷 ${d.name} — ผลภาพถ่าย: ${entry.type || '-'}`, rows, tab: 'pets', heroUrl }),
         d.lineGroupId
       );
@@ -1970,7 +1990,7 @@ export default function App() {
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'expenses', id, { expenses: [{ id, ...entry }, ...(d.expenses || [])] }));
     if (d && d.lineGroupId) {
-      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      const rows = [{ label: 'วันที่', value: formatDateThai(entry.date) }];
       if (entry.category) rows.push({ label: 'หมวดหมู่', value: entry.category });
       if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
       const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
@@ -2000,7 +2020,7 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, { vetVisits: [{ id, linkedRecords: [], ...entry }, ...(d.vetVisits || [])] });
-    if (d && d.lineGroupId) sendLineNotify(`🏥 บันทึกไปหาหมอ ${d.name}: ${entry.reason || '-'} (${formatDateDMY(entry.date)})${entry.hospital ? `\nที่: ${entry.hospital}` : ''}`, d.lineGroupId);
+    if (d && d.lineGroupId) sendLineNotify(`🏥 บันทึกไปหาหมอ ${d.name}: ${entry.reason || '-'} (${formatDateThai(entry.date)})${entry.hospital ? `\nที่: ${entry.hospital}` : ''}`, d.lineGroupId);
     return id;
   }
   function updateVetVisit(dogId, visitId, patch) {
@@ -6357,7 +6377,7 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
               {it.dogPhoto ? <img src={it.dogPhoto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" /> : <div style={{ background: PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"><Dog size={16} color={SLATE} /></div>}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold" style={{ color: INK }}>{PET_EVENT_ICONS[it.type]} {it.dogName} — {it.label}</p>
-                <p className="text-xs" style={{ color: isFuture ? GOOD : SLATE }}>{formatDateDMY(it.date)} {it.time || ''}{isFuture ? ` (อีก ${d_} วัน)` : ''}{it.sub ? ` · ${it.sub}` : ''}</p>
+                <p className="text-xs" style={{ color: isFuture ? GOOD : SLATE }}>{formatDateThai(it.date)} {it.time || ''}{isFuture ? ` (อีก ${d_} วัน)` : ''}{it.sub ? ` · ${it.sub}` : ''}</p>
               </div>
               <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
             </button>
@@ -7930,19 +7950,19 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
         <p className="text-sm mb-1">แพ้ยา: {dog.drugAllergies || 'ไม่มี'}</p>
         <p className="text-sm mb-1">ยาที่กำลังกิน: {activeMeds.length > 0 ? activeMeds.map((m) => m.name).join(', ') : 'ไม่มี'}</p>
         <button onClick={() => setSection && setSection('vetvisits')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">ไปหาหมอล่าสุด: {lastVetVisit ? `${formatDateDMY(lastVetVisit.date)} - ${lastVetVisit.reason || '-'}` : 'ยังไม่มีบันทึก'}</span>
+          <span className="text-sm">ไปหาหมอล่าสุด: {lastVetVisit ? `${formatDateThai(lastVetVisit.date)} - ${lastVetVisit.reason || '-'}` : 'ยังไม่มีบันทึก'}</span>
           <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
         </button>
         <button onClick={() => setSection && setSection('appt')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">นัดถัดไป: {nextAppt ? `${formatDateDMY(nextAppt.date)} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</span>
+          <span className="text-sm">นัดถัดไป: {nextAppt ? `${formatDateThai(nextAppt.date)} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</span>
           <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
         </button>
         <button onClick={() => setSection && setSection('flea')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue ? formatDateDMY(nextFleaDue) : 'ยังไม่ได้ตั้งค่า'}</span>
+          <span className="text-sm">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue ? formatDateThai(nextFleaDue) : 'ยังไม่ได้ตั้งค่า'}</span>
           <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
         </button>
         <button onClick={() => setSection && setSection('insurance')} className="flex items-center justify-between w-full text-left" style={{ background: 'transparent' }}>
-          <span className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate ? formatDateDMY(dog.insurance.endDate) : 'ไม่มี'}</span>
+          <span className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate ? formatDateThai(dog.insurance.endDate) : 'ไม่มี'}</span>
           <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
         </button>
       </Card>
@@ -7965,7 +7985,7 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
               <div className="flex justify-between items-center text-sm">
                 <span className="font-semibold">{r.label}</span>
                 <span className="flex items-center gap-1">
-                  <span style={{ color: r.item ? INK : SLATE }}>{r.item ? formatDateDMY(r.item.date) : 'ยังไม่เคยตรวจ'}</span>
+                  <span style={{ color: r.item ? INK : SLATE }}>{r.item ? formatDateThai(r.item.date) : 'ยังไม่เคยตรวจ'}</span>
                   <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
                 </span>
               </div>
@@ -8028,7 +8048,7 @@ function DogLatestChecksSummary({ dog, setSection }) {
       {rows.map(([label, date], i) => (
         <button key={label} onClick={() => setSection && setSection('records')} className="w-full flex justify-between items-center py-2 text-left" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', background: 'transparent' }}>
           <span className="text-sm" style={{ color: INK }}>{label}</span>
-          <span className="text-xs" style={{ color: SLATE }}>{formatDateDMY(date)}</span>
+          <span className="text-xs" style={{ color: SLATE }}>{formatDateThai(date)}</span>
         </button>
       ))}
     </Card>
@@ -8056,7 +8076,7 @@ function DogHealthTimeline({ dog, setSection }) {
               {i < groupsByYear[y].length - 1 && <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 14 }} />}
             </div>
             <div className="pb-3.5">
-              <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(it.date)}</p>
+              <p className="text-[11px]" style={{ color: SLATE }}>{formatDateThai(it.date)}</p>
               <p className="text-sm font-semibold" style={{ color: INK }}>{it.label}</p>
             </div>
           </button>
@@ -8765,7 +8785,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
     if (result.ok) onUpdateAppointment(dog.id, a.id, { calendarSynced: true, calendarEventId: result.eventId });
     setSyncingId(null);
   }
-  const appts = [...(dog.appointments || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const appts = [...(dog.appointments || [])]; // เรียงแบบเดียวกับรายการอื่นๆ ของลูกๆ ทั้งหมด — อันที่เพิ่มล่าสุดอยู่บนสุดเสมอ (ไม่เรียงตามวันนัดอีกต่อไป)
   return (
     <div>
       {!googleConnected && <Card><p className="text-xs" style={{ color: SLATE }}>ยังไม่ได้เชื่อมต่อ Google Calendar — ไปที่ไอคอนตั้งค่า ⚙️ ที่หน้าภาพรวมเพื่อเชื่อมต่อก่อน จะได้กดเพิ่มนัดลงปฏิทินได้</p></Card>}
@@ -8819,7 +8839,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
         return (
           <Card key={a.id}>
             <div className="flex justify-between items-center">
-              <div><p className="text-sm">{a.hospital} · {a.purpose}</p><p className="text-xs" style={{ color: d < 0 ? SLATE : GOOD }}>{formatDateDMY(a.date)} {a.time} {d >= 0 && `(อีก ${d} วัน)`}</p></div>
+              <div><p className="text-sm">{a.hospital} · {a.purpose}</p><p className="text-xs" style={{ color: d < 0 ? SLATE : GOOD }}>{formatDateThai(a.date)} {a.time} {d >= 0 && `(อีก ${d} วัน)`}</p></div>
               <div className="flex items-center gap-2">
                 <button onClick={async () => {
                   const photoUrls = a.photos ? a.photos.map((p) => p.url) : [];
@@ -9333,7 +9353,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
           <Card>
             <div className="flex justify-between items-center">
               <div>
-                <p className="text-sm font-semibold" style={{ color: INK }}>{formatDateDMY(v.date)} · {v.hospital || 'ไม่ระบุโรงพยาบาล'}</p>
+                <p className="text-sm font-semibold" style={{ color: INK }}>{formatDateThai(v.date)} · {v.hospital || 'ไม่ระบุโรงพยาบาล'}</p>
                 <p className="text-xs" style={{ color: SLATE }}>{v.reason || 'ไม่ได้ระบุเหตุผล'}{v.cost ? ` · ฿${fmt(v.cost)}` : ''}</p>
                 {(v.linkedRecords || []).length > 0 && <p className="text-[11px] mt-1" style={{ color: BRASS }}>🔗 เชื่อมโยงไว้ {v.linkedRecords.length} รายการ</p>}
               </div>
