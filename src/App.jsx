@@ -8754,8 +8754,8 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
         <input value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>เตือนล่วงหน้ากี่วัน (เลือกได้หลายอัน)</label>
         <div className="flex gap-2 mt-1 mb-3">
-          {[1, 2, 3, 7].map((d) => (
-            <button key={d} type="button" onClick={() => toggleReminderDay(d)} style={{ background: (form.reminderDays || []).includes(d) ? BRASS : PAPER_DIM, color: (form.reminderDays || []).includes(d) ? 'white' : SLATE }} className="rounded-full px-3 py-1.5 text-xs">{d} วัน</button>
+          {[0, 1, 2, 3, 7].map((d) => (
+            <button key={d} type="button" onClick={() => toggleReminderDay(d)} style={{ background: (form.reminderDays || []).includes(d) ? BRASS : PAPER_DIM, color: (form.reminderDays || []).includes(d) ? 'white' : SLATE }} className="rounded-full px-3 py-1.5 text-xs">{d === 0 ? 'วันนี้' : `${d} วัน`}</button>
           ))}
         </div>
         <button onClick={submit} disabled={saving} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">{saving && <Loader2 size={14} className="animate-spin" />} เพิ่มนัดหมาย</button>
@@ -8801,6 +8801,14 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
                 {syncingId === a.id ? <Loader2 size={12} className="animate-spin" /> : <Calendar size={12} />} {a.calendarSynced ? 'เพิ่มลง Google Calendar อีกครั้ง' : 'เพิ่มลง Google Calendar'}
               </button>
             )}
+            <div className="mt-2">
+              <p className="text-[10px]" style={{ color: SLATE }}>แจ้งเตือน LINE ล่วงหน้า</p>
+              <div className="flex gap-1.5 mt-1">
+                {[0, 1, 2, 3, 7].map((d) => (
+                  <button key={d} onClick={() => onUpdateAppointment(dog.id, a.id, { reminderDays: (a.reminderDays || [7, 3, 1]).includes(d) ? (a.reminderDays || [7, 3, 1]).filter((x) => x !== d) : [...(a.reminderDays || [7, 3, 1]), d].sort((x, y) => y - x) })} style={{ background: (a.reminderDays || [7, 3, 1]).includes(d) ? BRASS : PAPER_DIM, color: (a.reminderDays || [7, 3, 1]).includes(d) ? 'white' : SLATE }} className="rounded-full px-2.5 py-1 text-[10px]">{d === 0 ? 'วันนี้' : `${d} วัน`}</button>
+                ))}
+              </div>
+            </div>
             {result ? (result.ok ? <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินสำเร็จ ✓</p> : <p className="text-[11px] mt-1" style={{ color: BAD }}>ไม่สำเร็จ: {result.message}</p>) : (a.calendarSynced && <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินไว้แล้ว ✓</p>)}
             {onAddMedicalPhoto && <MedicalPhotoAttach record={a} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'appointments', a.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'appointments', a.id, pid)} />}
           </Card>
