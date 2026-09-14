@@ -3254,6 +3254,19 @@ async function scanMedicalResult(file, kind) {
   return safeParseJson(text);
 }
 
+// อ่านใบรายงานผลตรวจเลือดจากโรงพยาบาลสัตว์ (แบบตารางทางการ เช่น Hematology/CBC, Chemistry, Special Test — อาจมีหลายหมวดในใบเดียว)
+// ต่างจาก scanMedicalResult ตรงที่คืนค่าเป็น "หลายแถว" (1 แถวต่อ 1 หมวดที่เจอในภาพ) ให้ตรงกับฟอร์ม "ผลเลือด" ที่เพิ่มได้หลายรายการ
+async function scanBloodTestReport(file) {
+  const base64 = await readFileAsBase64(file);
+  const prompt = `นี่คือภาพใบรายงานผลตรวจเลือดของสัตว์เลี้ยงจากโรงพยาบาลสัตว์ (มักเป็นตารางทางการ มีคอลัมน์ Code/Parameter/Value/Unit/Reference/Flag) อาจมีหลายหมวดในใบเดียวกัน เช่น Hematology (CBC), Chemistry, Special Test — อ่านทุกหมวดที่เห็นในภาพ แยกเป็น 1 รายการต่อ 1 หมวด
+สำหรับแต่ละหมวด สรุปผลเป็นข้อความสั้นๆ อ่านง่าย เน้นค่าที่ผิดปกติ (คอลัมน์ Flag เป็น H หรือ L) ขึ้นก่อนพร้อมระบุว่าสูง/ต่ำกว่าเกณฑ์ปกติ ตามด้วยค่าสำคัญอื่นๆ ถ้ามีค่าเยอะมากไม่ต้องเขียนครบทุกตัว เอาเฉพาะที่มีนัยสำคัญพอ
+ประเภทหมวดที่ใกล้เคียงจากรายการนี้ถ้ามี: ${BLOOD_TEST_TYPES.join(', ')} — ถ้าหมวดที่เจอไม่ตรงกับรายการนี้เลย (เช่น "Chemistry" หรือ "Special Test") ให้ตอบชื่อหมวดตามที่เห็นในภาพได้เลย ไม่ต้องฝืนเลือกจากรายการ
+ตอบเป็น JSON array เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ: [{"type": "ชื่อหมวด", "date": "YYYY-MM-DD ถ้ามีวันที่ส่งตรวจระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ"}]`;
+  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const parsed = safeParseJson(text);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
 
 async function parseExpenseText(transcript, categories, cardNames) {
   const cardHint = (cardNames && cardNames.length > 0) ? `\nรายชื่อบัตรเครดิตที่ผู้ใช้มี: ${cardNames.join(', ')} — ถ้าคำพูดมีการเอ่ยถึงชื่อบัตร/ธนาคารที่ตรงหรือใกล้เคียงกับรายชื่อนี้ ให้ระบุกลับมาด้วย` : '';
@@ -8996,6 +9009,40 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
     if (rows.length === 0) { toggleSection(key); } else { setSectionData((prev) => ({ ...prev, [key]: rows })); }
   }
 
+  // ถ่ายรูปใบผลเลือด ให้ AI อ่านแล้วกรอกให้อัตโนมัติ — อ่านได้หลายหมวด (CBC/Chemistry/Special Test ฯลฯ) จากภาพเดียว
+  const bloodScanFileRef = useRef(null);
+  const [bloodScanning, setBloodScanning] = useState(false);
+  const [bloodScanError, setBloodScanError] = useState('');
+  async function handleBloodTestScan(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setBloodScanning(true); setBloodScanError('');
+    try {
+      const results = await scanBloodTestReport(file);
+      const validResults = (results || []).filter((r) => r && (r.type || r.note));
+      if (validResults.length === 0) { setBloodScanError('อ่านผลตรวจจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้ หรือกรอกเองแทน'); return; }
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'bloodTests', file); } catch (e) { /* บันทึกผลตรวจต่อได้แม้แนบรูปไม่สำเร็จ */ } }
+      const newRows = validResults.map((r, i) => ({
+        type: r.type || BLOOD_TEST_TYPES[0],
+        date: r.date || form.date,
+        note: r.note || '',
+        ...(photo && i === 0 ? { photos: [photo] } : {}),
+      }));
+      if (!activeSections.includes('bloodTest')) setActiveSections((prev) => [...prev, 'bloodTest']);
+      setSectionData((prev) => {
+        const existing = prev.bloodTest || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, bloodTest: isEmptyPlaceholder ? newRows : [...existing, ...newRows] };
+      });
+    } catch (err) {
+      setBloodScanError('อ่านภาพไม่สำเร็จ: ' + err.message);
+    } finally {
+      setBloodScanning(false);
+      if (bloodScanFileRef.current) bloodScanFileRef.current.value = '';
+    }
+  }
+
   async function submitAll() {
     if (!form.date) return;
     setSubmitting(true);
@@ -9255,11 +9302,17 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
           {activeSections.includes('bloodTest') && (
             <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
               <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>🩸 ผลเลือด</span><button onClick={() => toggleSection('bloodTest')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              <input ref={bloodScanFileRef} type="file" accept="image/*" onChange={handleBloodTestScan} className="hidden" />
+              <button type="button" onClick={() => bloodScanFileRef.current && bloodScanFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                {bloodScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {bloodScanning ? 'กำลังอ่านใบผลเลือด...' : 'ถ่ายรูปใบผลเลือด ให้ AI อ่านและกรอกให้'}
+              </button>
+              {bloodScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{bloodScanError}</p>}
               {(sectionData.bloodTest || []).map((row, idx) => (
                 <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                   <div className="flex justify-between items-center mb-1">{(sectionData.bloodTest || []).length > 1 && <button onClick={() => removeRowFromSection('bloodTest', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
                   <TypeSelectWithCustom options={bloodTestTypeList} value={row.type} onChange={(v) => updateRowInSection('bloodTest', idx, { type: v })} onAddToList={onAddBloodTestType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                   <textarea value={row.note} onChange={(e) => updateRowInSection('bloodTest', idx, { note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                  {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
                 </div>
               ))}
               <div className="grid grid-cols-2 gap-2 mt-2">
@@ -9437,6 +9490,41 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
     onUpdateVetVisit(dog.id, visit.id, { photos: (visit.photos || []).filter((p) => p.id !== photoId) });
   }
 
+  // ถ่ายรูปใบผลเลือด (Hematology/Chemistry/Special Test ฯลฯ) ให้ AI อ่านแล้วกรอกให้อัตโนมัติ — อ่านได้หลายหมวดจากภาพเดียว
+  const bloodScanFileRef = useRef(null);
+  const [bloodScanning, setBloodScanning] = useState(false);
+  const [bloodScanError, setBloodScanError] = useState('');
+  async function handleBloodTestScan(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setBloodScanning(true); setBloodScanError('');
+    try {
+      const results = await scanBloodTestReport(file);
+      const validResults = (results || []).filter((r) => r && (r.type || r.note));
+      if (validResults.length === 0) { setBloodScanError('อ่านผลตรวจจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้ หรือกรอกเองแทน'); return; }
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'bloodTests', file); } catch (e) { /* บันทึกผลตรวจต่อได้แม้แนบรูปไม่สำเร็จ */ } }
+      const newRows = validResults.map((r, i) => ({
+        type: r.type || BLOOD_TEST_TYPES[0],
+        date: r.date || visit.date,
+        note: r.note || '',
+        ...(photo && i === 0 ? { photos: [photo] } : {}),
+      }));
+      if (!procSections.includes('bloodTest')) setProcSections((prev) => [...prev, 'bloodTest']);
+      setProcData((prev) => {
+        // ถ้ามีแถวเปล่าอยู่ก่อน (ยังไม่ได้กรอกอะไรเลย) แทนที่ด้วยผลที่อ่านได้ ไม่งั้นต่อท้ายรายการเดิม
+        const existing = prev.bloodTest || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, bloodTest: isEmptyPlaceholder ? newRows : [...existing, ...newRows] };
+      });
+    } catch (err) {
+      setBloodScanError('อ่านภาพไม่สำเร็จ: ' + err.message);
+    } finally {
+      setBloodScanning(false);
+      if (bloodScanFileRef.current) bloodScanFileRef.current.value = '';
+    }
+  }
+
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูทุกครั้ง</button>
@@ -9557,10 +9645,17 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
             {procSections.includes('bloodTest') && (
               <div style={{ border: `1px solid ${BORDER}` }} className="rounded-xl p-2.5 mb-2">
                 <p className="text-[11px] font-bold mb-1.5" style={{ color: BRASS }}>🩸 ผลเลือด</p>
+                <input ref={bloodScanFileRef} type="file" accept="image/*" onChange={handleBloodTestScan} className="hidden" />
+                <button type="button" onClick={() => bloodScanFileRef.current && bloodScanFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                  {bloodScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {bloodScanning ? 'กำลังอ่านใบผลเลือด...' : 'ถ่ายรูปใบผลเลือด ให้ AI อ่านและกรอกให้'}
+                </button>
+                {bloodScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{bloodScanError}</p>}
+                <p className="text-[10px] mb-2" style={{ color: SLATE }}>AI จะแยกเป็นรายการต่อ 1 หมวด (เช่น CBC, Chemistry) และแนบรูปใบผลตรวจไว้ให้อัตโนมัติ — ตรวจสอบข้อความที่กรอกให้ก่อนบันทึกเสมอ</p>
                 {(procData.bloodTest || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <TypeSelectWithCustom options={bloodTestTypeList} value={row.type} onChange={(v) => updateProcRow('bloodTest', idx, { type: v })} onAddToList={onAddBloodTestType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <textarea value={row.note} onChange={(e) => updateProcRow('bloodTest', idx, { note: e.target.value })} placeholder="ผลตรวจ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                    {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
                   </div>
                 ))}
                 <button onClick={() => addProcRow('bloodTest')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มอีกรายการ</button>
