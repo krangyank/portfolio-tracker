@@ -2426,7 +2426,7 @@ function EditButton({ onClick }) {
 function buildVetVisitShareText(dog, visit) {
   const lines = [];
   lines.push(`🐶 ${dog.name} — ไปหาหมอ`);
-  lines.push(`📅 วันที่: ${visit.date}`);
+  lines.push(`📅 วันที่: ${formatDateThai(visit.date)}`);
   if (visit.hospital) lines.push(`🏥 โรงพยาบาล: ${visit.hospital}`);
   if (visit.department) lines.push(`🚪 แผนก: ${visit.department}`);
   if (visit.doctor) lines.push(`👨‍⚕️ สัตวแพทย์: ${visit.doctor}`);
@@ -8277,7 +8277,7 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, ho
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติ</p>
       {[...weights].reverse().map((w) => (
         <Card key={w.id}>
-          <div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}{w.weigher && ` · ${w.weigher}`}</p><p className="text-xs" style={{ color: SLATE }}>{w.date} {w.time}</p></div><div className="flex items-center gap-2"><EditButton onClick={() => setEditingWeight(w)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveWeight(dog.id, w.id))}><Trash2 size={14} color={BAD} /></button></div></div>
+          <div className="flex justify-between items-center"><div><p className="text-sm">{w.weight} กก. {w.location && `· ${w.location}`}{w.weigher && ` · ${w.weigher}`}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateThai(w.date)} {w.time}</p></div><div className="flex items-center gap-2"><EditButton onClick={() => setEditingWeight(w)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveWeight(dog.id, w.id))}><Trash2 size={14} color={BAD} /></button></div></div>
           {onAddMedicalPhoto && <MedicalPhotoAttach record={w} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'weights', w.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'weights', w.id, pid)} />}
         </Card>
       ))}
@@ -8576,7 +8576,7 @@ function parseFraction(s) {
       {(dog.fleaTickHistory || []).map((h) => (
         <Card key={h.id}>
           <div className="flex justify-between items-center text-sm">
-            <span>{h.date} · {h.doseGiven}</span>
+            <span>{formatDateThai(h.date)} · {h.doseGiven}</span>
             <div className="flex items-center gap-2">
               <span>{h.cost ? `฿${fmt(h.cost)}` : ''}</span>
               <EditButton onClick={() => setEditingHistory(h)} />
@@ -8720,7 +8720,7 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
       {(ins.claims || []).map((c) => (
         <Card key={c.id}>
           <div className="flex justify-between items-center text-sm">
-            <div><span>{c.date} · {c.reason}</span><p className="text-[10px]" style={{ color: SLATE }}>ค่ารักษาจริง ฿{fmt(c.actualCost ?? c.amount ?? 0)}</p></div>
+            <div><span>{formatDateThai(c.date)} · {c.reason}</span><p className="text-[10px]" style={{ color: SLATE }}>ค่ารักษาจริง ฿{fmt(c.actualCost ?? c.amount ?? 0)}</p></div>
             <div className="flex items-center gap-2"><span style={{ color: GOOD }}>เบิกได้ ฿{fmt(c.reimbursedAmount ?? c.amount ?? 0)}</span><EditButton onClick={() => setEditingClaim(c)} /></div>
           </div>
         </Card>
@@ -8921,13 +8921,13 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
 }
 
 const VET_RECORD_TYPES = [
-  { type: 'appointments', label: 'นัดหมาย', getLabel: (r) => `${r.date}${r.hospital ? ' · ' + r.hospital : ''}${r.purpose ? ' · ' + r.purpose : ''}`, getDetail: (r) => r.note || r.diagnosis || null },
-  { type: 'weights', label: 'น้ำหนัก', getLabel: (r) => `${r.date} · ${r.weight} กก.`, getDetail: (r) => r.note || null },
-  { type: 'bloodTests', label: 'ผลเลือด', getLabel: (r) => `${r.date} · ${r.type || 'ผลเลือด'}`, getDetail: (r) => r.note || null },
-  { type: 'organExams', label: 'ตรวจอวัยวะ', getLabel: (r) => `${r.date} · ${r.organ || 'อวัยวะ'}`, getDetail: (r) => r.note || null },
-  { type: 'imaging', label: 'Imaging', getLabel: (r) => `${r.date} · ${r.type || 'Imaging'}`, getDetail: (r) => r.note || null },
-  { type: 'medications', label: 'ยา', getLabel: (r) => `${r.startDate || r.date || ''} · ${r.name || 'ยา'}`, getDetail: (r) => [r.strength, r.dose, r.usage, r.timing].filter(Boolean).join(' · ') || null },
-  { type: 'expenses', label: 'ค่าใช้จ่าย', getLabel: (r) => `${r.date} · ${r.category || ''}${r.hospital ? ' · ' + r.hospital : ''} · ฿${fmt(r.amount)}`, getDetail: (r) => r.note || null },
+  { type: 'appointments', label: 'นัดหมาย', getLabel: (r) => `${formatDateThai(r.date)}${r.hospital ? ' · ' + r.hospital : ''}${r.purpose ? ' · ' + r.purpose : ''}`, getDetail: (r) => r.note || r.diagnosis || null },
+  { type: 'weights', label: 'น้ำหนัก', getLabel: (r) => `${formatDateThai(r.date)} · ${r.weight} กก.`, getDetail: (r) => r.note || null },
+  { type: 'bloodTests', label: 'ผลเลือด', getLabel: (r) => `${formatDateThai(r.date)} · ${r.type || 'ผลเลือด'}`, getDetail: (r) => r.note || null },
+  { type: 'organExams', label: 'ตรวจอวัยวะ', getLabel: (r) => `${formatDateThai(r.date)} · ${r.organ || 'อวัยวะ'}`, getDetail: (r) => r.note || null },
+  { type: 'imaging', label: 'Imaging', getLabel: (r) => `${formatDateThai(r.date)} · ${r.type || 'Imaging'}`, getDetail: (r) => r.note || null },
+  { type: 'medications', label: 'ยา', getLabel: (r) => `${formatDateThai(r.startDate || r.date || '')} · ${r.name || 'ยา'}`, getDetail: (r) => [r.strength, r.dose, r.usage, r.timing].filter(Boolean).join(' · ') || null },
+  { type: 'expenses', label: 'ค่าใช้จ่าย', getLabel: (r) => `${formatDateThai(r.date)} · ${r.category || ''}${r.hospital ? ' · ' + r.hospital : ''} · ฿${fmt(r.amount)}`, getDetail: (r) => r.note || null },
 ];
 
 // เลือกรูปหลายรูปเก็บไว้ในเครื่องก่อน (ยังไม่อัพโหลด เพราะตัว "ครั้งที่ไปหาหมอ" ยังไม่ถูกสร้างจนกว่าจะกดบันทึกทั้งหมด)
@@ -9534,7 +9534,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
       <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูทุกครั้ง</button>
       <Card>
         <div className="flex justify-between items-center mb-2">
-          <p className="text-base font-bold" style={{ color: INK }}>{visit.date}</p>
+          <p className="text-base font-bold" style={{ color: INK }}>{formatDateThai(visit.date)}</p>
           <div className="flex items-center gap-3">
             <button onClick={async () => {
               const allPhotoUrls = [...(visit.photos || []).map((p) => p.url)];
@@ -9832,7 +9832,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
           {[...(dog.bloodTests || [])].reverse().map((r) => (
             <Card key={r.id}>
               <div className="flex justify-between items-start">
-                <div><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
+                <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
                 <EditButton onClick={() => setEditingBt(r)} />
               </div>
               <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'bloodTests', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'bloodTests', r.id, pid)} />
@@ -9852,7 +9852,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
           {[...(dog.organExams || [])].reverse().map((r) => (
             <Card key={r.id}>
               <div className="flex justify-between items-start">
-                <div><p className="text-sm font-semibold">{r.organ} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
+                <div><p className="text-sm font-semibold">{r.organ} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
                 <EditButton onClick={() => setEditingOe(r)} />
               </div>
               <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'organExams', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'organExams', r.id, pid)} />
@@ -9891,7 +9891,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
           {[...(dog.imaging || [])].reverse().map((r) => (
             <Card key={r.id}>
               <div className="flex justify-between items-start">
-                <div><p className="text-sm font-semibold">{r.type} · {r.date}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
+                <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
                 <EditButton onClick={() => setEditingIm(r)} />
               </div>
               <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'imaging', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'imaging', r.id, pid)} />
@@ -10076,7 +10076,7 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
         {periods.length > 0 ? <select value={selPeriod} onChange={(e) => setSelPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }}>{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
         {selPeriod && <p className="text-xl">รวม ฿{fmt(periodTotal)}</p>}
       </Card>
-      {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{e.date}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveDogExpense(dog.id, e.id))}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
+      {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateThai(e.date)}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveDogExpense(dog.id, e.id))}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
       {editingExp && (
         <EditModal title="แก้ไขค่าใช้จ่าย" onClose={() => setEditingExp(null)}
           initialValues={{ date: editingExp.date, amount: editingExp.amount, category: editingExp.category, hospital: editingExp.hospital || '', note: editingExp.note || '' }}
