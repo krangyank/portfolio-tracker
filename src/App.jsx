@@ -658,6 +658,7 @@ export default function App() {
     try {
       const startDateTime = `${appt.date}T${appt.time || '09:00'}:00`;
       const start = new Date(startDateTime);
+      if (isNaN(start.getTime())) return { ok: false, message: `รูปแบบเวลานัดไม่ถูกต้อง ("${appt.time}") กรุณาแก้ช่องเวลาในฟอร์มนัดหมายก่อน (ต้องเป็นเวลาเดียว เช่น 08:30 ไม่ใช่ช่วงเวลา)` };
       const end = new Date(start.getTime() + 60 * 60 * 1000);
       const pad = (n) => String(n).padStart(2, '0');
       const endDateTime = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}:00`;
@@ -8778,10 +8779,13 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
     try {
       const result = await scanAppointmentSlip(file);
       if (!result) { setScanSlipError('อ่านใบนัดไม่สำเร็จ ลองภาพที่ชัดกว่านี้ หรือกรอกเองแทน'); return; }
+      // ใบนัดบางใบมีแค่ "เวลาทำการ" เป็นช่วงยาว (เช่น 08:30-19:30) ไม่ใช่เวลานัดจริง — รับเฉพาะรูปแบบ HH:MM เดี่ยวๆ เท่านั้น
+      // ไม่งั้นพอเอาไปสร้าง Google Calendar event จะได้ค่าเวลาที่ผิดรูปแบบ ทำให้ยิง API ไม่สำเร็จ (Bad Request)
+      const scannedTime = /^\d{1,2}:\d{2}$/.test((result.time || '').trim()) ? result.time.trim() : '';
       setForm({
         ...form,
         date: result.date || form.date,
-        time: result.time || form.time,
+        time: scannedTime || form.time,
         hospital: result.hospital || form.hospital,
         doctor: result.doctor || form.doctor,
         purpose: result.purpose || result.note || form.purpose,
