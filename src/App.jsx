@@ -1944,6 +1944,10 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { bloodTests: (d.bloodTests || []).map((b) => (b.id === id ? { ...b, ...patch } : b)) });
   }
+  function removeBloodTest(dogId, id) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { bloodTests: (d.bloodTests || []).filter((b) => b.id !== id) });
+  }
   function addOrganExam(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
@@ -1965,6 +1969,10 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { organExams: (d.organExams || []).map((o) => (o.id === id ? { ...o, ...patch } : o)) });
   }
+  function removeOrganExam(dogId, id) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { organExams: (d.organExams || []).filter((o) => o.id !== id) });
+  }
   function addImaging(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
@@ -1985,6 +1993,10 @@ export default function App() {
   function updateImaging(dogId, id, patch) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { imaging: (d.imaging || []).map((im) => (im.id === id ? { ...im, ...patch } : im)) });
+  }
+  function removeImaging(dogId, id) {
+    const d = dogs.find((x) => x.id === dogId);
+    updateDog(dogId, { imaging: (d.imaging || []).filter((im) => im.id !== id) });
   }
   function addDogExpense(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
@@ -2208,7 +2220,7 @@ export default function App() {
         <PetsTab dogs={dogs} onUpdateDog={updateDog} onCopyToMultipleDogs={copyToMultipleDogs} onAddWeight={addWeight} onRemoveWeight={removeWeight} onUpdateWeight={updateWeight}
           onAddMedication={addMedication} onUpdateMedication={updateMedication} onRemoveMedication={removeMedication} onLogFleaTick={logFleaTick} onRemoveFleaTickHistory={removeFleaTickHistory} onUpdateFleaTickHistory={updateFleaTickHistory} onUpdateFleaTickInfo={updateFleaTickInfo}
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
-          onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
+          onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onRemoveBloodTest={removeBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onRemoveOrganExam={removeOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onRemoveImaging={removeImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
           googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} doctorList={doctorList} onAddDoctor={addDoctor} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} medicationList={medicationList} onAddMedicationPreset={addMedicationPreset} onAddGenericCalendarEvent={addPropertyEventToCalendar} onAddMedicalPhoto={addMedicalPhoto} onRemoveMedicalPhoto={removeMedicalPhoto} onUploadRecordPhoto={uploadDogRecordPhoto} onAddPersonalExpense={addExpense} expenseCategories={expenseCategories}
           onAddVetVisit={addVetVisit} onUpdateVetVisit={updateVetVisit} onRemoveVetVisit={removeVetVisit} onLinkRecordToVisit={linkRecordToVisit} onUnlinkRecordFromVisit={unlinkRecordFromVisit} onAddInsuranceDocument={addInsuranceDocument} onRemoveInsuranceDocument={removeInsuranceDocument} onCurrentPhotoChange={setHeaderPhotoOverride} onRunHealthInsight={runDogHealthInsight} departmentList={departmentList} onAddDepartment={addDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={setDoctorDepartment} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={addBloodTestType} organTypeList={organTypeList} onAddOrganType={addOrganType} imagingTypeList={imagingTypeList} onAddImagingType={addImagingType} onAddImagingWithOrgans={addImagingWithOrgans} onAddAlbumPhoto={addAlbumPhoto} onRemoveAlbumPhoto={removeAlbumPhoto} />
       )}
@@ -6168,7 +6180,7 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onRemoveMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
+function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onRemoveMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onRemoveBloodTest, onAddOrganExam, onUpdateOrganExam, onRemoveOrganExam, onAddImaging, onUpdateImaging, onRemoveImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
   const [selectedId, setSelectedId] = useState(null); // null = หน้าปฏิทินรวม (ค่าเริ่มต้น) / มีค่า = กำลังดูลูกตัวนั้นอยู่
   const [section, setSection] = useState('overview');
   const dog = selectedId ? dogs.find((d) => d.id === selectedId) : null;
@@ -6278,7 +6290,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} onAddInsuranceDocument={onAddInsuranceDocument} onRemoveInsuranceDocument={onRemoveInsuranceDocument} />}
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
           {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} />}
-          {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddImagingWithOrgans={onAddImagingWithOrgans} />}
+          {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onRemoveBloodTest={onRemoveBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onRemoveOrganExam={onRemoveOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onRemoveImaging={onRemoveImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddImagingWithOrgans={onAddImagingWithOrgans} />}
           {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} />}
           {section === 'album' && <DogAlbumSection dog={dog} onAddAlbumPhoto={onAddAlbumPhoto} onRemoveAlbumPhoto={onRemoveAlbumPhoto} />}
         </>
@@ -9755,7 +9767,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
   );
 }
 
-function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAddOrganExam, onUpdateOrganExam, onAddImaging, onUpdateImaging, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans }) {
+function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRemoveBloodTest, onAddOrganExam, onUpdateOrganExam, onRemoveOrganExam, onAddImaging, onUpdateImaging, onRemoveImaging, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans }) {
   const [subTab, setSubTab] = useState('blood');
   const [bt, setBt] = useState({ type: BLOOD_TEST_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
   const [oe, setOe] = useState({ organ: ORGAN_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
@@ -9833,13 +9845,15 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
             <button onClick={() => submitWithPhoto('bloodTests', bt, btScan, onAddBloodTest, () => setBt({ ...bt, note: '' }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
           </Card>
           {[...(dog.bloodTests || [])].map((r) => (
-            <Card key={r.id}>
-              <div className="flex justify-between items-start">
-                <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
-                <EditButton onClick={() => setEditingBt(r)} />
-              </div>
-              <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'bloodTests', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'bloodTests', r.id, pid)} />
-            </Card>
+            <SwipeToDeleteRow key={r.id} confirmMessage="ลบผลตรวจเลือดรายการนี้? ข้อมูลจะหายถาวร" onDelete={() => onRemoveBloodTest(dog.id, r.id)}>
+              <Card>
+                <div className="flex justify-between items-start">
+                  <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
+                  <EditButton onClick={() => setEditingBt(r)} />
+                </div>
+                <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'bloodTests', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'bloodTests', r.id, pid)} />
+              </Card>
+            </SwipeToDeleteRow>
           ))}
         </>
       )}
@@ -9853,13 +9867,15 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
             <button onClick={() => submitWithPhoto('organExams', oe, oeScan, onAddOrganExam, () => setOe({ ...oe, note: '' }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจอวัยวะ</button>
           </Card>
           {[...(dog.organExams || [])].map((r) => (
-            <Card key={r.id}>
-              <div className="flex justify-between items-start">
-                <div><p className="text-sm font-semibold">{r.organ} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
-                <EditButton onClick={() => setEditingOe(r)} />
-              </div>
-              <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'organExams', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'organExams', r.id, pid)} />
-            </Card>
+            <SwipeToDeleteRow key={r.id} confirmMessage="ลบผลตรวจอวัยวะรายการนี้? ข้อมูลจะหายถาวร" onDelete={() => onRemoveOrganExam(dog.id, r.id)}>
+              <Card>
+                <div className="flex justify-between items-start">
+                  <div><p className="text-sm font-semibold">{r.organ} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
+                  <EditButton onClick={() => setEditingOe(r)} />
+                </div>
+                <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'organExams', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'organExams', r.id, pid)} />
+              </Card>
+            </SwipeToDeleteRow>
           ))}
         </>
       )}
@@ -9892,13 +9908,15 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onAd
             }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผล Imaging</button>
           </Card>
           {[...(dog.imaging || [])].map((r) => (
-            <Card key={r.id}>
-              <div className="flex justify-between items-start">
-                <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
-                <EditButton onClick={() => setEditingIm(r)} />
-              </div>
-              <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'imaging', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'imaging', r.id, pid)} />
-            </Card>
+            <SwipeToDeleteRow key={r.id} confirmMessage="ลบผล Imaging รายการนี้? ข้อมูลจะหายถาวร" onDelete={() => onRemoveImaging(dog.id, r.id)}>
+              <Card>
+                <div className="flex justify-between items-start">
+                  <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
+                  <EditButton onClick={() => setEditingIm(r)} />
+                </div>
+                <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'imaging', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'imaging', r.id, pid)} />
+              </Card>
+            </SwipeToDeleteRow>
           ))}
         </>
       )}
