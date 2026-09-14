@@ -2470,21 +2470,24 @@ function buildAppointmentShareText(dog, appt) {
 // แชร์ข้อความ+รูปผ่านเมนูแชร์ของเครื่อง (รองรับ LINE/Messenger/อีเมล ฯลฯ) ถ้าเครื่องไม่รองรับ fallback ไปเปิด LINE ด้วยข้อความอย่างเดียว
 async function shareContent(text, photoUrls) {
   const result = { ok: false, sharedWithPhotos: false, error: null, requestedPhotoCount: (photoUrls || []).length, attachedPhotoCount: 0, textCopiedToClipboard: false };
-  // คัดลอกข้อความไว้ในคลิปบอร์ดเสมอ เผื่อไว้ก่อน — บางแอปปลายทาง (เช่น LINE) เวลาส่งรูป+ข้อความพร้อมกัน
-  // จะรับแค่รูปแล้วตัดข้อความทิ้งไปเงียบๆ (ข้อจำกัดของแอปปลายทางเอง แก้จากฝั่งเว็บเราไม่ได้ 100%)
-  try { await navigator.clipboard.writeText(text); result.textCopiedToClipboard = true; } catch (e) { console.error('clipboard copy failed', e); }
+  // คัดลอกคลิปบอร์ดแบบไม่รอ (fire-and-forget) — เดิม await ตรงนี้ก่อน แล้วค่อยโหลดรูปทีละใบตามลำดับ (sequential)
+  // กว่าจะถึง navigator.share() จริงๆ เวลาผ่านไปหลายวินาที เบราว์เซอร์เลยไม่นับว่ายังอยู่ใน "user gesture" เดิม
+  // ทำให้ share() พังด้วย error "Must be handling a user gesture" (เจอบ่อยตอนมีรูปหลายใบ/เน็ตช้า)
+  navigator.clipboard.writeText(text).then(() => { result.textCopiedToClipboard = true; }).catch((e) => console.error('clipboard copy failed', e));
   try {
     if (navigator.share) {
       let files = [];
       if (photoUrls && photoUrls.length) {
-        for (const url of photoUrls.slice(0, 8)) {
+        // โหลดรูปทั้งหมดพร้อมกัน (ไม่ใช่ทีละใบ) ให้เสร็จเร็วที่สุด ลดโอกาสหลุดจาก user gesture window
+        const fetched = await Promise.all(photoUrls.slice(0, 8).map(async (url, i) => {
           try {
             const res = await fetch(url);
             if (!res.ok) throw new Error(`โหลดรูปไม่สำเร็จ (${res.status})`);
             const blob = await res.blob();
-            files.push(new File([blob], `photo_${files.length + 1}.jpg`, { type: blob.type || 'image/jpeg' }));
-          } catch (e) { console.error('share: photo fetch failed', url, e); }
-        }
+            return new File([blob], `photo_${i + 1}.jpg`, { type: blob.type || 'image/jpeg' });
+          } catch (e) { console.error('share: photo fetch failed', url, e); return null; }
+        }));
+        files = fetched.filter(Boolean);
       }
       result.attachedPhotoCount = files.length;
       const canShareFiles = files.length > 0 && navigator.canShare && navigator.canShare({ files });
@@ -2503,6 +2506,11 @@ async function shareContent(text, photoUrls) {
     }
   } catch (e) {
     if (e && e.name === 'AbortError') { result.ok = true; /* ผู้ใช้กดยกเลิกเอง ไม่ถือเป็น error */ }
+    else if (e && e.name === 'NotAllowedError') {
+      // หลุดจาก user gesture window (มักเกิดตอนมีรูปหลายใบ/เน็ตช้า) — ลอง fallback เป็นแชร์ข้อความอย่างเดียวทันที
+      // แต่ทำไม่ได้แล้วเพราะ gesture หมดอายุไปแล้วเช่นกัน จึงแจ้งผู้ใช้ให้กดใหม่แทน
+      result.error = 'แชร์ไม่สำเร็จเพราะโหลดรูปนานเกินไป ลองกดแชร์อีกครั้ง (ครั้งนี้รูปน่าจะโหลดเร็วขึ้นเพราะแคชไว้แล้ว) หรือกด "ดาวน์โหลดรูปทั้งหมด" แทน';
+    }
     else { console.error('share failed', e); result.error = e.message || String(e); }
   }
   return result;
