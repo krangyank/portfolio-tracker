@@ -283,7 +283,7 @@ function buildFlexCard({ title, rows, amount, amountColor, note, tab, heroUrl, h
   return bubble;
 }
 // สร้างการ์ด Flex Message สรุปการไปหาหมอ — โครงเดียวกับตัวอย่างที่ทำให้ดูก่อนหน้านี้ (หัวการ์ดเข้ม, แถว label/value, ค่าใช้จ่ายตัวใหญ่, กล่องนัดถัดไปสีเตือน, ปุ่มเปิดแอป)
-function buildVetVisitFlexCard(dogName, form, meds, nextApptDate) {
+function buildVetVisitFlexCard(dogName, form, meds, nextApptDate, heroUrl) {
   const rows = [];
   const row = (label, value) => rows.push({ type: 'box', layout: 'baseline', contents: [
     { type: 'text', text: label, size: 'sm', color: '#767268', flex: 2 },
@@ -323,7 +323,7 @@ function buildVetVisitFlexCard(dogName, form, meds, nextApptDate) {
     { type: 'text', text: 'บันทึกโดย', size: 'xs', color: '#9A958A', flex: 2 },
     { type: 'text', text: currentNotifyUser, size: 'xs', color: '#9A958A', flex: 3, wrap: true, align: 'end' },
   ] });
-  return {
+  const bubble = {
     type: 'bubble',
     header: { type: 'box', layout: 'horizontal', backgroundColor: '#1C2029', paddingAll: 'md', contents: [
       { type: 'text', text: `${dogName} — ไปหาหมอ`, color: '#FFFFFF', weight: 'bold', size: 'md' },
@@ -333,6 +333,8 @@ function buildVetVisitFlexCard(dogName, form, meds, nextApptDate) {
       { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: 'เปิดในแอป', uri: `${APP_URL}/?tab=pets` } },
     ] },
   };
+  if (heroUrl) bubble.hero = { type: 'image', url: heroUrl, size: 'full', aspectRatio: '20:13', aspectMode: 'cover' };
+  return bubble;
 }
 
 
@@ -1877,7 +1879,17 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'appointments', id, { appointments: [{ id, ...entry }, ...(d.appointments || [])] }));
-    if (d && d.lineGroupId) sendLineNotify(`📅 นัดหมายใหม่ ${d.name}: ${entry.purpose || '-'} (${formatDateDMY(entry.date)})`, d.lineGroupId);
+    if (d && d.lineGroupId) {
+      const rows = [{ label: 'วันที่', value: `${formatDateDMY(entry.date)}${entry.time ? ' ' + entry.time + ' น.' : ''}` }];
+      if (entry.hospital) rows.push({ label: 'โรงพยาบาล', value: entry.hospital });
+      if (entry.doctor) rows.push({ label: 'สัตวแพทย์', value: entry.doctor });
+      const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
+      sendLineFlex(
+        `📅 นัดหมายใหม่ ${d.name}: ${entry.purpose || '-'} (${formatDateDMY(entry.date)})`,
+        buildFlexCard({ title: `📅 ${d.name} — นัดหมายใหม่: ${entry.purpose || '-'}`, rows, tab: 'pets', heroUrl }),
+        d.lineGroupId
+      );
+    }
     return id;
   }
   function removeAppointment(dogId, apptId) {
@@ -1894,7 +1906,17 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'bloodTests', id, { bloodTests: [{ id, ...entry }, ...(d.bloodTests || [])] }));
-    if (d && d.lineGroupId) sendLineNotify(`🩸 ผลตรวจเลือดใหม่ ${d.name} (${formatDateDMY(entry.date)})`, d.lineGroupId);
+    if (d && d.lineGroupId) {
+      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      if (entry.type) rows.push({ label: 'ประเภท', value: entry.type });
+      if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
+      const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
+      sendLineFlex(
+        `🩸 ผลตรวจเลือดใหม่ ${d.name} (${formatDateDMY(entry.date)})`,
+        buildFlexCard({ title: `🩸 ${d.name} — ผลตรวจเลือด`, rows, tab: 'pets', heroUrl }),
+        d.lineGroupId
+      );
+    }
     return id;
   }
   function updateBloodTest(dogId, id, patch) {
@@ -1905,7 +1927,17 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'organExams', id, { organExams: [{ id, ...entry }, ...(d.organExams || [])] }));
-    if (d && d.lineGroupId) sendLineNotify(`🩺 ผลตรวจอวัยวะใหม่ ${d.name}: ${entry.organ || '-'} (${formatDateDMY(entry.date)})`, d.lineGroupId);
+    if (d && d.lineGroupId) {
+      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      if (entry.organ) rows.push({ label: 'อวัยวะ', value: entry.organ });
+      if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
+      const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
+      sendLineFlex(
+        `🩺 ผลตรวจอวัยวะใหม่ ${d.name}: ${entry.organ || '-'} (${formatDateDMY(entry.date)})`,
+        buildFlexCard({ title: `🩺 ${d.name} — ผลตรวจอวัยวะ: ${entry.organ || '-'}`, rows, tab: 'pets', heroUrl }),
+        d.lineGroupId
+      );
+    }
     return id;
   }
   function updateOrganExam(dogId, id, patch) {
@@ -1916,7 +1948,17 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'imaging', id, { imaging: [{ id, ...entry }, ...(d.imaging || [])] }));
-    if (d && d.lineGroupId) sendLineNotify(`📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateDMY(entry.date)})`, d.lineGroupId);
+    if (d && d.lineGroupId) {
+      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      if (entry.type) rows.push({ label: 'ประเภท', value: entry.type });
+      if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
+      const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
+      sendLineFlex(
+        `📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateDMY(entry.date)})`,
+        buildFlexCard({ title: `📷 ${d.name} — ผลภาพถ่าย: ${entry.type || '-'}`, rows, tab: 'pets', heroUrl }),
+        d.lineGroupId
+      );
+    }
     return id;
   }
   function updateImaging(dogId, id, patch) {
@@ -1927,7 +1969,17 @@ export default function App() {
     const d = dogs.find((x) => x.id === dogId);
     const id = uid();
     updateDog(dogId, withAutoLinkPatch(d, entry.date, 'expenses', id, { expenses: [{ id, ...entry }, ...(d.expenses || [])] }));
-    if (d && d.lineGroupId) sendLineNotify(`💰 บันทึกค่าใช้จ่าย ${d.name}: ฿${fmt(entry.amount)}${entry.category ? ` (${entry.category})` : ''}`, d.lineGroupId);
+    if (d && d.lineGroupId) {
+      const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }];
+      if (entry.category) rows.push({ label: 'หมวดหมู่', value: entry.category });
+      if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
+      const heroUrl = entry.photos && entry.photos[0] && entry.photos[0].url;
+      sendLineFlex(
+        `💰 บันทึกค่าใช้จ่าย ${d.name}: ฿${fmt(entry.amount)}${entry.category ? ` (${entry.category})` : ''}`,
+        buildFlexCard({ title: `💰 ${d.name} — ค่าใช้จ่าย`, rows, amount: entry.amount, amountColor: BAD, tab: 'pets', heroUrl }),
+        d.lineGroupId
+      );
+    }
     return id;
   }
   function removeDogExpense(dogId, expId) {
@@ -8968,12 +9020,14 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, doctor: form.doctor, department: form.department, reason: form.reason, diagnosis: form.diagnosis, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
       onUpdateDog(dog.id, patch);
       // แจ้งเตือน LINE สรุปรวมทุกอย่างจากการไปหาหมอครั้งนี้ — เป็นการ์ด Flex Message (แสดงเฉพาะช่องที่มีข้อมูล ข้ามช่องว่าง)
+      // แนบรูปเป็น hero image ด้วย ถ้ามีรูปที่แนบไว้ (รูปอาการของครั้งนี้โดยตรงมาก่อน ไม่มีค่อยใช้รูปจากหมวดย่อยแรกที่เจอ)
       {
         const meds = (sectionData.medication || []).filter((m) => m.name).map((m) => `${m.name}${m.dose ? ' ' + m.dose : ''}`);
         const nextAppt = activeSections.includes('appointment') ? sectionData.appointment : null;
         const nextApptDate = nextAppt && nextAppt.date ? nextAppt.date : null;
         const altText = `${dog.name} ไปหาหมอ${form.hospital ? ' ที่ ' + form.hospital : ''}${form.cost ? ' ฿' + fmt(form.cost) : ''}`;
-        sendLineFlex(altText, buildVetVisitFlexCard(dog.name, form, meds, nextApptDate));
+        const heroUrl = (uploadedVisitPhotos[0] && uploadedVisitPhotos[0].url) || (Object.values(uploadedPhotos).find((p) => p && p.url) || {}).url;
+        sendLineFlex(altText, buildVetVisitFlexCard(dog.name, form, meds, nextApptDate, heroUrl));
       }
       // บันทึกยาที่พิมพ์เองใหม่เข้ารายการ "ยาที่เคยใช้" ด้วย เหมือน Tab ยาโดยตรง (แก้บั๊กที่เคยตกหล่นมาก่อน)
       if (activeSections.includes('medication') && onAddMedicationPreset) {
