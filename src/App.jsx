@@ -1449,7 +1449,8 @@ export default function App() {
     updateAccount(accountId, accPatch);
     if (yt.contributionId) removeContribution(yt.contributionId);
   }
-  // แก้ไขรายการถอน YieldTech — คำนวณจำนวนหุ้นที่หักใหม่ตามสัดส่วนเดิม และปรับรายการขาย/เงินเข้า/เงินสดที่ผูกกันไว้ให้ตรงกันด้วย
+  // แก้ไขรายการถอน YieldTech — คำนวณจำนวนหุ้นที่หักใหม่ตามสัดส่วนเดิม, ปรับรายการขายที่ผูกกันไว้,
+  // และจัดการปลายทางเงิน (เก็บเป็นเงินสดในบัญชี ↔ ลงทุนต่อที่บัญชีอื่น ↔ ย้ายไปอีกบัญชี) ให้ตรงกับที่เลือกใหม่เสมอ
   function updateYieldTechHistory(accountId, holdingId, ytId, patch) {
     const acc = accounts.find((a) => a.id === accountId);
     const h = acc.holdings.find((x) => x.id === holdingId);
@@ -1457,6 +1458,7 @@ export default function App() {
     if (!yt) return;
     const nextAmount = patch.amount !== undefined ? Number(patch.amount) : Number(yt.amount || 0);
     const nextDate = patch.date !== undefined ? patch.date : yt.date;
+    const nextReinvestAccountId = patch.reinvestAccountId !== undefined ? (patch.reinvestAccountId || undefined) : yt.reinvestAccountId;
     const ratio = Number(yt.amount || 0) > 0 ? Number(yt.estimatedShares || 0) / Number(yt.amount || 0) : 0;
     const newEstimatedShares = ratio > 0 ? ratio * nextAmount : Number(yt.estimatedShares || 0);
     let shares = Number(h.shares || 0);
@@ -1480,17 +1482,26 @@ export default function App() {
       sells = sells.filter((s) => s.id !== sellId);
       sellId = undefined;
     }
-    const nextHoldings = acc.holdings.map((x) => (x.id === holdingId ? { ...x, shares, sells, yieldTechHistory: (x.yieldTechHistory || []).map((r) => (r.id === ytId ? { ...r, date: nextDate, amount: nextAmount, estimatedShares: newEstimatedShares || undefined, sellId } : r)) } : x));
-    const accPatch = { holdings: nextHoldings };
-    if (yt.addedToCash) {
-      const delta = nextAmount - Number(yt.amount || 0);
-      if (delta !== 0) {
-        if (acc.category === 'dime') accPatch.cashBalanceTHB = Number(acc.cashBalanceTHB || 0) + delta;
-        else accPatch.cashBalance = Number(acc.cashBalance || 0) + delta;
-      }
+    const wasReinvest = !!yt.reinvestAccountId;
+    const willReinvest = !!nextReinvestAccountId;
+    let contributionId = yt.contributionId;
+    // เงินสดในบัญชีเดิม (ตอนนี้) ยังมีผลของรายการนี้ค้างอยู่ถ้า addedToCash เคยเป็นจริง — คำนวณยอดสุดท้ายที่ควรจะเป็นทีเดียว กันบวก/ลบซ้ำ
+    const cashDelta = (yt.addedToCash ? -Number(yt.amount || 0) : 0) + (willReinvest ? 0 : nextAmount);
+    const accPatch = {};
+    if (cashDelta !== 0) {
+      if (acc.category === 'dime') accPatch.cashBalanceTHB = Number(acc.cashBalanceTHB || 0) + cashDelta;
+      else accPatch.cashBalance = Number(acc.cashBalance || 0) + cashDelta;
     }
+    const addedToCash = !willReinvest;
+    const nextHoldings = acc.holdings.map((x) => (x.id === holdingId ? { ...x, shares, sells, yieldTechHistory: (x.yieldTechHistory || []).map((r) => (r.id === ytId ? { ...r, date: nextDate, amount: nextAmount, estimatedShares: newEstimatedShares || undefined, sellId, reinvestAccountId: nextReinvestAccountId, contributionId: willReinvest ? contributionId : undefined, addedToCash: addedToCash || undefined } : r)) } : x) );
+    accPatch.holdings = nextHoldings;
     updateAccount(accountId, accPatch);
-    if (yt.contributionId) updateContribution(yt.contributionId, { date: nextDate, amount: nextAmount });
+    if (willReinvest) {
+      if (wasReinvest && contributionId) updateContribution(contributionId, { date: nextDate, amount: nextAmount, accountId: nextReinvestAccountId });
+      else addContribution({ id: uid(), date: nextDate, amount: nextAmount, source: 'yieldtech', accountId: nextReinvestAccountId });
+    } else if (wasReinvest && contributionId) {
+      removeContribution(contributionId);
+    }
   }
   function updateBuy(accountId, holdingId, buyId, patch) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -4737,7 +4748,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           )}
           {showYieldHistory && (h.yieldTechHistory || []).map((x) => (
             <div key={x.id} className="flex justify-between text-[11px] mt-1">
-              <span>{x.date}{x.reinvestAccountId && ' · ลงทุนต่อ'}{x.addedToCash && ' · เข้าเงินสดในบัญชี'}{x.estimatedShares ? ` · ~${fmt2(x.estimatedShares)} หน่วย` : ''}</span>
+              <span>{x.date}{x.reinvestAccountId && ` · ลงทุนต่อที่ ${((allAccounts || []).find((acc) => acc.id === x.reinvestAccountId) || {}).name || '-'}`}{x.addedToCash && ' · เข้าเงินสดในบัญชี'}{x.estimatedShares ? ` · ~${fmt2(x.estimatedShares)} หน่วย` : ''}</span>
               <span className="flex items-center gap-2">฿{fmt(x.amount)} <EditButton onClick={() => setEditingYieldTech(x)} /><button onClick={() => confirmDelete('ลบรายการถอน YieldTech นี้? ข้อมูลจะหายถาวร (จำนวนหุ้น/เงินสด/เงินเข้าที่ผูกกันไว้จะถูกคืนกลับให้อัตโนมัติ)', () => onRemoveYieldTechHistory(accountId, h.id, x.id))}><Trash2 size={11} color={BAD} /></button></span>
             </div>
           ))}
@@ -4745,22 +4756,28 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       )}
       {editingYieldTech && (
         <EditModal title="แก้ไขรายการถอน YieldTech" onClose={() => setEditingYieldTech(null)}
-          initialValues={{ date: editingYieldTech.date, amount: editingYieldTech.amount }}
+          initialValues={{ date: editingYieldTech.date, amount: editingYieldTech.amount, reinvestAccountId: editingYieldTech.reinvestAccountId || '' }}
           fields={[
             { key: 'date', label: 'วันที่ตัด', type: 'date' },
             { key: 'amount', label: 'ยอดที่ได้รับจริง (บาท)', type: 'number' },
+            { key: 'reinvestAccountId', label: 'เอาเงินนี้ไปไว้ที่ไหน', type: 'select', options: [{ value: '', label: 'เก็บเป็นเงินสดในบัญชีนี้ (ไม่ลงทุนต่อ)' }, ...(allAccounts || []).map((acc) => ({ value: acc.id, label: `ลงทุนต่อที่: ${acc.name}` }))] },
           ]}
           onSave={(v) => {
             const changed = [];
             if (Number(editingYieldTech.amount || 0) !== Number(v.amount || 0)) changed.push({ label: 'ยอด', value: `฿${fmt(editingYieldTech.amount)} → ฿${fmt(v.amount)}` });
             if (editingYieldTech.date !== v.date) changed.push({ label: 'วันที่', value: `${formatDateDMY(editingYieldTech.date)} → ${formatDateDMY(v.date)}` });
+            if ((editingYieldTech.reinvestAccountId || '') !== (v.reinvestAccountId || '')) {
+              const oldLabel = editingYieldTech.reinvestAccountId ? ((allAccounts || []).find((acc) => acc.id === editingYieldTech.reinvestAccountId) || {}).name || '-' : 'เงินสดในบัญชีนี้';
+              const newLabel = v.reinvestAccountId ? ((allAccounts || []).find((acc) => acc.id === v.reinvestAccountId) || {}).name || '-' : 'เงินสดในบัญชีนี้';
+              changed.push({ label: 'ปลายทาง', value: `${oldLabel} → ${newLabel}` });
+            }
             const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
             if (changed.length) sendLineFlex(`แก้ไขรายการถอน YieldTech ${h.symbol || h.name}${accName ? ' (' + accName + ')' : ''}`, buildFlexCard({
               title: `✏️ แก้ไขรายการถอน YieldTech ${h.symbol || h.name}`,
               rows: [{ label: 'วันที่เดิม', value: formatDateDMY(editingYieldTech.date) }, ...changed],
               tab: 'accounts',
             }));
-            onUpdateYieldTechHistory(accountId, h.id, editingYieldTech.id, { date: v.date, amount: Number(v.amount) || 0 });
+            onUpdateYieldTechHistory(accountId, h.id, editingYieldTech.id, { date: v.date, amount: Number(v.amount) || 0, reinvestAccountId: v.reinvestAccountId || undefined });
             setEditingYieldTech(null);
           }}
         />
