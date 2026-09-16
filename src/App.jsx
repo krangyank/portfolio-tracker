@@ -1172,9 +1172,9 @@ export default function App() {
   const updateIncome = (id, patch) => persist({ ...state, income: income.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
   const addIncome = () => persist({ ...state, income: [...income, { id: uid(), name: 'แหล่งรายได้ใหม่', amount: 0, tag: 'other' }] });
   const removeIncome = (id) => persist({ ...state, income: income.filter((i) => i.id !== id) });
-  const addContribution = (entry) => {
+  const addContribution = (entry, notify = true) => {
     persistAppend('contributions', { id: uid(), ...entry });
-    if (entry.source === 'rental') return; // มีข้อความแจ้งเตือนเฉพาะทางที่ addRentInstallment ส่งให้แล้ว (บอกชื่อบ้าน+ยอดขาด) กันส่งซ้ำ
+    if (!notify || entry.source === 'rental') return; // rental: มีข้อความแจ้งเตือนเฉพาะทางที่ addRentInstallment ส่งให้แล้ว (บอกชื่อบ้าน+ยอดขาด) กันส่งซ้ำ; notify=false: ใช้ตอนเขียนหลายรายการพร้อมกัน (batch) แล้วจะส่งสรุปทีเดียวแทน กันสแปม LINE
     const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
     const srcLabel = entry.source === 'yieldtech' ? 'YieldTech' : ((SOURCES.find((s) => s.id === entry.source) || {}).label || entry.source || 'เงินเข้า');
     if (entry.source === 'personal_withdraw') {
@@ -1318,12 +1318,14 @@ export default function App() {
           sells = [{ id: sellId, date: e.date, shares: estimatedShares, price, amount: Number(e.amount), gain: Number(e.amount) - costBasisSold, currency: h.currency }, ...sells];
           shares = Math.max(0, shares - estimatedShares);
         }
-        // ถ้าไม่ได้เลือกลงทุนต่อ ให้บวกเข้าเงินสดในบัญชีเดียวกันอัตโนมัติ ไม่งั้นเงินจะหายไปเฉยๆ ไม่โชว์ที่ไหนเลย
-        const contributionId = e.reinvestAccountId ? uid() : undefined;
+        // เข้ารายการ "เงินเข้า" เสมอ ไม่ว่าจะลงทุนต่อที่บัญชีอื่นหรือเก็บเป็นเงินสดในบัญชีเดียวกัน (เหมือนที่เคยบันทึกเอง เช่น "Wealth X (หักอัตโนมัติ) → WEALTH X")
+        // ถ้าไม่ได้เลือกลงทุนต่อ ให้บวกเข้าเงินสดในบัญชีเดียวกันอัตโนมัติด้วย ไม่งั้นเงินจะหายไปเฉยๆ ไม่โชว์ที่ไหนเลย
+        const destAccountId = e.reinvestAccountId || accountId;
+        const contributionId = uid();
         const addedToCash = !e.reinvestAccountId;
         if (addedToCash) cashToAdd += Number(e.amount || 0);
         yieldTechHistory = [{ id: uid(), date: e.date, amount: Number(e.amount), reinvestAccountId: e.reinvestAccountId || undefined, estimatedShares: estimatedShares || undefined, sellId, contributionId, addedToCash: addedToCash || undefined }, ...yieldTechHistory];
-        if (e.reinvestAccountId) contributionsToAdd.push({ id: contributionId, date: e.date, amount: Number(e.amount), source: 'yieldtech', accountId: e.reinvestAccountId });
+        contributionsToAdd.push({ id: contributionId, date: e.date, amount: Number(e.amount), source: 'yieldtech', accountId: destAccountId });
       });
       return { ...h, shares, sells, yieldTechHistory };
     });
@@ -1333,7 +1335,7 @@ export default function App() {
       else accPatch.cashBalance = Number(acc.cashBalance || 0) + cashToAdd;
     }
     updateAccount(accountId, accPatch);
-    contributionsToAdd.forEach((c) => addContribution(c));
+    contributionsToAdd.forEach((c) => addContribution(c, false)); // เขียนเงียบๆ ทีละรายการ กันสแปม LINE แล้วส่งสรุปรวมทีเดียวด้านล่าง
     const noReinvestTotal = entries.filter((e) => !e.reinvestAccountId).reduce((s, e) => s + Number(e.amount || 0), 0);
     if (noReinvestTotal > 0) sendLineFlex(`ตัด YieldTech ${acc.name} ฿${fmt(noReinvestTotal)}`, buildFlexCard({
       title: `💵 ตัด YieldTech ${acc.name}`,
@@ -1410,8 +1412,10 @@ export default function App() {
       hPatch.shares = Math.max(0, Number(h.shares || 0) - estimatedShares);
       hPatch.sells = [{ id: sellId, date, shares: estimatedShares, price, amount: Number(amount), gain, currency: h.currency }, ...(h.sells || [])];
     }
-    // ถ้าไม่ได้เลือกลงทุนต่อ ให้บวกเข้าเงินสดในบัญชีเดียวกันอัตโนมัติ ไม่งั้นเงินจะหายไปเฉยๆ ไม่โชว์ที่ไหนเลย
-    const contributionId = reinvestAccountId ? uid() : undefined;
+    // เข้ารายการ "เงินเข้า" เสมอ ไม่ว่าจะลงทุนต่อที่บัญชีอื่นหรือเก็บเป็นเงินสดในบัญชีเดียวกัน (เหมือนที่เคยบันทึกเอง เช่น "Wealth X (หักอัตโนมัติ) → WEALTH X")
+    // ถ้าไม่ได้เลือกลงทุนต่อ ให้บวกเข้าเงินสดในบัญชีเดียวกันอัตโนมัติด้วย ไม่งั้นเงินจะหายไปเฉยๆ ไม่โชว์ที่ไหนเลย
+    const destAccountId = reinvestAccountId || accountId;
+    const contributionId = uid();
     const addedToCash = !reinvestAccountId;
     hPatch.yieldTechHistory = [{ id: uid(), date, amount: Number(amount), reinvestAccountId: reinvestAccountId || undefined, estimatedShares: estimatedShares || undefined, sellId, contributionId, addedToCash: addedToCash || undefined }, ...(h.yieldTechHistory || [])];
     const nextHoldings = acc.holdings.map((x) => (x.id === holdingId ? { ...x, ...hPatch } : x));
@@ -1421,12 +1425,7 @@ export default function App() {
       else accPatch.cashBalance = Number(acc.cashBalance || 0) + Number(amount);
     }
     updateAccount(accountId, accPatch);
-    if (reinvestAccountId) addContribution({ id: contributionId, date, amount: Number(amount), source: 'yieldtech', accountId: reinvestAccountId });
-    else sendLineFlex(`ตัด YieldTech ${h.symbol || h.name} (${acc.name}) ฿${fmt(amount)}`, buildFlexCard({
-      title: `💵 ตัด YieldTech ${h.symbol || h.name}`,
-      rows: [{ label: 'บัญชี', value: acc.name }, { label: 'วันที่', value: formatDateDMY(date) }, { label: 'เข้าเงินสดในบัญชี', value: acc.name }],
-      amount: Number(amount || 0), amountColor: BAD, tab: 'accounts',
-    }));
+    addContribution({ id: contributionId, date, amount: Number(amount), source: 'yieldtech', accountId: destAccountId });
   }
   // ลบรายการถอน YieldTech — คืนจำนวนหุ้นที่เคยหักไป (ถ้ามี), ลบรายการขาย/เงินเข้าที่ผูกกันไว้, และหักเงินสดที่เคยบวกเข้าบัญชีออกด้วย
   function removeYieldTechHistory(accountId, holdingId, ytId) {
@@ -1482,26 +1481,23 @@ export default function App() {
       sells = sells.filter((s) => s.id !== sellId);
       sellId = undefined;
     }
-    const wasReinvest = !!yt.reinvestAccountId;
-    const willReinvest = !!nextReinvestAccountId;
-    let contributionId = yt.contributionId;
+    // เข้ารายการ "เงินเข้า" เสมอ (ปลายทางคือบัญชีที่เลือกลงทุนต่อ หรือบัญชีเดียวกันถ้าเก็บเป็นเงินสด) — รายการเก่าที่ไม่เคยมี contributionId มาก่อนจะสร้างให้ใหม่ตรงนี้
+    const destAccountId = nextReinvestAccountId || accountId;
+    const addedToCash = !nextReinvestAccountId;
+    const hadContribution = !!yt.contributionId;
+    const contributionId = yt.contributionId || uid();
     // เงินสดในบัญชีเดิม (ตอนนี้) ยังมีผลของรายการนี้ค้างอยู่ถ้า addedToCash เคยเป็นจริง — คำนวณยอดสุดท้ายที่ควรจะเป็นทีเดียว กันบวก/ลบซ้ำ
-    const cashDelta = (yt.addedToCash ? -Number(yt.amount || 0) : 0) + (willReinvest ? 0 : nextAmount);
+    const cashDelta = (yt.addedToCash ? -Number(yt.amount || 0) : 0) + (addedToCash ? nextAmount : 0);
     const accPatch = {};
     if (cashDelta !== 0) {
       if (acc.category === 'dime') accPatch.cashBalanceTHB = Number(acc.cashBalanceTHB || 0) + cashDelta;
       else accPatch.cashBalance = Number(acc.cashBalance || 0) + cashDelta;
     }
-    const addedToCash = !willReinvest;
-    const nextHoldings = acc.holdings.map((x) => (x.id === holdingId ? { ...x, shares, sells, yieldTechHistory: (x.yieldTechHistory || []).map((r) => (r.id === ytId ? { ...r, date: nextDate, amount: nextAmount, estimatedShares: newEstimatedShares || undefined, sellId, reinvestAccountId: nextReinvestAccountId, contributionId: willReinvest ? contributionId : undefined, addedToCash: addedToCash || undefined } : r)) } : x) );
+    const nextHoldings = acc.holdings.map((x) => (x.id === holdingId ? { ...x, shares, sells, yieldTechHistory: (x.yieldTechHistory || []).map((r) => (r.id === ytId ? { ...r, date: nextDate, amount: nextAmount, estimatedShares: newEstimatedShares || undefined, sellId, reinvestAccountId: nextReinvestAccountId, contributionId, addedToCash: addedToCash || undefined } : r)) } : x) );
     accPatch.holdings = nextHoldings;
     updateAccount(accountId, accPatch);
-    if (willReinvest) {
-      if (wasReinvest && contributionId) updateContribution(contributionId, { date: nextDate, amount: nextAmount, accountId: nextReinvestAccountId });
-      else addContribution({ id: uid(), date: nextDate, amount: nextAmount, source: 'yieldtech', accountId: nextReinvestAccountId });
-    } else if (wasReinvest && contributionId) {
-      removeContribution(contributionId);
-    }
+    if (hadContribution) updateContribution(contributionId, { date: nextDate, amount: nextAmount, accountId: destAccountId });
+    else addContribution({ id: contributionId, date: nextDate, amount: nextAmount, source: 'yieldtech', accountId: destAccountId }, false); // รายการเก่าที่ไม่เคยมีเงินเข้าผูกไว้ — สร้างให้ใหม่แบบเงียบๆ ไม่ต้องแจ้ง LINE ซ้ำ
   }
   function updateBuy(accountId, holdingId, buyId, patch) {
     const acc = accounts.find((a) => a.id === accountId);
