@@ -1335,12 +1335,17 @@ export default function App() {
       else accPatch.cashBalance = Number(acc.cashBalance || 0) + cashToAdd;
     }
     updateAccount(accountId, accPatch);
-    contributionsToAdd.forEach((c) => addContribution(c, false)); // เขียนเงียบๆ ทีละรายการ กันสแปม LINE แล้วส่งสรุปรวมทีเดียวด้านล่าง
-    const noReinvestTotal = entries.filter((e) => !e.reinvestAccountId).reduce((s, e) => s + Number(e.amount || 0), 0);
-    if (noReinvestTotal > 0) sendLineFlex(`ตัด YieldTech ${acc.name} ฿${fmt(noReinvestTotal)}`, buildFlexCard({
+    contributionsToAdd.forEach((c) => addContribution(c, false)); // เขียนเงียบๆ ทีละรายการ กันสแปม LINE แล้วส่งสรุปรวม 2 ใบ (แดง+เขียว) ด้านล่างแทน
+    const grandTotal = entries.reduce((s, e) => s + Number(e.amount || 0), 0);
+    if (grandTotal > 0) sendLineFlex(`ตัด YieldTech ${acc.name} ฿${fmt(grandTotal)}`, buildFlexCard({
       title: `💵 ตัด YieldTech ${acc.name}`,
-      rows: [{ label: 'จำนวนรายการ', value: `${entries.length} รายการ` }, { label: 'เข้าเงินสดในบัญชี', value: acc.name }],
-      amount: noReinvestTotal, amountColor: BAD, tab: 'accounts',
+      rows: [{ label: 'จำนวนรายการ', value: `${entries.length} รายการ` }],
+      amount: grandTotal, amountColor: BAD, tab: 'accounts',
+    }));
+    if (cashToAdd > 0) sendLineFlex(`เงินเข้า ${acc.name} (YieldTech) ฿${fmt(cashToAdd)}`, buildFlexCard({
+      title: `💰 เงินเข้า ${acc.name}`,
+      rows: [{ label: 'แหล่งที่มา', value: 'YieldTech' }, { label: 'ปลายทาง', value: acc.name }],
+      amount: cashToAdd, amountColor: GOOD, tab: 'savings',
     }));
   }
   // แปะรูปประวัติคำสั่งซื้อ-ขายที่มีหลายกองทุนปนกันในภาพเดียว — บันทึกซื้อเพิ่ม/ขายให้ทุกกองทุนที่จับคู่ไว้พร้อมกันในการเขียนครั้งเดียว
@@ -1425,6 +1430,12 @@ export default function App() {
       else accPatch.cashBalance = Number(acc.cashBalance || 0) + Number(amount);
     }
     updateAccount(accountId, accPatch);
+    // ส่ง LINE 2 ใบแยกกัน — ใบแดง "ตัด YieldTech" (แจ้งว่าหน่วยลงทุนถูกหัก) กับใบเขียว "เงินเข้า" (แจ้งว่าเงินไปโผล่ที่ไหน) เพราะเป็นคนละเหตุการณ์กัน
+    sendLineFlex(`ตัด YieldTech ${h.symbol || h.name} (${acc.name}) ฿${fmt(amount)}`, buildFlexCard({
+      title: `💵 ตัด YieldTech ${h.symbol || h.name}`,
+      rows: [{ label: 'บัญชี', value: acc.name }, { label: 'วันที่', value: formatDateDMY(date) }],
+      amount: Number(amount || 0), amountColor: BAD, tab: 'accounts',
+    }));
     addContribution({ id: contributionId, date, amount: Number(amount), source: 'yieldtech', accountId: destAccountId });
   }
   // ลบรายการถอน YieldTech — คืนจำนวนหุ้นที่เคยหักไป (ถ้ามี), ลบรายการขาย/เงินเข้าที่ผูกกันไว้, และหักเงินสดที่เคยบวกเข้าบัญชีออกด้วย
