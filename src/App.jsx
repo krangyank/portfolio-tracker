@@ -1048,6 +1048,7 @@ export default function App() {
   }, [tab, dogs, properties, creditCards, contributions, accounts, vehicles]);
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
   const doctorList = state?.doctorList || [];
+  const goldShopList = state?.goldShopList || [];
   const departmentList = state?.departmentList || ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'];
   const doctorDepartments = state?.doctorDepartments || {};
   const customDestinationList = state?.customDestinationList || [];
@@ -1649,6 +1650,7 @@ export default function App() {
   }
   function addHospital(name) { if (name && !hospitalList.includes(name)) persist({ ...state, hospitalList: [...hospitalList, name] }); }
   function addDoctor(name) { if (name && !doctorList.includes(name)) persist({ ...state, doctorList: [...doctorList, name] }); }
+  function addGoldShop(name) { if (name && !goldShopList.includes(name)) persist({ ...state, goldShopList: [...goldShopList, name] }); }
   function addDepartment(name) { if (name && !departmentList.includes(name)) persist({ ...state, departmentList: [...departmentList, name] }); }
   // จำคู่ "หมอ-แผนก" ไว้ พอเลือกชื่อหมอที่เคยบันทึกไว้แล้ว จะเติมแผนกให้อัตโนมัติ (เพราะปกติพบหมอคนเดิมประจำแผนกเดิม)
   function setDoctorDepartment(doctorName, department) {
@@ -2222,6 +2224,22 @@ export default function App() {
       return rate || null;
     } catch (e) { return null; }
   }
+  // ค้นราคาทองคำแท่ง 96.5% ล่าสุดจากสมาคมค้าทองคำ ผ่าน AI web search (เหมือน mechanism เดียวกับที่ใช้รีเฟรชราคาหุ้น/ข่าวการลงทุน) — คืนทั้งราคารับซื้อคืนและราคาขายออก
+  async function fetchGoldPriceOnly() {
+    try {
+      const prompt = `ค้นราคาทองคำแท่ง 96.5% ล่าสุดวันนี้จากสมาคมค้าทองคำแห่งประเทศไทย (goldtraders.or.th) ใช้เครื่องมือค้นเว็บจริง ห้ามตอบจากความจำเก่า ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ: {"buy": ราคารับซื้อคืนต่อบาททองคำ (ตัวเลขไม่มีคอมมา), "sell": ราคาขายออกต่อบาททองคำ (ตัวเลขไม่มีคอมมา)}`;
+      const text = await askServer(prompt, null, null, true);
+      const parsed = safeParseJson(text);
+      if (!parsed || !parsed.buy) return null;
+      return { buy: Number(parsed.buy), sell: Number(parsed.sell || parsed.buy) };
+    } catch (e) { return null; }
+  }
+  async function refreshGoldPrice(accountId) {
+    const result = await fetchGoldPriceOnly();
+    if (!result) return null;
+    setGoldPrice(accountId, result.buy); // ใช้ราคารับซื้อคืน เพราะเป็นมูลค่าที่ขายได้จริงถ้าขายวันนี้ (อนุรักษ์นิยมกว่าราคาขายออก)
+    return result;
+  }
   async function fetchHoldingPriceOnly(symbol, currency, finnhubKey) {
     if (!symbol) return { ok: false, message: 'ยังไม่ได้ใส่สัญลักษณ์หุ้น' };
     if (currency === 'THB') {
@@ -2363,7 +2381,7 @@ export default function App() {
           onAddHolding={addHolding} onUpdateHolding={updateHolding} onRemoveHolding={removeHolding} onAddDividend={addDividend}
           onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
           onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} onRemoveYieldTechHistory={removeYieldTechHistory} onUpdateYieldTechHistory={updateYieldTechHistory}
-          onAddGoldLot={addGoldLot} onUpdateGoldLot={updateGoldLot} onRemoveGoldLot={removeGoldLot} onSellGoldLot={sellGoldLot} onUnsellGoldLot={unsellGoldLot} onSetGoldPrice={setGoldPrice} />
+          onAddGoldLot={addGoldLot} onUpdateGoldLot={updateGoldLot} onRemoveGoldLot={removeGoldLot} onSellGoldLot={sellGoldLot} onUnsellGoldLot={unsellGoldLot} onSetGoldPrice={setGoldPrice} onRefreshGoldPrice={refreshGoldPrice} goldShopList={goldShopList} onAddGoldShop={addGoldShop} />
       )}
       {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
       {tab === 'income' && <NewsTab news={investmentNews} accounts={accounts} onSaved={saveInvestmentNews} dividendCalendar={dividendCalendar} onSavedDividends={saveDividendCalendar} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} />}
@@ -2523,6 +2541,8 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
               </select>
             ) : f.type === 'select-custom' ? (
               <AccountPickerWithCustom options={f.options || []} value={values[f.key] || ''} onChange={(v) => setField(f.key, v)} customList={f.customList} onAddCustom={f.onAddCustom} />
+            ) : f.type === 'memo' ? (
+              <MemoTextField list={f.list} value={values[f.key] || ''} onChange={(v) => setField(f.key, v)} onAddToList={f.onAddToList} placeholder={f.placeholder} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
             ) : f.type === 'textarea' ? (
               <textarea value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} rows={3} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
             ) : (
@@ -3527,7 +3547,7 @@ function mergePortfolioScans(results) {
   return { bySymbol, orderRows };
 }
 
-function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice }) {
+function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice, onRefreshGoldPrice, goldShopList, onAddGoldShop }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -3599,6 +3619,11 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
   async function refreshCategoryAll(key) {
     setRefreshingCat(key);
     const catAccounts = grouped[key] || [];
+    if (key === 'gold') {
+      for (const a of catAccounts) { try { await onRefreshGoldPrice(a.id); } catch (e) { /* ข้ามบัญชีที่ error ไปทำตัวถัดไป */ } }
+      setRefreshingCat(null);
+      return;
+    }
     for (const a of catAccounts) {
       for (const h of (a.holdings || [])) {
         if (h.symbol) { try { await onRefreshPrice(a.id, h.id, h.symbol, h.currency); } catch (e) { /* ข้ามตัวที่ error ไปทำตัวถัดไป */ } }
@@ -3832,7 +3857,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
           <div className="flex justify-between items-center mb-2">
             <p className="text-sm font-semibold" style={{ color: meta.color }}>{meta.label}</p>
             <div className="flex items-center gap-3">
-              {HOLDING_CATEGORIES.includes(key) && catAccounts.length > 0 && (
+              {(HOLDING_CATEGORIES.includes(key) || key === 'gold') && catAccounts.length > 0 && (
                 <button onClick={() => refreshCategoryAll(key)} disabled={refreshingCat === key} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}>
                   {refreshingCat === key ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {refreshingCat === key ? 'กำลังรีเฟรช...' : 'รีเฟรชทั้งหมวด'}
                 </button>
@@ -3842,7 +3867,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
           </div>
           {catAccounts.map((a) => (
             key === 'gold'
-              ? <GoldAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddGoldLot={onAddGoldLot} onUpdateGoldLot={onUpdateGoldLot} onRemoveGoldLot={onRemoveGoldLot} onSellGoldLot={onSellGoldLot} onUnsellGoldLot={onUnsellGoldLot} onSetGoldPrice={onSetGoldPrice} />
+              ? <GoldAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddGoldLot={onAddGoldLot} onUpdateGoldLot={onUpdateGoldLot} onRemoveGoldLot={onRemoveGoldLot} onSellGoldLot={onSellGoldLot} onUnsellGoldLot={onUnsellGoldLot} onSetGoldPrice={onSetGoldPrice} onRefreshGoldPrice={onRefreshGoldPrice} goldShopList={goldShopList} onAddGoldShop={onAddGoldShop} />
               : HOLDING_CATEGORIES.includes(key)
               ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onRemoveBuy={onRemoveBuy} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onAddContribution={onAddContribution} onRecordYieldTech={onRecordYieldTech} onRecordYieldTechBatch={onRecordYieldTechBatch} onRecordBuySellBatch={onRecordBuySellBatch} onRemoveYieldTechHistory={onRemoveYieldTechHistory} onUpdateYieldTechHistory={onUpdateYieldTechHistory} />
               : <SimpleAccountCard key={a.id} account={a} basis={costBasisByAccount[a.id] || 0} onUpdate={onUpdate} onRemove={onRemove} onScanValue={scanSingleValue} />
@@ -4095,7 +4120,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
 }
 
 // ทองคำแท่ง — แต่ละ "ล็อต" คือรายการซื้อ 1 ครั้ง (เลือกน้ำหนัก 1/5/10 บาท หรือกำหนดเอง) พร้อมร้าน/วันที่/ต้นทุน แล้วบันทึกขายทีหลังเพื่อคำนวณกำไร/ขาดทุนได้
-function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice }) {
+function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice, onRefreshGoldPrice, goldShopList, onAddGoldShop }) {
   const [weightBaht, setWeightBaht] = useState(1);
   const [customWeight, setCustomWeight] = useState('');
   const [costTotal, setCostTotal] = useState(0);
@@ -4104,6 +4129,8 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
   const [showSold, setShowSold] = useState(false);
   const [editingLot, setEditingLot] = useState(null);
   const [sellingLot, setSellingLot] = useState(null);
+  const [refreshingPrice, setRefreshingPrice] = useState(false);
+  const [priceError, setPriceError] = useState('');
 
   const goldLots = a.goldLots || [];
   const unsoldLots = goldLots.filter((l) => !l.sold);
@@ -4120,6 +4147,14 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
     if (!w || !costTotal || !date) return;
     onAddGoldLot(a.id, { weightBaht: w, costTotal, shop, date });
     setCostTotal(0); setShop('');
+  }
+  async function handleRefreshPrice() {
+    setRefreshingPrice(true); setPriceError('');
+    try {
+      const result = await onRefreshGoldPrice(a.id);
+      if (!result) setPriceError('ค้นราคาทองคำไม่สำเร็จ ลองใหม่อีกครั้ง หรือกรอกเองได้');
+    } catch (e) { setPriceError('ค้นราคาทองคำไม่สำเร็จ: ' + e.message); }
+    finally { setRefreshingPrice(false); }
   }
 
   return (
@@ -4138,8 +4173,14 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
       {soldLots.length > 0 && <p className="text-xs mb-2" style={{ color: realizedGain >= 0 ? GOOD : BAD }}>กำไร/ขาดทุนที่ขายไปแล้วสะสม {realizedGain >= 0 ? '+' : ''}฿{fmt(realizedGain)}</p>}
 
       <div className="mb-3">
-        <label className="text-[10px]" style={{ color: SLATE }}>ราคาทองคำวันนี้ (บาทละ) — ใส่ไว้เพื่อคำนวณมูลค่าตลาด/กำไรที่ยังไม่ขาย (ไม่บังคับ)</label>
-        <NumInput value={a.goldPricePerBaht || 0} onChange={(v) => onSetGoldPrice(a.id, v)} className="text-sm w-full outline-none rounded px-2 py-1.5 mt-1" style={{ border: '1px solid #E7EAF0' }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>ราคาทองคำวันนี้ (บาทละ) — ราคารับซื้อคืนจากสมาคมค้าทองคำ ใช้คำนวณมูลค่าตลาด/กำไรที่ยังไม่ขาย</label>
+        <div className="flex gap-2 mt-1">
+          <NumInput value={a.goldPricePerBaht || 0} onChange={(v) => onSetGoldPrice(a.id, v)} className="text-sm flex-1 outline-none rounded px-2 py-1.5" style={{ border: '1px solid #E7EAF0' }} />
+          <button onClick={handleRefreshPrice} disabled={refreshingPrice} className="flex items-center gap-1 text-xs rounded px-3" style={{ border: `1px solid ${BRASS}`, color: BRASS }}>
+            {refreshingPrice ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {refreshingPrice ? 'กำลังค้น...' : 'รีเฟรชราคา'}
+          </button>
+        </div>
+        {priceError && <p className="text-xs mt-1" style={{ color: BAD }}>{priceError}</p>}
       </div>
 
       <div style={{ borderTop: '1px solid #E7EAF0', background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-3">
@@ -4165,8 +4206,8 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
           </div>
         </div>
         <label className="text-[10px]" style={{ color: SLATE }}>ร้านที่ซื้อ</label>
-        <input value={shop} onChange={(e) => setShop(e.target.value)} placeholder="เช่น ห้างทองแม่ทองสุก" className="text-xs w-full rounded px-2 py-1.5 mb-2" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
-        <button onClick={submitBuy} style={{ background: BRASS }} className="text-white text-xs rounded px-3 py-1.5 w-full">บันทึกการซื้อ</button>
+        <MemoTextField list={goldShopList} value={shop} onChange={setShop} onAddToList={onAddGoldShop} placeholder="เช่น ห้างทองแม่ทองสุก" className="text-xs rounded px-2 py-1.5 w-full" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+        <button onClick={submitBuy} style={{ background: BRASS }} className="text-white text-xs rounded px-3 py-1.5 w-full mt-2">บันทึกการซื้อ</button>
       </div>
 
       {unsoldLots.length > 0 && (
@@ -4229,14 +4270,14 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
           fields={editingLot.sold ? [
             { key: 'weightBaht', label: 'น้ำหนัก (บาท)', type: 'number' },
             { key: 'costTotal', label: 'ราคาทุนรวม (บาท)', type: 'number' },
-            { key: 'shop', label: 'ร้านที่ซื้อ', type: 'text' },
+            { key: 'shop', label: 'ร้านที่ซื้อ', type: 'memo', list: goldShopList, onAddToList: onAddGoldShop, placeholder: 'เช่น ห้างทองแม่ทองสุก' },
             { key: 'date', label: 'วันที่ซื้อ', type: 'date' },
             { key: 'sellPrice', label: 'ราคาขาย (บาท)', type: 'number' },
             { key: 'sellDate', label: 'วันที่ขาย', type: 'date' },
           ] : [
             { key: 'weightBaht', label: 'น้ำหนัก (บาท)', type: 'number' },
             { key: 'costTotal', label: 'ราคาทุนรวม (บาท)', type: 'number' },
-            { key: 'shop', label: 'ร้านที่ซื้อ', type: 'text' },
+            { key: 'shop', label: 'ร้านที่ซื้อ', type: 'memo', list: goldShopList, onAddToList: onAddGoldShop, placeholder: 'เช่น ห้างทองแม่ทองสุก' },
             { key: 'date', label: 'วันที่ซื้อ', type: 'date' },
           ]}
           onSave={(v) => {
