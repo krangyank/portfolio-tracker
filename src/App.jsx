@@ -6292,6 +6292,17 @@ function daysUntil(dateStr) {
   if (!dateStr) return null;
   return Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24));
 }
+// เรียงรายการตาม "ใกล้ปัจจุบันที่สุดอยู่บนสุด" — นัด/เหตุการณ์ในอนาคตที่ใกล้ที่สุดขึ้นก่อนเสมอ (เรียงจากใกล้ไปไกล) ตามด้วยรายการที่ผ่านมาแล้ว เรียงจากล่าสุดไปเก่าสุด
+function compareByNearestDate(dateA, dateB) {
+  const da = daysUntil(dateA), db = daysUntil(dateB);
+  if (da === null && db === null) return 0;
+  if (da === null) return 1;
+  if (db === null) return -1;
+  if (da >= 0 && db >= 0) return da - db;
+  if (da >= 0) return -1;
+  if (db >= 0) return 1;
+  return db - da;
+}
 function computeDogInsights(dog) {
   const insights = [];
   const weights = [...(dog.weights || [])].sort((a, b) => b.date.localeCompare(a.date));
@@ -6480,7 +6491,7 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
     (d.imaging || []).forEach((im) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: im.date, label: im.type || 'Imaging', type: 'imaging' }));
     (d.organExams || []).forEach((o) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: o.date, label: `ตรวจอวัยวะ — ${o.organ || ''}`, type: 'organ' }));
   });
-  allItems.sort((a, b) => a.date.localeCompare(b.date));
+  allItems.sort((a, b) => compareByNearestDate(a.date, b.date)); // ใกล้วันนี้ที่สุดอยู่บนสุดเสมอ เหมือนกับรายการนัดหมายทั้งหมด
 
   const thisMonthItems = allItems.filter((it) => { const dd = new Date(it.date); return dd.getFullYear() === year && dd.getMonth() === month; });
   const eventsByDay = {};
@@ -8960,7 +8971,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
     if (result.ok) onUpdateAppointment(dog.id, a.id, { calendarSynced: true, calendarEventId: result.eventId });
     setSyncingId(null);
   }
-  const appts = [...(dog.appointments || [])]; // เรียงแบบเดียวกับรายการอื่นๆ ของลูกๆ ทั้งหมด — อันที่เพิ่มล่าสุดอยู่บนสุดเสมอ (ไม่เรียงตามวันนัดอีกต่อไป)
+  const appts = [...(dog.appointments || [])].sort((a, b) => compareByNearestDate(a.date, b.date)); // นัดที่ใกล้วันนี้ที่สุดอยู่บนสุดเสมอ (อนาคตก่อน เรียงใกล้→ไกล แล้วตามด้วยนัดที่ผ่านมาแล้ว เรียงล่าสุด→เก่าสุด)
   return (
     <div>
       {!googleConnected && <Card><p className="text-xs" style={{ color: SLATE }}>ยังไม่ได้เชื่อมต่อ Google Calendar — ไปที่ไอคอนตั้งค่า ⚙️ ที่หน้าภาพรวมเพื่อเชื่อมต่อก่อน จะได้กดเพิ่มนัดลงปฏิทินได้</p></Card>}
