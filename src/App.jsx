@@ -65,8 +65,10 @@ const CATEGORY_META = {
   set_stock: { label: 'หุ้นไทย (SET)', color: '#A64B3D' },
   mutual_fund: { label: 'กองทุนรวม', color: '#5C6F8A' },
   dime: { label: 'Dime! (หุ้น/กองทุนสหรัฐฯ)', color: '#2E5266' },
+  gold: { label: 'ทองคำแท่ง', color: '#B8860B' },
   other: { label: 'อื่นๆ', color: '#6B7280' },
 };
+const GOLD_WEIGHT_OPTIONS = [1, 5, 10];
 const HOLDING_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const RISK_CATEGORIES = ['set_stock', 'dime', 'mutual_fund'];
 const INTEREST_CATEGORIES = ['cooperative', 'bank_savings'];
@@ -1294,6 +1296,58 @@ export default function App() {
     const h = acc.holdings.find((x) => x.id === holdingId);
     updateHolding(accountId, holdingId, { sells: (h.sells || []).map((s) => (s.id === sellId ? { ...s, ...patch } : s)) });
   }
+  // ทองคำแท่ง — มูลค่าบัญชี (a.value) คำนวณจากน้ำหนักที่ยังไม่ขาย: ถ้าตั้งราคาทองคำวันนี้ไว้ ใช้ราคาตลาด ไม่งั้นใช้ราคาทุนแทน (กันมูลค่าเพี้ยนตอนยังไม่ได้ตั้งราคา)
+  function recomputeGoldAccountValue(goldLots, goldPricePerBaht) {
+    const unsold = (goldLots || []).filter((l) => !l.sold);
+    const totalWeight = unsold.reduce((s, l) => s + Number(l.weightBaht || 0), 0);
+    const totalCost = unsold.reduce((s, l) => s + Number(l.costTotal || 0), 0);
+    return Number(goldPricePerBaht) > 0 ? totalWeight * Number(goldPricePerBaht) : totalCost;
+  }
+  function addGoldLot(accountId, entry) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const goldLots = [{ id: uid(), weightBaht: Number(entry.weightBaht) || 0, costTotal: Number(entry.costTotal) || 0, shop: entry.shop || '', date: entry.date, sold: false }, ...(acc.goldLots || [])];
+    updateAccount(accountId, { goldLots, value: recomputeGoldAccountValue(goldLots, acc.goldPricePerBaht) });
+    sendLineFlex(`ซื้อทองคำแท่ง ${entry.weightBaht} บาท (${acc.name}) ฿${fmt(entry.costTotal)}`, buildFlexCard({
+      title: `🪙 ซื้อทองคำแท่ง ${entry.weightBaht} บาท`,
+      rows: [{ label: 'บัญชี', value: acc.name }, { label: 'ร้าน', value: entry.shop || '-' }, { label: 'วันที่', value: formatDateDMY(entry.date) }],
+      amount: Number(entry.costTotal || 0), amountColor: BAD, tab: 'accounts',
+    }));
+  }
+  function updateGoldLot(accountId, lotId, patch) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const goldLots = (acc.goldLots || []).map((l) => (l.id === lotId ? { ...l, ...patch } : l));
+    updateAccount(accountId, { goldLots, value: recomputeGoldAccountValue(goldLots, acc.goldPricePerBaht) });
+  }
+  function removeGoldLot(accountId, lotId) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const goldLots = (acc.goldLots || []).filter((l) => l.id !== lotId);
+    updateAccount(accountId, { goldLots, value: recomputeGoldAccountValue(goldLots, acc.goldPricePerBaht) });
+  }
+  function setGoldPrice(accountId, price) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const goldLots = acc.goldLots || [];
+    updateAccount(accountId, { goldPricePerBaht: Number(price) || 0, value: recomputeGoldAccountValue(goldLots, Number(price) || 0) });
+  }
+  function sellGoldLot(accountId, lotId, { sellPrice, sellDate }) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const lot = (acc.goldLots || []).find((l) => l.id === lotId);
+    if (!lot) return;
+    const gain = Number(sellPrice || 0) - Number(lot.costTotal || 0);
+    const goldLots = (acc.goldLots || []).map((l) => (l.id === lotId ? { ...l, sold: true, sellPrice: Number(sellPrice) || 0, sellDate } : l));
+    updateAccount(accountId, { goldLots, value: recomputeGoldAccountValue(goldLots, acc.goldPricePerBaht) });
+    const gainLabel = gain >= 0 ? `กำไร +฿${fmt(gain)}` : `ขาดทุน -฿${fmt(Math.abs(gain))}`;
+    sendLineFlex(`ขายทองคำแท่ง ${lot.weightBaht} บาท (${acc.name}) ฿${fmt(sellPrice)}`, buildFlexCard({
+      title: `📉 ขายทองคำแท่ง ${lot.weightBaht} บาท`,
+      rows: [{ label: 'บัญชี', value: acc.name }, { label: 'วันที่ขาย', value: formatDateDMY(sellDate) }, { label: 'ต้นทุน', value: `฿${fmt(lot.costTotal)}` }, { label: 'กำไร/ขาดทุน', value: gainLabel }],
+      amount: Number(sellPrice || 0), amountColor: gain >= 0 ? GOOD : BAD, tab: 'accounts',
+    }));
+  }
+  // ยกเลิกการขาย (กดผิด) — คืนล็อตกลับเป็นยังไม่ขาย
+  function unsellGoldLot(accountId, lotId) {
+    const acc = accounts.find((a) => a.id === accountId);
+    const goldLots = (acc.goldLots || []).map((l) => (l.id === lotId ? { ...l, sold: false, sellPrice: undefined, sellDate: undefined } : l));
+    updateAccount(accountId, { goldLots, value: recomputeGoldAccountValue(goldLots, acc.goldPricePerBaht) });
+  }
   // บันทึกรายการตัด YieldTech ให้กองทุนตัวหนึ่ง — หักจำนวนหน่วยลงเหมือนการขาย (ประมาณจากราคาล่าสุดถ้าไม่รู้จำนวนหน่วยที่แน่นอน)
   // ถ้าเลือกจะนำไปลงทุนต่อที่บัญชีอื่น จะสร้างรายการ "เงินเข้า" ให้อัตโนมัติด้วย
   // ใช้ตอนแปะรูปประวัติ YieldTech ที่มีหลายกองทุนปนกันในภาพเดียว — ต้องรวมเป็น patch เดียวแล้วเขียนทีเดียว
@@ -2308,7 +2362,8 @@ export default function App() {
         <AccountsTab accounts={accounts} onUpdate={updateAccount} onAdd={addAccount} onRemove={removeAccount} costBasisByAccount={costBasisByAccount}
           onAddHolding={addHolding} onUpdateHolding={updateHolding} onRemoveHolding={removeHolding} onAddDividend={addDividend}
           onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
-          onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} onRemoveYieldTechHistory={removeYieldTechHistory} onUpdateYieldTechHistory={updateYieldTechHistory} />
+          onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} onRemoveYieldTechHistory={removeYieldTechHistory} onUpdateYieldTechHistory={updateYieldTechHistory}
+          onAddGoldLot={addGoldLot} onUpdateGoldLot={updateGoldLot} onRemoveGoldLot={removeGoldLot} onSellGoldLot={sellGoldLot} onUnsellGoldLot={unsellGoldLot} onSetGoldPrice={setGoldPrice} />
       )}
       {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
       {tab === 'income' && <NewsTab news={investmentNews} accounts={accounts} onSaved={saveInvestmentNews} dividendCalendar={dividendCalendar} onSavedDividends={saveDividendCalendar} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} />}
@@ -3472,7 +3527,7 @@ function mergePortfolioScans(results) {
   return { bySymbol, orderRows };
 }
 
-function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory }) {
+function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -3786,7 +3841,9 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
             </div>
           </div>
           {catAccounts.map((a) => (
-            HOLDING_CATEGORIES.includes(key)
+            key === 'gold'
+              ? <GoldAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddGoldLot={onAddGoldLot} onUpdateGoldLot={onUpdateGoldLot} onRemoveGoldLot={onRemoveGoldLot} onSellGoldLot={onSellGoldLot} onUnsellGoldLot={onUnsellGoldLot} onSetGoldPrice={onSetGoldPrice} />
+              : HOLDING_CATEGORIES.includes(key)
               ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onRemoveBuy={onRemoveBuy} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onAddContribution={onAddContribution} onRecordYieldTech={onRecordYieldTech} onRecordYieldTechBatch={onRecordYieldTechBatch} onRecordBuySellBatch={onRecordBuySellBatch} onRemoveYieldTechHistory={onRemoveYieldTechHistory} onUpdateYieldTechHistory={onUpdateYieldTechHistory} />
               : <SimpleAccountCard key={a.id} account={a} basis={costBasisByAccount[a.id] || 0} onUpdate={onUpdate} onRemove={onRemove} onScanValue={scanSingleValue} />
           ))}
@@ -4032,6 +4089,163 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
             <div key={h.id} className="flex justify-between text-xs mt-1"><span>{h.date}</span><span>฿{fmt(h.amount)}</span></div>
           ))}
         </div>
+      )}
+    </Card>
+  );
+}
+
+// ทองคำแท่ง — แต่ละ "ล็อต" คือรายการซื้อ 1 ครั้ง (เลือกน้ำหนัก 1/5/10 บาท หรือกำหนดเอง) พร้อมร้าน/วันที่/ต้นทุน แล้วบันทึกขายทีหลังเพื่อคำนวณกำไร/ขาดทุนได้
+function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice }) {
+  const [weightBaht, setWeightBaht] = useState(1);
+  const [customWeight, setCustomWeight] = useState('');
+  const [costTotal, setCostTotal] = useState(0);
+  const [shop, setShop] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [showSold, setShowSold] = useState(false);
+  const [editingLot, setEditingLot] = useState(null);
+  const [sellingLot, setSellingLot] = useState(null);
+
+  const goldLots = a.goldLots || [];
+  const unsoldLots = goldLots.filter((l) => !l.sold);
+  const soldLots = goldLots.filter((l) => l.sold);
+  const totalWeight = unsoldLots.reduce((s, l) => s + Number(l.weightBaht || 0), 0);
+  const totalCost = unsoldLots.reduce((s, l) => s + Number(l.costTotal || 0), 0);
+  const hasPrice = Number(a.goldPricePerBaht) > 0;
+  const marketValue = hasPrice ? totalWeight * Number(a.goldPricePerBaht) : totalCost;
+  const unrealizedGain = hasPrice ? marketValue - totalCost : null;
+  const realizedGain = soldLots.reduce((s, l) => s + (Number(l.sellPrice || 0) - Number(l.costTotal || 0)), 0);
+
+  function submitBuy() {
+    const w = weightBaht === 'custom' ? Number(customWeight) : Number(weightBaht);
+    if (!w || !costTotal || !date) return;
+    onAddGoldLot(a.id, { weightBaht: w, costTotal, shop, date });
+    setCostTotal(0); setShop('');
+  }
+
+  return (
+    <Card>
+      <div className="flex justify-between items-center gap-2">
+        <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} />
+        {a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}
+        <button onClick={() => confirmDelete('ลบบัญชีนี้? ข้อมูลทองคำแท่งทั้งหมดจะหายถาวร', () => onRemove(a.id))}><Trash2 size={16} color={BAD} /></button>
+      </div>
+
+      <div className="mt-2 mb-1"><span className="text-lg font-semibold">฿{fmt(marketValue)}</span></div>
+      <p className="text-xs mb-2" style={{ color: SLATE }}>
+        ถือครอง {fmt2(totalWeight)} บาททอง · ต้นทุน ฿{fmt(totalCost)}
+        {unrealizedGain !== null && <span style={{ color: unrealizedGain >= 0 ? GOOD : BAD }}> · {unrealizedGain >= 0 ? '+' : ''}฿{fmt(unrealizedGain)} (ยังไม่ขาย)</span>}
+      </p>
+      {soldLots.length > 0 && <p className="text-xs mb-2" style={{ color: realizedGain >= 0 ? GOOD : BAD }}>กำไร/ขาดทุนที่ขายไปแล้วสะสม {realizedGain >= 0 ? '+' : ''}฿{fmt(realizedGain)}</p>}
+
+      <div className="mb-3">
+        <label className="text-[10px]" style={{ color: SLATE }}>ราคาทองคำวันนี้ (บาทละ) — ใส่ไว้เพื่อคำนวณมูลค่าตลาด/กำไรที่ยังไม่ขาย (ไม่บังคับ)</label>
+        <NumInput value={a.goldPricePerBaht || 0} onChange={(v) => onSetGoldPrice(a.id, v)} className="text-sm w-full outline-none rounded px-2 py-1.5 mt-1" style={{ border: '1px solid #E7EAF0' }} />
+      </div>
+
+      <div style={{ borderTop: '1px solid #E7EAF0', background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-3">
+        <p className="text-[11px] font-semibold mb-2">🪙 เพิ่มรายการซื้อ</p>
+        <p className="text-[10px] mb-1" style={{ color: SLATE }}>น้ำหนักแท่ง</p>
+        <div className="flex gap-1.5 mb-2 flex-wrap">
+          {GOLD_WEIGHT_OPTIONS.map((w) => (
+            <button key={w} onClick={() => setWeightBaht(w)} style={{ background: weightBaht === w ? BRASS : 'white', color: weightBaht === w ? 'white' : SLATE, border: '1px solid ' + (weightBaht === w ? BRASS : '#E7EAF0') }} className="text-xs rounded-full px-3 py-1">{w} บาท</button>
+          ))}
+          <button onClick={() => setWeightBaht('custom')} style={{ background: weightBaht === 'custom' ? BRASS : 'white', color: weightBaht === 'custom' ? 'white' : SLATE, border: '1px solid ' + (weightBaht === 'custom' ? BRASS : '#E7EAF0') }} className="text-xs rounded-full px-3 py-1">อื่นๆ</button>
+        </div>
+        {weightBaht === 'custom' && (
+          <input type="number" value={customWeight} onChange={(e) => setCustomWeight(e.target.value)} placeholder="น้ำหนัก (บาท)" className="text-xs rounded px-2 py-1.5 w-full mb-2" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+        )}
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label className="text-[10px]" style={{ color: SLATE }}>ราคาทุนรวม (บาท)</label>
+            <NumInput value={costTotal} onChange={setCostTotal} className="text-xs w-full rounded px-2 py-1.5" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+          </div>
+          <div>
+            <label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="text-xs w-full rounded px-2 py-1.5" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+          </div>
+        </div>
+        <label className="text-[10px]" style={{ color: SLATE }}>ร้านที่ซื้อ</label>
+        <input value={shop} onChange={(e) => setShop(e.target.value)} placeholder="เช่น ห้างทองแม่ทองสุก" className="text-xs w-full rounded px-2 py-1.5 mb-2" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+        <button onClick={submitBuy} style={{ background: BRASS }} className="text-white text-xs rounded px-3 py-1.5 w-full">บันทึกการซื้อ</button>
+      </div>
+
+      {unsoldLots.length > 0 && (
+        <div className="mb-2">
+          <p className="text-[11px] font-semibold mb-1" style={{ color: SLATE }}>ถือครองอยู่ ({unsoldLots.length})</p>
+          {unsoldLots.map((l) => (
+            <div key={l.id} style={{ borderTop: '1px solid #E7EAF0' }} className="py-1.5 text-xs">
+              <div className="flex justify-between items-center gap-2">
+                <span className="flex-1">{l.weightBaht} บาท · {l.shop || '-'} · {l.date}</span>
+                <span className="flex items-center gap-2 flex-shrink-0">
+                  ฿{fmt(l.costTotal)}
+                  <EditButton onClick={() => setEditingLot(l)} />
+                  <button onClick={() => setSellingLot(l)} className="text-[11px] underline" style={{ color: BRASS }}>ขาย</button>
+                  <button onClick={() => confirmDelete('ลบรายการซื้อทองคำนี้? ข้อมูลจะหายถาวร', () => onRemoveGoldLot(a.id, l.id))}><Trash2 size={12} color={BAD} /></button>
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {soldLots.length > 0 && (
+        <div className="mb-1">
+          <button onClick={() => setShowSold(!showSold)} className="text-[11px]" style={{ color: BRASS }}>{showSold ? 'ซ่อนประวัติการขาย' : `ดูประวัติการขาย (${soldLots.length})`}</button>
+          {showSold && soldLots.map((l) => {
+            const gain = Number(l.sellPrice || 0) - Number(l.costTotal || 0);
+            return (
+              <div key={l.id} style={{ borderTop: '1px solid #E7EAF0' }} className="py-1.5 text-xs">
+                <div className="flex justify-between items-center gap-2">
+                  <span className="flex-1">{l.weightBaht} บาท · ซื้อ {l.date}{l.shop ? ` (${l.shop})` : ''} → ขาย {l.sellDate}</span>
+                  <span className="flex items-center gap-2 flex-shrink-0" style={{ color: gain >= 0 ? GOOD : BAD }}>
+                    {gain >= 0 ? '+' : ''}฿{fmt(gain)}
+                    <EditButton onClick={() => setEditingLot(l)} />
+                    <button onClick={() => confirmDelete('ยกเลิกการขายรายการนี้ กลับไปเป็นยังไม่ขาย?', () => onUnsellGoldLot(a.id, l.id))} className="text-[11px] underline" style={{ color: SLATE }}>ยกเลิกขาย</button>
+                    <button onClick={() => confirmDelete('ลบรายการนี้ทั้งหมด (ทั้งซื้อและขาย)? ข้อมูลจะหายถาวร', () => onRemoveGoldLot(a.id, l.id))}><Trash2 size={12} color={BAD} /></button>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {sellingLot && (
+        <EditModal title={`ขายทองคำแท่ง ${sellingLot.weightBaht} บาท`} onClose={() => setSellingLot(null)}
+          initialValues={{ sellPrice: sellingLot.costTotal, sellDate: new Date().toISOString().slice(0, 10) }}
+          fields={[
+            { key: 'sellPrice', label: 'ราคาขาย (บาท)', type: 'number' },
+            { key: 'sellDate', label: 'วันที่ขาย', type: 'date' },
+          ]}
+          onSave={(v) => { onSellGoldLot(a.id, sellingLot.id, { sellPrice: Number(v.sellPrice) || 0, sellDate: v.sellDate }); setSellingLot(null); }}
+        />
+      )}
+
+      {editingLot && (
+        <EditModal title="แก้ไขรายการทองคำแท่ง" onClose={() => setEditingLot(null)}
+          initialValues={editingLot.sold
+            ? { weightBaht: editingLot.weightBaht, costTotal: editingLot.costTotal, shop: editingLot.shop, date: editingLot.date, sellPrice: editingLot.sellPrice, sellDate: editingLot.sellDate }
+            : { weightBaht: editingLot.weightBaht, costTotal: editingLot.costTotal, shop: editingLot.shop, date: editingLot.date }}
+          fields={editingLot.sold ? [
+            { key: 'weightBaht', label: 'น้ำหนัก (บาท)', type: 'number' },
+            { key: 'costTotal', label: 'ราคาทุนรวม (บาท)', type: 'number' },
+            { key: 'shop', label: 'ร้านที่ซื้อ', type: 'text' },
+            { key: 'date', label: 'วันที่ซื้อ', type: 'date' },
+            { key: 'sellPrice', label: 'ราคาขาย (บาท)', type: 'number' },
+            { key: 'sellDate', label: 'วันที่ขาย', type: 'date' },
+          ] : [
+            { key: 'weightBaht', label: 'น้ำหนัก (บาท)', type: 'number' },
+            { key: 'costTotal', label: 'ราคาทุนรวม (บาท)', type: 'number' },
+            { key: 'shop', label: 'ร้านที่ซื้อ', type: 'text' },
+            { key: 'date', label: 'วันที่ซื้อ', type: 'date' },
+          ]}
+          onSave={(v) => {
+            onUpdateGoldLot(a.id, editingLot.id, editingLot.sold
+              ? { weightBaht: Number(v.weightBaht) || 0, costTotal: Number(v.costTotal) || 0, shop: v.shop, date: v.date, sellPrice: Number(v.sellPrice) || 0, sellDate: v.sellDate }
+              : { weightBaht: Number(v.weightBaht) || 0, costTotal: Number(v.costTotal) || 0, shop: v.shop, date: v.date });
+            setEditingLot(null);
+          }}
+        />
       )}
     </Card>
   );
