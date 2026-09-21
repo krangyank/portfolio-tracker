@@ -6592,6 +6592,8 @@ function computeDogInsights(dog) {
 function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onRemoveMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onRemoveBloodTest, onAddOrganExam, onUpdateOrganExam, onRemoveOrganExam, onAddImaging, onUpdateImaging, onRemoveImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
   const [selectedId, setSelectedId] = useState(null); // null = หน้าปฏิทินรวม (ค่าเริ่มต้น) / มีค่า = กำลังดูลูกตัวนั้นอยู่
   const [section, setSection] = useState('overview');
+  // ข้อมูลนัดติดตามผลที่ส่งมาจากหน้าบันทึกการไปหาหมอ (กดปุ่ม "นัดติดตามผลครั้งนี้") — ส่งต่อไปให้ฟอร์มสร้างนัดหมายกรอกให้อัตโนมัติ
+  const [apptDraft, setApptDraft] = useState(null);
   const dog = selectedId ? dogs.find((d) => d.id === selectedId) : null;
   useEffect(() => { if (onCurrentPhotoChange) onCurrentPhotoChange(dog?.photoUrl || null); }, [dog?.photoUrl, dog?.id]);
   const photoFileRef = useRef(null);
@@ -6697,8 +6699,8 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} onRemoveMedication={onRemoveMedication} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUploadRecordPhoto={onUploadRecordPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} doctorList={doctorList} onAddDoctor={onAddDoctor} hospitalList={hospitalList} onAddHospital={onAddHospital} />}
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onRemoveFleaTickHistory={onRemoveFleaTickHistory} onUpdateFleaTickHistory={onUpdateFleaTickHistory} onUpdateFleaTickInfo={onUpdateFleaTickInfo} googleConnected={googleConnected} onAddGenericCalendarEvent={onAddGenericCalendarEvent} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} onAddInsuranceDocument={onAddInsuranceDocument} onRemoveInsuranceDocument={onRemoveInsuranceDocument} />}
-          {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} />}
-          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} />}
+          {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} draft={apptDraft} onConsumeDraft={() => setApptDraft(null)} />}
+          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} onStartFollowUp={(d) => { setApptDraft(d); setSection('appt'); }} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onRemoveBloodTest={onRemoveBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onRemoveOrganExam={onRemoveOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onRemoveImaging={onRemoveImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddImagingWithOrgans={onAddImagingWithOrgans} />}
           {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} />}
           {section === 'album' && <DogAlbumSection dog={dog} onAddAlbumPhoto={onAddAlbumPhoto} onRemoveAlbumPhoto={onRemoveAlbumPhoto} />}
@@ -9165,8 +9167,16 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
   );
 }
 
-function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, onUpdateAppointment, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto }) {
+function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, onUpdateAppointment, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, draft, onConsumeDraft }) {
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '', reminderDays: [7, 3, 1] });
+  // รับ "นัดติดตามผล" ที่ส่งมาจากหน้าบันทึกการไปหาหมอ — กรอกหัวข้อ/โรงพยาบาล/สัตวแพทย์ให้อัตโนมัติ เหลือแค่เลือกวันที่นัดใหม่ ไม่ต้องพิมพ์ซ้ำ
+  const [followUpNote, setFollowUpNote] = useState(null);
+  useEffect(() => {
+    if (!draft) return;
+    setForm((f) => ({ ...f, date: '', time: '', hospital: draft.hospital || f.hospital, doctor: draft.doctor || f.doctor, purpose: draft.purpose || f.purpose }));
+    setFollowUpNote(draft.sourceLabel || null);
+    if (onConsumeDraft) onConsumeDraft();
+  }, [draft]);
   const [syncingId, setSyncingId] = useState(null);
   const [syncResult, setSyncResult] = useState({});
   const [editingAppt, setEditingAppt] = useState(null);
@@ -9190,6 +9200,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
       onAddAppointment(dog.id, entry);
       setForm({ date: new Date().toISOString().slice(0, 10), time: '', hospital: '', doctor: '', purpose: '', reminderDays: [7, 3, 1] });
       setScannedFile(null);
+      setFollowUpNote(null);
     } finally { setSaving(false); }
   }
   function toggleReminderDay(d) {
@@ -9231,6 +9242,13 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
     <div>
       {!googleConnected && <Card><p className="text-xs" style={{ color: SLATE }}>ยังไม่ได้เชื่อมต่อ Google Calendar — ไปที่ไอคอนตั้งค่า ⚙️ ที่หน้าภาพรวมเพื่อเชื่อมต่อก่อน จะได้กดเพิ่มนัดลงปฏิทินได้</p></Card>}
       <Card>
+        {followUpNote && (
+          <div style={{ background: '#FFF6E8', border: '1px solid #EBD9A8', borderRadius: 14 }} className="p-3 mb-3 flex gap-2 items-start">
+            <span style={{ fontSize: 16, lineHeight: 1 }}>🔗</span>
+            <div className="flex-1"><p className="text-xs font-semibold" style={{ color: '#5C4E24' }}>ติดตามต่อจากนัดก่อนหน้า — กรอกให้อัตโนมัติแล้ว เลือกแค่วันที่นัดใหม่</p><p className="text-xs mt-0.5" style={{ color: '#6B5F3A' }}>{followUpNote}</p></div>
+            <button onClick={() => setFollowUpNote(null)} style={{ flexShrink: 0 }}><X size={14} color="#8A7B3E" /></button>
+          </div>
+        )}
         <input ref={slipFileRef} type="file" accept="image/*" onChange={handleSlipPhoto} className="hidden" />
         <button onClick={() => slipFileRef.current && slipFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 mb-2">
           {scanningSlip ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} color="#FBBF24" />} {scanningSlip ? 'กำลังอ่านใบนัด...' : 'ถ่ายรูปใบนัด ให้ AI กรอกให้'}
@@ -9404,7 +9422,7 @@ function makeVisitSectionRow(key, form) {
   return {};
 }
 
-function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, weigherList, medicationList, onAddMedicationPreset, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddOrganExam }) {
+function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, weigherList, medicationList, onAddMedicationPreset, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddOrganExam, onStartFollowUp }) {
   const [selectedVisitId, setSelectedVisitId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hospital: '', doctor: '', department: '', reason: '', diagnosis: '', cost: 0 });
@@ -9413,6 +9431,21 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
   const [sectionPhotos, setSectionPhotos] = useState({}); // key -> File (แนบรูปเดียวต่อหมวด ผูกเข้ากับทุกรายการที่สร้างในหมวดนั้น)
   const [visitPhotos, setVisitPhotos] = useState([]); // File[] — รูปอาการที่ผูกกับ "ครั้งที่ไปหาหมอ" นี้โดยตรง ไม่ใช่ของหมวดย่อยใดหมวดหนึ่ง
   const [submitting, setSubmitting] = useState(false);
+  // จับคู่กับนัดหมายที่นัดไว้ล่วงหน้า (ถ้าวันที่ตรงกัน) แล้วกรอกโรงพยาบาล/เหตุผล/สัตวแพทย์ให้อัตโนมัติ ไม่ต้องพิมพ์ซ้ำตอนมาบันทึกผลจริง
+  const [visitFollowUpNote, setVisitFollowUpNote] = useState(null);
+  const appliedApptRef = useRef(null);
+  useEffect(() => {
+    if (!showAddForm) return;
+    const matched = (dog.appointments || []).find((a) => a.date === form.date);
+    if (matched && appliedApptRef.current !== matched.id) {
+      appliedApptRef.current = matched.id;
+      setForm((f) => ({ ...f, hospital: matched.hospital || f.hospital, doctor: matched.doctor || f.doctor, reason: matched.purpose || f.reason }));
+      setVisitFollowUpNote(`${matched.purpose || '-'}${matched.hospital ? ' · ' + matched.hospital : ''}`);
+    } else if (!matched) {
+      appliedApptRef.current = null;
+      setVisitFollowUpNote(null);
+    }
+  }, [showAddForm, form.date, dog.appointments]);
   const visits = [...(dog.vetVisits || [])].sort((a, b) => b.date.localeCompare(a.date));
   const list = hospitalList || [];
   const selected = (dog.vetVisits || []).find((v) => v.id === selectedVisitId);
@@ -9535,6 +9568,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       setForm({ date: new Date().toISOString().slice(0, 10), hospital: '', doctor: '', department: '', reason: '', diagnosis: '', cost: 0 });
       setActiveSections([]); setSectionData({}); setSectionPhotos({}); setVisitPhotos([]);
       setShowAddForm(false);
+      setVisitFollowUpNote(null); appliedApptRef.current = null;
     } finally { setSubmitting(false); }
   }
 
@@ -9611,7 +9645,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       onRemoveVetVisit={(id) => { onRemoveVetVisit(dog.id, id); setSelectedVisitId(null); }}
       onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection}
       weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset}
-      bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} />
+      bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onStartFollowUp={onStartFollowUp} />
   );
 
   return (
@@ -9619,6 +9653,13 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       {showAddForm ? (
         <>
         <Card>
+          {visitFollowUpNote && (
+            <div style={{ background: '#FFF6E8', border: '1px solid #EBD9A8', borderRadius: 14 }} className="p-3 mb-3 flex gap-2 items-start">
+              <span style={{ fontSize: 16, lineHeight: 1 }}>🔗</span>
+              <div className="flex-1"><p className="text-xs font-semibold" style={{ color: '#5C4E24' }}>พบนัดหมายที่ตรงกับวันนี้ — กรอกให้อัตโนมัติแล้ว</p><p className="text-xs mt-0.5" style={{ color: '#6B5F3A' }}>{visitFollowUpNote}</p></div>
+              <button onClick={() => setVisitFollowUpNote(null)} style={{ flexShrink: 0 }}><X size={14} color="#8A7B3E" /></button>
+            </div>
+          )}
           <p className="text-xs mb-2" style={{ color: SLATE }}>ข้อมูลพื้นฐาน</p>
           <label className="text-[10px]" style={{ color: SLATE }}>วันที่ไป</label>
           <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
@@ -9849,7 +9890,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
 
 const VET_RECORD_TAB_MAP = { appointments: 'appt', weights: 'weight', medications: 'meds', bloodTests: 'records', organExams: 'records', imaging: 'records', expenses: 'expenses' };
 
-function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, onBack, onUpdateVetVisit, onUpdateDog, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, weigherList, medicationList, onAddMedicationPreset, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType }) {
+function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, onBack, onUpdateVetVisit, onUpdateDog, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, weigherList, medicationList, onAddMedicationPreset, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onStartFollowUp }) {
   const [showLinker, setShowLinker] = useState(false);
   const [linkType, setLinkType] = useState(VET_RECORD_TYPES[0].type);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -9976,6 +10017,20 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
             <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveVetVisit(visit.id))}><Trash2 size={16} color={BAD} /></button>
           </div>
         </div>
+        {onStartFollowUp && (
+          <button
+            onClick={() => onStartFollowUp({
+              purpose: `ติดตามอาการ: ${visit.reason || '-'}`,
+              hospital: visit.hospital,
+              doctor: visit.doctor,
+              sourceLabel: `${formatDateThai(visit.date)}${visit.hospital ? ' · ' + visit.hospital : ''}${visit.reason ? ' · ' + visit.reason : ''}`,
+            })}
+            style={{ background: BRASS }}
+            className="w-full text-white rounded-lg py-2.5 text-sm font-semibold flex items-center justify-center gap-2 mb-3"
+          >
+            <RefreshCw size={14} /> นัดติดตามผลครั้งนี้
+          </button>
+        )}
         {shareStatus && (
           <div style={{ background: shareStatus.isError ? '#FBE3E1' : PAPER_DIM, borderRadius: 10 }} className="p-2.5 mb-2">
             {shareStatus.loading ? (
