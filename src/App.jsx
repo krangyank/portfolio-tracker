@@ -6700,7 +6700,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onRemoveFleaTickHistory={onRemoveFleaTickHistory} onUpdateFleaTickHistory={onUpdateFleaTickHistory} onUpdateFleaTickInfo={onUpdateFleaTickInfo} googleConnected={googleConnected} onAddGenericCalendarEvent={onAddGenericCalendarEvent} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} onAddInsuranceDocument={onAddInsuranceDocument} onRemoveInsuranceDocument={onRemoveInsuranceDocument} />}
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} draft={apptDraft} onConsumeDraft={() => setApptDraft(null)} />}
-          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} onStartFollowUp={(d) => { setApptDraft(d); setSection('appt'); }} />}
+          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} onStartFollowUp={(d) => { setApptDraft(d); setSection('appt'); }} onAddMedicalPhoto={onAddMedicalPhoto} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onRemoveBloodTest={onRemoveBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onRemoveOrganExam={onRemoveOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onRemoveImaging={onRemoveImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddImagingWithOrgans={onAddImagingWithOrgans} />}
           {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} />}
           {section === 'album' && <DogAlbumSection dog={dog} onAddAlbumPhoto={onAddAlbumPhoto} onRemoveAlbumPhoto={onRemoveAlbumPhoto} />}
@@ -9422,7 +9422,7 @@ function makeVisitSectionRow(key, form) {
   return {};
 }
 
-function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, weigherList, medicationList, onAddMedicationPreset, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddOrganExam, onStartFollowUp }) {
+function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, weigherList, medicationList, onAddMedicationPreset, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddOrganExam, onStartFollowUp, onAddMedicalPhoto }) {
   const [selectedVisitId, setSelectedVisitId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hospital: '', doctor: '', department: '', reason: '', diagnosis: '', cost: 0 });
@@ -9488,7 +9488,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
         type: r.type || BLOOD_TEST_TYPES[0],
         date: r.date || form.date,
         note: r.note || '',
-        ...(photo && i === 0 ? { photos: [photo] } : {}),
+        ...(photo ? { photos: [photo] } : {}), // แนบรูปเดียวกันนี้ให้ทุกผลที่อ่านได้จากภาพนี้ ไม่ใช่แค่รายการแรก เพราะเป็นภาพต้นฉบับเดียวกัน
       }));
       if (!activeSections.includes('bloodTest')) setActiveSections((prev) => [...prev, 'bloodTest']);
       setSectionData((prev) => {
@@ -9645,7 +9645,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       onRemoveVetVisit={(id) => { onRemoveVetVisit(dog.id, id); setSelectedVisitId(null); }}
       onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection}
       weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset}
-      bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onStartFollowUp={onStartFollowUp} />
+      bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onStartFollowUp={onStartFollowUp} onAddMedicalPhoto={onAddMedicalPhoto} />
   );
 
   return (
@@ -9890,7 +9890,28 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
 
 const VET_RECORD_TAB_MAP = { appointments: 'appt', weights: 'weight', medications: 'meds', bloodTests: 'records', organExams: 'records', imaging: 'records', expenses: 'expenses' };
 
-function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, onBack, onUpdateVetVisit, onUpdateDog, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, weigherList, medicationList, onAddMedicationPreset, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onStartFollowUp }) {
+// ปุ่มแนบรูปเล็กๆ สำหรับรายการที่เชื่อมโยงไว้ในหน้า "ไปหาหมอ" ที่ยังไม่มีรูปติด — แยกเป็น component เพราะแต่ละแถวต้องมี state อัพโหลด/ไฟล์ของตัวเอง
+function LinkedRecordAttachButton({ onAdd }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try { await onAdd(file); } catch (err) { /* เงียบไว้ก่อน ไม่บล็อกหน้าจอ ผู้ใช้ลองแนบใหม่ได้ */ }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
+  }
+  return (
+    <>
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+      <button onClick={(e) => { e.stopPropagation(); fileRef.current && fileRef.current.click(); }} style={{ flexShrink: 0 }} title="แนบรูปผลตรวจ">
+        {uploading ? <Loader2 size={16} className="animate-spin" color={BRASS} /> : <Camera size={16} color={BRASS} />}
+      </button>
+    </>
+  );
+}
+
+function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, onBack, onUpdateVetVisit, onUpdateDog, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, weigherList, medicationList, onAddMedicationPreset, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onStartFollowUp, onAddMedicalPhoto }) {
   const [showLinker, setShowLinker] = useState(false);
   const [linkType, setLinkType] = useState(VET_RECORD_TYPES[0].type);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -9977,7 +9998,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
         type: r.type || BLOOD_TEST_TYPES[0],
         date: r.date || visit.date,
         note: r.note || '',
-        ...(photo && i === 0 ? { photos: [photo] } : {}),
+        ...(photo ? { photos: [photo] } : {}), // แนบรูปเดียวกันนี้ให้ทุกผลที่อ่านได้จากภาพนี้ ไม่ใช่แค่รายการแรก เพราะเป็นภาพต้นฉบับเดียวกัน
       }));
       if (!procSections.includes('bloodTest')) setProcSections((prev) => [...prev, 'bloodTest']);
       setProcData((prev) => {
@@ -10203,6 +10224,13 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                 {detail && <p className="text-xs mt-0.5" style={{ color: SLATE }}>{detail}</p>}
               </div>
               <div className="flex items-center gap-2">
+                {record.photos && record.photos.length > 0 ? (
+                  <button onClick={(e) => { e.stopPropagation(); setLightboxUrl(record.photos[0].url); }} style={{ flexShrink: 0 }}>
+                    <img src={record.photos[0].url} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', border: `1px solid ${BORDER}` }} />
+                  </button>
+                ) : onAddMedicalPhoto && (
+                  <LinkedRecordAttachButton onAdd={(file) => onAddMedicalPhoto(dog.id, lr.type, lr.id, file)} />
+                )}
                 {targetTab && <ChevronRight size={14} color={SLATE} />}
                 <button onClick={(e) => { e.stopPropagation(); confirmDelete('เลิกเชื่อมรายการนี้จากการนัดหมายนี้?', () => onUnlinkRecordFromVisit(dog.id, visit.id, lr.type, lr.id)); }}><Trash2 size={13} color={BAD} /></button>
               </div>
