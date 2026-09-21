@@ -2633,6 +2633,7 @@ function buildVetVisitShareText(dog, visit) {
     else if (lr.type === 'weights') lines.push(`⚖️ น้ำหนัก: ${record.weight} กก.`);
     else if (lr.type === 'medications') lines.push(`💊 ยา: ${record.name}${record.dose ? ' ' + record.dose : ''}`);
     else if (lr.type === 'expenses') lines.push(`🧾 ค่าใช้จ่าย: ฿${fmt(record.amount)} (${record.category || ''})`);
+    else if (lr.type === 'appointments') lines.push(`📅 นัดครั้งถัดไป: ${formatDateThai(record.date)}${record.hospital ? ' · ' + record.hospital : ''}${record.purpose ? ' · ' + record.purpose : ''}`);
   });
   return lines.join('\n');
 }
@@ -9547,15 +9548,12 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       });
       patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, doctor: form.doctor, department: form.department, reason: form.reason, diagnosis: form.diagnosis, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
       onUpdateDog(dog.id, patch);
-      // แจ้งเตือน LINE สรุปรวมทุกอย่างจากการไปหาหมอครั้งนี้ — เป็นการ์ด Flex Message (แสดงเฉพาะช่องที่มีข้อมูล ข้ามช่องว่าง)
-      // แนบรูปเป็น hero image ด้วย ถ้ามีรูปที่แนบไว้ (รูปอาการของครั้งนี้โดยตรงมาก่อน ไม่มีค่อยใช้รูปจากหมวดย่อยแรกที่เจอ)
+      // แจ้งเตือน LINE เป็นข้อความเต็มแบบเดียวกับปุ่ม "แชร์" ในหน้ารายละเอียด (ไม่ใช้การ์ด Flex ที่ตัดข้อมูลบางส่วนออกอีกต่อไป) — รวมทุกรายการที่เชื่อมโยงไว้ครบ
       {
-        const meds = (sectionData.medication || []).filter((m) => m.name).map((m) => `${m.name}${m.dose ? ' ' + m.dose : ''}`);
-        const nextAppt = activeSections.includes('appointment') ? sectionData.appointment : null;
-        const nextApptDate = nextAppt && nextAppt.date ? nextAppt.date : null;
-        const altText = `${dog.name} ไปหาหมอ${form.hospital ? ' ที่ ' + form.hospital : ''}${form.cost ? ' ฿' + fmt(form.cost) : ''}`;
-        const heroUrl = (uploadedVisitPhotos[0] && uploadedVisitPhotos[0].url) || (Object.values(uploadedPhotos).find((p) => p && p.url) || {}).url;
-        sendLineFlex(altText, buildVetVisitFlexCard(dog.name, form, meds, nextApptDate, heroUrl));
+        const dogAfterPatch = { ...dog, ...patch };
+        const newVisit = patch.vetVisits[0];
+        const fullText = buildVetVisitShareText(dogAfterPatch, newVisit);
+        sendLineNotify(`🏥 บันทึกไปหาหมอ\n${fullText}`, dog.lineGroupId);
       }
       // บันทึกยาที่พิมพ์เองใหม่เข้ารายการ "ยาที่เคยใช้" ด้วย เหมือน Tab ยาโดยตรง (แก้บั๊กที่เคยตกหล่นมาก่อน)
       if (activeSections.includes('medication') && onAddMedicationPreset) {
