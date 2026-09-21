@@ -1,16 +1,23 @@
-// รันอัตโนมัติทุกวัน 08:00 น. เวลาไทย (ตั้งเวลาไว้ใน vercel.json) — รวม 2 งานไว้ในไฟล์เดียว (เหลือ cron แค่ 2 ตัวรวมกับปันผล พอดีกับโควตาฟรีของ Vercel Hobby)
-// 1) นัดหมอสัตว์เลี้ยง — เช็คทุกวัน (นัดหมอต้องแม่นยำเป๊ะ ใช้ reminderDays ตรงตัว)
-// 2) รถยนต์ (ภาษี/พ.ร.บ./ประกันภัยชั้น 1) — เช็คแค่ "วันที่ 1 ของทุกเดือน" เท่านั้น (Tommy บอกว่าเดือนละครั้งพอ ไม่ต้องเป๊ะทุกวันเหมือนนัดหมอ)
-//    ผลคือแจ้งเตือนแบบ "ใกล้หมดอายุภายใน X วัน" กว้างๆ แทนการจับวันตรงเป๊ะแบบนัดหมอ (X = ค่ามากสุดใน reminderDays ที่ตั้งไว้ต่อรายการ)
+// รันอัตโนมัติทุกวัน (ตั้งเวลาไว้ใน vercel.json — แนะนำ 08:00 น. ให้รันหลัง cron-dividends ที่ 07:00)
+// ไล่เช็คทุกจุดในแอปที่มีปุ่มตั้ง "แจ้งเตือนล่วงหน้า (วัน)" อยู่แล้ว (นัดหมายลูกๆ, ยาเห็บหมัด/พยาธิ, ค่าเช่า, ครบสัญญาเช่า, บัตรเครดิต, ประกัน)
+// แล้วส่ง LINE เตือนให้เอง ไม่ต้องเปิดแอปเข้ามาดูก่อนถึงจะรู้ — แก้ปัญหาที่ก่อนหน้านี้การเตือนเป็นแค่แถบสีในแอปเท่านั้น
 //
-// ใช้ Environment Variable ชุดเดียวกับไฟล์ cron อื่นๆ อยู่แล้ว (FIREBASE_SERVICE_ACCOUNT, CRON_SECRET, LINE_CHANNEL_ACCESS_TOKEN, LINE_GROUP_ID)
+// ใช้ pattern เดียวกับ api/cron-dividends.js ทุกอย่าง (Firebase Admin init, CRON_SECRET, FIRESTORE_PATH ของ Tommy)
+// อ่านค่าเพิ่มจาก 2 เอกสาร: เอกสารส่วนตัวของภรรยา (สำหรับบัตรเครดิต/ประกันของภรรยาเอง ถ้ามี) และเอกสารกลาง shared/krangya-family (ลูกๆ + บ้านเช่า)
+//
+// สิ่งที่ต้องมี (ใช้ค่าเดิมจาก cron-dividends.js ได้เลย ไม่ต้องตั้งใหม่):
+// 1. Environment Variable: FIREBASE_SERVICE_ACCOUNT
+// 2. Environment Variable: CRON_SECRET
+// 3. Environment Variable: LINE_CHANNEL_ACCESS_TOKEN, LINE_GROUP_ID (ใช้อยู่แล้วกับ LINE webhook/notify จุดอื่น)
+// 4. อัปโหลดไฟล์นี้ + เพิ่ม entry ใหม่ใน vercel.json (ดูตัวอย่างท้ายไฟล์นี้)
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// dogs/vehicles (นัดหมอ/รถยนต์) เก็บอยู่ในเอกสารกลาง (ใช้ร่วมกับภรรยา)
-const SHARED_FIRESTORE_PATH = ['shared', 'krangya-family', 'data', 'main'];
-const VEHICLE_ITEM_LABELS = { tax: '🚙 ภาษีรถยนต์', compulsory: '📄 พ.ร.บ.', insurance: '🛡️ ประกันภัยชั้น 1' };
+const TOMMY_PATH = ['users', '7XDNF2jiEVOXXxtnt5tVvUoSgKV2', 'data', 'portfolio'];
+// UID ของภรรยา (Tunn0202@gmail.com) — ตามที่บันทึกไว้จากการทดสอบ LINE webhook ก่อนหน้านี้
+const WIFE_PATH = ['users', 'bHbdGCk6G0OK9EXHVdjTfNqJuYr2', 'data', 'portfolio'];
+const SHARED_PATH = ['shared', 'krangya-family', 'data', 'main'];
 
 function getDb() {
   if (getApps().length === 0) {
@@ -20,7 +27,35 @@ function getDb() {
   return getFirestore();
 }
 
-async function sendLineNotify(message, to) {
+function docRefFromPath(db, path) {
+  return db.collection(path[0]).doc(path[1]).collection(path[2]).doc(path[3]);
+}
+
+function formatDateDMY(dateStr) {
+  if (!dateStr) return '-';
+  const [y, m, d] = dateStr.split('-');
+  if (!y || !m || !d) return dateStr;
+  return `${d}/${m}/${y}`;
+}
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  return Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24));
+}
+
+function monthKey(dateStr) {
+  return (dateStr || new Date().toISOString().slice(0, 10)).slice(0, 7);
+}
+
+// คำนวณวันครบกำหนดจ่ายบัตรของรอบปัจจุบัน จาก dueDay (วันที่ในเดือน) — ตรรกะเดียวกับ nextCardDueDate ใน App.jsx
+function nextCardDueDate(dueDay) {
+  const now = new Date();
+  let due = new Date(now.getFullYear(), now.getMonth(), Number(dueDay || 15));
+  if (due < now) due = new Date(now.getFullYear(), now.getMonth() + 1, Number(dueDay || 15));
+  return due.toISOString().slice(0, 10);
+}
+
+async function sendLineText(message, to) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const groupId = to || process.env.LINE_GROUP_ID;
   if (!token || !groupId) return;
@@ -31,94 +66,31 @@ async function sendLineNotify(message, to) {
   });
 }
 
-function todayBangkokStr() {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date())
-    .reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-function daysBetween(fromStr, toStr) {
-  const a = new Date(fromStr + 'T00:00:00Z');
-  const b = new Date(toStr + 'T00:00:00Z');
-  return Math.round((b - a) / (24 * 60 * 60 * 1000));
-}
-function formatDateDMY(dateStr) {
-  if (!dateStr) return '-';
-  const [y, m, d] = dateStr.split('-');
-  return `${d}/${m}/${y}`;
+// เช็ครายการหนึ่งตัว: ถึงกำหนดวันนี้พอดี (ตรงกับหนึ่งใน reminderDays) หรือเลยกำหนดไปแล้ว (แจ้งซ้ำทุกวันจนกว่าจะแก้ไข)
+// คืนค่า { shouldNotify, dedupKey, line } — dedupKey ใช้กันแจ้งซ้ำวันเดียวกันสำหรับรายการที่ยังไม่เลยกำหนด (ส่วนรายการที่เลยกำหนดแล้วไม่กันซ้ำ เพราะอยากให้เตือนต่อเนื่องทุกวันจนกว่าจะจัดการ)
+function evaluateItem({ id, label, dueDate, reminderDays, todayStr, remindersSent }) {
+  const dl = daysUntil(dueDate);
+  if (dl === null) return null;
+  const days = reminderDays && reminderDays.length ? reminderDays : [3, 1];
+  if (dl < 0) {
+    return { shouldNotify: true, dedupKey: null, line: `🔴 ${label} — เลยกำหนดมาแล้ว ${Math.abs(dl)} วัน (${formatDateDMY(dueDate)})` };
+  }
+  if (days.includes(dl)) {
+    const dedupKey = `${id}_${dueDate}_${dl}`;
+    if (remindersSent[dedupKey]) return null; // แจ้งไปแล้ววันนี้/ก่อนหน้านี้สำหรับรอบนี้พอดี ไม่แจ้งซ้ำ
+    return { shouldNotify: true, dedupKey, line: `🟡 ${label} — อีก ${dl} วันถึงกำหนด (${formatDateDMY(dueDate)})` };
+  }
+  return null;
 }
 
-// --- ส่วนที่ 1: นัดหมอสัตว์เลี้ยง (เช็คทุกวัน) ---
-async function checkAppointments(sharedState, today) {
-  const dogs = sharedState.dogs || [];
-  let sentCount = 0;
-  let changed = false;
-  const pending = [];
-
-  const nextDogs = dogs.map((d) => {
-    const appts = d.appointments || [];
-    let apptsChanged = false;
-    const nextAppts = appts.map((appt) => {
-      if (!appt.date || appt.date < today) return appt;
-      const daysLeft = daysBetween(today, appt.date);
-      const reminderDays = (appt.reminderDays && appt.reminderDays.length > 0) ? appt.reminderDays : [7, 3, 1];
-      if (!reminderDays.includes(daysLeft)) return appt;
-      const remindersSent = appt.remindersSent || [];
-      if (remindersSent.includes(daysLeft)) return appt;
-
-      const whenText = daysLeft === 0 ? 'วันนี้' : `อีก ${daysLeft} วัน`;
-      const lines = [`📅 นัดหมอใกล้ถึงแล้ว! ${d.name} (${whenText})`, `วันนัด: ${formatDateDMY(appt.date)}${appt.time ? ' ' + appt.time + ' น.' : ''}`];
-      if (appt.hospital) lines.push(`โรงพยาบาล: ${appt.hospital}`);
-      if (appt.doctor) lines.push(`หมอ: ${appt.doctor}`);
-      if (appt.purpose) lines.push(`เหตุผล: ${appt.purpose}`);
-      pending.push(sendLineNotify(lines.join('\n'), d.lineGroupId).catch(() => {}));
-      sentCount += 1;
-      apptsChanged = true;
-      return { ...appt, remindersSent: [...remindersSent, daysLeft] };
-    });
-    if (apptsChanged) { changed = true; return { ...d, appointments: nextAppts }; }
-    return d;
+// ตัดทิ้ง dedup key ที่เก่าเกิน 45 วัน กันเอกสารโตไม่มีที่สิ้นสุด
+function pruneRemindersSent(remindersSent, todayStr) {
+  const cutoff = new Date(todayStr); cutoff.setDate(cutoff.getDate() - 45);
+  const next = {};
+  Object.entries(remindersSent).forEach(([key, sentDate]) => {
+    if (!sentDate || new Date(sentDate) >= cutoff) next[key] = sentDate;
   });
-
-  await Promise.all(pending);
-  return { nextDogs, changed, sentCount };
-}
-
-// --- ส่วนที่ 2: รถยนต์ (เช็คเฉพาะวันที่ 1 ของเดือน) ---
-async function checkVehicles(sharedState, today) {
-  const vehicles = sharedState.vehicles || [];
-  let sentCount = 0;
-  let changed = false;
-  const pending = [];
-  const itemKeys = ['tax', 'compulsory', 'insurance'];
-
-  const nextVehicles = vehicles.map((v) => {
-    let vChanged = false;
-    const nextV = { ...v };
-    itemKeys.forEach((key) => {
-      const item = v[key];
-      if (!item || !item.expiryDate) return;
-      if (item.expiryDate < today) return; // หมดอายุไปแล้ว ไม่เตือนซ้ำ
-      const daysLeft = daysBetween(today, item.expiryDate);
-      const reminderDays = (item.reminderDays && item.reminderDays.length > 0) ? item.reminderDays : [30, 15, 7];
-      const windowDays = Math.max(...reminderDays);
-      if (daysLeft > windowDays) return; // ยังไม่เข้าเขตที่ต้องเตือน
-      if (item.lastReminderExpiry === item.expiryDate) return; // เตือนไปแล้วรอบนี้ (จนกว่าจะเปลี่ยนวันหมดอายุตอนต่ออายุใหม่)
-
-      const lines = [`${VEHICLE_ITEM_LABELS[key]} ใกล้หมดอายุแล้ว! ${v.name}${v.plate ? ` (${v.plate})` : ''} (อีก ${daysLeft} วัน)`, `วันหมดอายุ: ${formatDateDMY(item.expiryDate)}`];
-      if (item.company) lines.push(`บริษัท: ${item.company}`);
-      if (item.cost) lines.push(`ค่าใช้จ่ายรอบก่อน: ฿${Number(item.cost).toLocaleString('th-TH')}`);
-      pending.push(sendLineNotify(lines.join('\n')).catch(() => {}));
-      sentCount += 1;
-      vChanged = true;
-      nextV[key] = { ...item, lastReminderExpiry: item.expiryDate };
-    });
-    if (vChanged) { changed = true; return nextV; }
-    return v;
-  });
-
-  await Promise.all(pending);
-  return { nextVehicles, changed, sentCount };
+  return next;
 }
 
 export default async function handler(req, res) {
@@ -130,32 +102,112 @@ export default async function handler(req, res) {
 
   try {
     const db = getDb();
-    const docRef = db.collection(SHARED_FIRESTORE_PATH[0]).doc(SHARED_FIRESTORE_PATH[1]).collection(SHARED_FIRESTORE_PATH[2]).doc(SHARED_FIRESTORE_PATH[3]);
-    const snap = await docRef.get();
-    if (!snap.exists) {
-      res.status(404).json({ error: 'ไม่พบเอกสารข้อมูลกลาง ตรวจสอบ SHARED_FIRESTORE_PATH ในไฟล์นี้ว่าตรงกับ App.jsx ไหม' });
-      return;
-    }
-    const sharedState = snap.data();
-    const today = todayBangkokStr();
-    const isFirstOfMonth = today.slice(8, 10) === '01';
+    const todayStr = new Date().toISOString().slice(0, 10);
 
-    const apptResult = await checkAppointments(sharedState, today);
-    const vehicleResult = isFirstOfMonth
-      ? await checkVehicles(sharedState, today)
-      : { nextVehicles: sharedState.vehicles || [], changed: false, sentCount: 0 };
+    // ข้อความที่จะส่ง แยกเป็นกลุ่มตามปลายทาง LINE (ค่าเริ่มต้น = กลุ่มหลัก, บางตัวมีกลุ่มเฉพาะของลูกๆ แต่ละตัว)
+    const messagesByGroup = { DEFAULT: [] };
+    const pushLine = (line, groupId) => {
+      const key = groupId || 'DEFAULT';
+      if (!messagesByGroup[key]) messagesByGroup[key] = [];
+      messagesByGroup[key].push(line);
+    };
 
-    const patch = {};
-    if (apptResult.changed) patch.dogs = apptResult.nextDogs;
-    if (vehicleResult.changed) patch.vehicles = vehicleResult.nextVehicles;
-    if (Object.keys(patch).length > 0) await docRef.set(patch, { merge: true });
+    // ---------- เอกสารกลาง (ลูกๆ + บ้านเช่า) ----------
+    const sharedRef = docRefFromPath(db, SHARED_PATH);
+    const sharedSnap = await sharedRef.get();
+    const sharedState = sharedSnap.exists ? sharedSnap.data() : {};
+    const sharedRemindersSent = sharedState.remindersSent || {};
+    let nextSharedRemindersSent = { ...sharedRemindersSent };
 
-    res.status(200).json({
-      ok: true,
-      appointments: { sent: apptResult.sentCount },
-      vehicles: { checked: isFirstOfMonth, sent: vehicleResult.sentCount },
+    (sharedState.dogs || []).forEach((dog) => {
+      const groupId = dog.lineGroupId || undefined;
+      // นัดหมาย
+      (dog.appointments || []).forEach((a) => {
+        const result = evaluateItem({
+          id: `appt_${a.id}`, label: `${dog.name} — นัดหมาย: ${a.purpose || '-'}${a.hospital ? ' @ ' + a.hospital : ''}`,
+          dueDate: a.date, reminderDays: a.reminderDays, todayStr, remindersSent: sharedRemindersSent,
+        });
+        if (result && result.shouldNotify) { pushLine(result.line, groupId); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
+      });
+      // ยาเห็บหมัด/พยาธิ
+      const ft = dog.fleaTick;
+      if (ft && ft.lastGivenDate && ft.intervalDays) {
+        const due = new Date(ft.lastGivenDate); due.setDate(due.getDate() + Number(ft.intervalDays || 84));
+        const dueDate = due.toISOString().slice(0, 10);
+        const result = evaluateItem({
+          id: `flea_${dog.id}`, label: `${dog.name} — ถึงรอบให้ยา ${ft.productName || 'เห็บหมัด/พยาธิ'}`,
+          dueDate, reminderDays: ft.reminderDays, todayStr, remindersSent: sharedRemindersSent,
+        });
+        if (result && result.shouldNotify) { pushLine(result.line, groupId); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
+      }
     });
+
+    (sharedState.properties || []).forEach((p) => {
+      // ค่าเช่ารายเดือน (เฉพาะห้องที่มีผู้เช่าอยู่ และเดือนนี้ยังไม่จ่าย)
+      if (p.status === 'occupied' && p.rentDueDay) {
+        const ym = monthKey(todayStr);
+        const paid = ((p.payments || {})[ym] || {}).paid;
+        if (!paid) {
+          const dueDate = `${ym}-${String(p.rentDueDay).padStart(2, '0')}`;
+          const result = evaluateItem({ id: `rent_${p.id}`, label: `ค่าเช่า: ${p.name}`, dueDate, reminderDays: p.rentReminderDays, todayStr, remindersSent: sharedRemindersSent });
+          if (result && result.shouldNotify) { pushLine(result.line); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
+        }
+      }
+      // ครบกำหนดสัญญาเช่า
+      if (p.contractEndDate) {
+        const result = evaluateItem({ id: `contract_${p.id}`, label: `ครบสัญญาเช่า: ${p.name}`, dueDate: p.contractEndDate, reminderDays: p.reminderDays, todayStr, remindersSent: sharedRemindersSent });
+        if (result && result.shouldNotify) { pushLine(result.line); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
+      }
+    });
+
+    nextSharedRemindersSent = pruneRemindersSent(nextSharedRemindersSent, todayStr);
+    await sharedRef.set({ remindersSent: nextSharedRemindersSent }, { merge: true });
+
+    // ---------- เอกสารส่วนตัว (บัตรเครดิต + ประกัน ของ Tommy และภรรยา) ----------
+    for (const personalPath of [TOMMY_PATH, WIFE_PATH]) {
+      const ref = docRefFromPath(db, personalPath);
+      const snap = await ref.get();
+      if (!snap.exists) continue;
+      const state = snap.data();
+      const remindersSent = state.remindersSent || {};
+      let nextRemindersSent = { ...remindersSent };
+
+      (state.creditCards || []).forEach((c) => {
+        const dueDate = nextCardDueDate(c.dueDay);
+        const result = evaluateItem({ id: `card_${c.id}`, label: `บัตร ${c.bankName || ''} ${c.cardName || ''}`.trim(), dueDate, reminderDays: c.reminderDays, todayStr, remindersSent });
+        if (result && result.shouldNotify) { pushLine(result.line); if (result.dedupKey) nextRemindersSent[result.dedupKey] = todayStr; }
+      });
+
+      (state.insurancePolicies || []).forEach((p) => {
+        if (!p.nextDueDate) return;
+        const result = evaluateItem({ id: `ins_${p.id}`, label: `เบี้ยประกัน: ${p.planName || p.company || '-'}`, dueDate: p.nextDueDate, reminderDays: p.reminderDays, todayStr, remindersSent });
+        if (result && result.shouldNotify) { pushLine(result.line); if (result.dedupKey) nextRemindersSent[result.dedupKey] = todayStr; }
+      });
+
+      nextRemindersSent = pruneRemindersSent(nextRemindersSent, todayStr);
+      await ref.set({ remindersSent: nextRemindersSent }, { merge: true });
+    }
+
+    // ---------- ส่ง LINE ----------
+    let totalSent = 0;
+    for (const [groupKey, lines] of Object.entries(messagesByGroup)) {
+      if (lines.length === 0) continue;
+      const to = groupKey === 'DEFAULT' ? undefined : groupKey;
+      await sendLineText(`🔔 รายการที่ใกล้ถึงกำหนด/เลยกำหนดวันนี้:\n\n${lines.join('\n')}`, to);
+      totalSent += lines.length;
+    }
+
+    res.status(200).json({ ok: true, totalReminders: totalSent });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
+
+// ==================== เพิ่มใน vercel.json ====================
+// เพิ่ม object นี้เข้าไปใน array "crons" ที่มีอยู่แล้ว (อย่าลบ entry เดิมของ cron-dividends) ตัวอย่างเช่น:
+// {
+//   "crons": [
+//     { "path": "/api/cron-dividends", "schedule": "0 7 * * *" },
+//     { "path": "/api/cron-reminders", "schedule": "0 8 * * *" }
+//   ]
+// }
