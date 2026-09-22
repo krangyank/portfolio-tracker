@@ -2656,9 +2656,9 @@ function loadImage(url) {
     img.src = url;
   });
 }
-// วาดการ์ดสรุป "ไปหาหมอ" สวยๆ ด้วย canvas — ใส่ทุกฟิลด์แบบเต็มไม่ตัดทอน (ยาวได้ตามเนื้อหาจริง เหมือนสกรีนช็อตข้อความยาว)
-// คืนค่าเป็น PNG Blob พร้อมแชร์เป็นไฟล์รูปได้เลย
-async function renderVetVisitCardImage(dog, visit) {
+// วาดการ์ดข้อมูลสวยๆ ด้วย canvas จากชุด rows ที่กำหนด — ใช้ร่วมกันทั้งการ์ดสรุปสั้นๆ และการ์ดรายละเอียดเต็ม เพื่อให้หน้าตาเป็นชุดเดียวกัน
+// คืนค่าเป็น PNG Blob พร้อมแชร์เป็นไฟล์รูปได้เลย ความสูงคำนวณอัตโนมัติตามเนื้อหาจริง (ไม่ตัดทอน)
+async function drawInfoCardImage({ eyebrow, title, subtitle, heroUrl, rows, footerNote }) {
   const W = 720;
   const PAD = 40;
   const CONTENT_W = W - PAD * 2;
@@ -2667,34 +2667,6 @@ async function renderVetVisitCardImage(dog, visit) {
   const LABEL_LINE_H = 20;
   const VALUE_FONT = '16px "Sarabun", system-ui, sans-serif';
   const LABEL_FONT = '600 13px "Sarabun", system-ui, sans-serif';
-
-  const rows = [];
-  rows.push({ icon: '📅', label: 'วันที่', value: formatDateThai(visit.date) });
-  if (visit.hospital) rows.push({ icon: '🏥', label: 'โรงพยาบาล', value: visit.hospital });
-  if (visit.department) rows.push({ icon: '🚪', label: 'แผนก', value: visit.department });
-  if (visit.doctor) rows.push({ icon: '👨‍⚕️', label: 'สัตวแพทย์', value: visit.doctor });
-  if (visit.reason) rows.push({ icon: '📝', label: 'เหตุผลที่ไป', value: visit.reason });
-  if (visit.diagnosis) rows.push({ icon: '💬', label: 'ผลวินิจฉัย/การรักษา', value: visit.diagnosis });
-  if (visit.cost) rows.push({ icon: '💰', label: 'ค่าใช้จ่าย', value: `฿${fmt(visit.cost)}` });
-  (visit.linkedRecords || []).forEach((lr) => {
-    const record = (dog[lr.type] || []).find((r) => r.id === lr.id);
-    if (!record) return;
-    if (lr.type === 'bloodTests') rows.push({ icon: '🩸', label: `ตรวจเลือด (${record.type || ''})`, value: record.note || '-' });
-    else if (lr.type === 'organExams') rows.push({ icon: '🫁', label: `อวัยวะ (${record.organ || ''})`, value: record.note || '-' });
-    else if (lr.type === 'imaging') rows.push({ icon: '🩻', label: record.type || 'Imaging', value: record.note || '-' });
-    else if (lr.type === 'weights') rows.push({ icon: '⚖️', label: 'น้ำหนัก', value: `${record.weight} กก.` });
-    else if (lr.type === 'medications') rows.push({ icon: '💊', label: 'ยา', value: `${record.name}${record.dose ? ' ' + record.dose : ''}` });
-    else if (lr.type === 'expenses') rows.push({ icon: '🧾', label: 'ค่าใช้จ่าย', value: `฿${fmt(record.amount)} (${record.category || ''})` });
-    else if (lr.type === 'appointments') rows.push({ icon: '📅', label: 'นัดครั้งถัดไป', value: `${formatDateThai(record.date)}${record.hospital ? ' · ' + record.hospital : ''}${record.purpose ? ' · ' + record.purpose : ''}` });
-  });
-
-  let heroUrl = (visit.photos && visit.photos[0] && visit.photos[0].url) || null;
-  if (!heroUrl) {
-    for (const lr of (visit.linkedRecords || [])) {
-      const record = (dog[lr.type] || []).find((r) => r.id === lr.id);
-      if (record && record.photos && record.photos[0]) { heroUrl = record.photos[0].url; break; }
-    }
-  }
   const HERO_H = heroUrl ? 340 : 0;
 
   const canvas = document.createElement('canvas');
@@ -2743,9 +2715,9 @@ async function renderVetVisitCardImage(dog, visit) {
 
   ctx.fillStyle = '#F4F1EA'; ctx.fillRect(0, 0, W, totalH);
   ctx.fillStyle = '#1C1A14'; ctx.fillRect(0, 0, W, HEADER_H);
-  ctx.fillStyle = '#B8AF9C'; ctx.font = '13px "Sarabun", system-ui, sans-serif'; ctx.fillText('บันทึกการไปหาหมอ', PAD, 46);
-  ctx.fillStyle = '#F4F1EA'; ctx.font = 'bold 30px "Sarabun", system-ui, sans-serif'; ctx.fillText(`🐶 ${dog.name}`, PAD, 86);
-  ctx.fillStyle = '#B8AF9C'; ctx.font = '15px "Sarabun", system-ui, sans-serif'; ctx.fillText(formatDateThai(visit.date), PAD, 114);
+  ctx.fillStyle = '#B8AF9C'; ctx.font = '13px "Sarabun", system-ui, sans-serif'; ctx.fillText(eyebrow, PAD, 46);
+  ctx.fillStyle = '#F4F1EA'; ctx.font = 'bold 30px "Sarabun", system-ui, sans-serif'; ctx.fillText(title, PAD, 86);
+  ctx.fillStyle = '#B8AF9C'; ctx.font = '15px "Sarabun", system-ui, sans-serif'; ctx.fillText(subtitle, PAD, 114);
 
   if (heroUrl) {
     try {
@@ -2769,20 +2741,55 @@ async function renderVetVisitCardImage(dog, visit) {
   });
 
   ctx.fillStyle = '#A79E8A'; ctx.font = '12px "Sarabun", system-ui, sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('เป๋าตุง Family', W / 2, totalH - 20);
+  ctx.fillText(footerNote, W / 2, totalH - 20);
   ctx.textAlign = 'left';
 
   return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'));
 }
-// แชร์การ์ดรูปที่สร้างไว้ (ไฟล์ PNG ในเครื่อง ไม่ใช่ URL) — คัดลอกข้อความเต็มใส่คลิปบอร์ดคู่กันไว้เผื่อแอปปลายทางไม่แปะข้อความมาด้วยตอนแชร์รูป
-async function shareVisitCard(cardBlob, text) {
+// การ์ดที่ 1: สรุปสั้นๆ สวยๆ — รูปหลัก + หัวข้อสำคัญเท่านั้น (วันที่/รพ./แผนก/หมอ/ค่าใช้จ่าย) หน้าตาสวยแน่นอนเพราะไม่ยาวเกิน
+async function renderVetVisitSummaryCard(dog, visit) {
+  const rows = [];
+  if (visit.hospital) rows.push({ icon: '🏥', label: 'โรงพยาบาล', value: visit.hospital });
+  if (visit.department) rows.push({ icon: '🚪', label: 'แผนก', value: visit.department });
+  if (visit.doctor) rows.push({ icon: '👨‍⚕️', label: 'สัตวแพทย์', value: visit.doctor });
+  if (visit.cost) rows.push({ icon: '💰', label: 'ค่าใช้จ่าย', value: `฿${fmt(visit.cost)}` });
+  let heroUrl = (visit.photos && visit.photos[0] && visit.photos[0].url) || null;
+  if (!heroUrl) {
+    for (const lr of (visit.linkedRecords || [])) {
+      const record = (dog[lr.type] || []).find((r) => r.id === lr.id);
+      if (record && record.photos && record.photos[0]) { heroUrl = record.photos[0].url; break; }
+    }
+  }
+  return drawInfoCardImage({ eyebrow: 'บันทึกการไปหาหมอ', title: `🐶 ${dog.name}`, subtitle: formatDateThai(visit.date), heroUrl, rows, footerNote: 'เป๋าตุง Family' });
+}
+// การ์ดที่ 2: รายละเอียดเต็ม — เหตุผลที่ไป, ผลวินิจฉัย, และทุกรายการที่เชื่อมโยงไว้ (ผลเลือด/Imaging/อวัยวะ/น้ำหนัก/ยา ฯลฯ) ยาวได้ตามจริงโดยไม่กระทบความสวยของการ์ดที่ 1
+async function renderVetVisitDetailCard(dog, visit) {
+  const rows = [];
+  if (visit.reason) rows.push({ icon: '📝', label: 'เหตุผลที่ไป', value: visit.reason });
+  if (visit.diagnosis) rows.push({ icon: '💬', label: 'ผลวินิจฉัย/การรักษา', value: visit.diagnosis });
+  (visit.linkedRecords || []).forEach((lr) => {
+    const record = (dog[lr.type] || []).find((r) => r.id === lr.id);
+    if (!record) return;
+    if (lr.type === 'bloodTests') rows.push({ icon: '🩸', label: `ตรวจเลือด (${record.type || ''})`, value: record.note || '-' });
+    else if (lr.type === 'organExams') rows.push({ icon: '🫁', label: `อวัยวะ (${record.organ || ''})`, value: record.note || '-' });
+    else if (lr.type === 'imaging') rows.push({ icon: '🩻', label: record.type || 'Imaging', value: record.note || '-' });
+    else if (lr.type === 'weights') rows.push({ icon: '⚖️', label: 'น้ำหนัก', value: `${record.weight} กก.` });
+    else if (lr.type === 'medications') rows.push({ icon: '💊', label: 'ยา', value: `${record.name}${record.dose ? ' ' + record.dose : ''}` });
+    else if (lr.type === 'expenses') rows.push({ icon: '🧾', label: 'ค่าใช้จ่าย', value: `฿${fmt(record.amount)} (${record.category || ''})` });
+    else if (lr.type === 'appointments') rows.push({ icon: '📅', label: 'นัดครั้งถัดไป', value: `${formatDateThai(record.date)}${record.hospital ? ' · ' + record.hospital : ''}${record.purpose ? ' · ' + record.purpose : ''}` });
+  });
+  if (rows.length === 0) return null; // ไม่มีรายละเอียดเพิ่มเติมอะไรเลย ไม่ต้องสร้างการ์ดที่ 2 เปล่าๆ
+  return drawInfoCardImage({ eyebrow: 'รายละเอียดเพิ่มเติม', title: `🐶 ${dog.name}`, subtitle: formatDateThai(visit.date), heroUrl: null, rows, footerNote: 'เป๋าตุง Family' });
+}
+// แชร์การ์ดรูปที่สร้างไว้ (ไฟล์ PNG ในเครื่อง ไม่ใช่ URL — รับได้ทั้งใบเดียวหรือหลายใบ) — คัดลอกข้อความเต็มใส่คลิปบอร์ดคู่กันไว้เผื่อแอปปลายทางไม่แปะข้อความมาด้วยตอนแชร์รูป
+async function shareVisitCards(cardBlobs, text) {
   const result = { ok: false, sharedWithImage: false, error: null, textCopiedToClipboard: false };
   navigator.clipboard.writeText(text).then(() => { result.textCopiedToClipboard = true; }).catch((e) => console.error('clipboard copy failed', e));
   try {
-    if (navigator.share && cardBlob) {
-      const file = new File([cardBlob], 'vet-visit-card.png', { type: 'image/png' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file] });
+    const files = (cardBlobs || []).filter(Boolean).map((blob, i) => new File([blob], `vet-visit-${i + 1}.png`, { type: 'image/png' }));
+    if (navigator.share && files.length > 0) {
+      if (navigator.canShare && navigator.canShare({ files })) {
+        await navigator.share({ files });
         result.ok = true; result.sharedWithImage = true;
         return result;
       }
@@ -2791,7 +2798,7 @@ async function shareVisitCard(cardBlob, text) {
     else { window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`, '_blank'); result.ok = true; }
   } catch (e) {
     if (e && e.name === 'AbortError') result.ok = true;
-    else { console.error('share visit card failed', e); result.error = e.message || String(e); }
+    else { console.error('share visit cards failed', e); result.error = e.message || String(e); }
   }
   return result;
 }
@@ -10172,11 +10179,11 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
             <button onClick={async () => {
               setShareStatus({ loading: true });
               try {
-                const cardBlob = await renderVetVisitCardImage(dog, visit);
+                const [summaryBlob, detailBlob] = await Promise.all([renderVetVisitSummaryCard(dog, visit), renderVetVisitDetailCard(dog, visit)]);
                 const fullText = buildVetVisitShareText(dog, visit);
-                const res = await shareVisitCard(cardBlob, fullText);
+                const res = await shareVisitCards([summaryBlob, detailBlob], fullText);
                 if (res.error) setShareStatus({ loading: false, message: `แชร์ไม่สำเร็จ: ${res.error}`, isError: true });
-                else if (res.sharedWithImage) setShareStatus({ loading: false, message: `ส่งการ์ดสรุปแล้ว${res.textCopiedToClipboard ? ' — คัดลอกข้อความเต็มไว้ในคลิปบอร์ดให้แล้วด้วย วางเพิ่มได้ถ้าต้องการ' : ''}`, isError: false });
+                else if (res.sharedWithImage) setShareStatus({ loading: false, message: `ส่งการ์ดแล้ว${detailBlob ? ' (2 ใบ — สรุป + รายละเอียดเต็ม)' : ''}${res.textCopiedToClipboard ? ' — คัดลอกข้อความเต็มไว้ในคลิปบอร์ดให้แล้วด้วย วางเพิ่มได้ถ้าต้องการ' : ''}`, isError: false });
                 else setShareStatus(null);
               } catch (e) {
                 setShareStatus({ loading: false, message: `สร้างการ์ดไม่สำเร็จ: ${e.message}`, isError: true });
