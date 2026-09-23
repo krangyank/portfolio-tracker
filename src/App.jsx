@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { doc, getDoc, setDoc, updateDoc, arrayUnion, onSnapshot } from 'firebase/firestore';
 import {
   PlusCircle, Trash2, TrendingUp, Wallet, PiggyBank, Flame, Landmark,
@@ -2922,11 +2923,14 @@ async function downloadPhotos(photoUrls) {
 
 function Lightbox({ url, onClose }) {
   if (!url) return null;
-  return (
+  // ใช้ Portal render ตรงเข้า document.body เสมอ — กันบั๊กที่รูปโชว์ไม่เต็มจอ/ถูกครอบไว้แคบๆ เวลาปุ่มแนบรูปนี้อยู่ในแถวที่มี transform (เช่น แถวที่ปัดซ้ายลบได้)
+  // เพราะ position: fixed ของ Lightbox จะยึดตามกรอบของ ancestor ที่มี transform แทนที่จะยึดตามทั้งหน้าจอจริงถ้าไม่ทำแบบนี้
+  return createPortal(
     <div onClick={onClose} style={{ background: 'rgba(0,0,0,0.9)', position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,0.15)', borderRadius: '50%', padding: 8 }}><X size={22} color="white" /></button>
       <img src={url} alt="" style={{ maxWidth: '94vw', maxHeight: '88vh', objectFit: 'contain', borderRadius: 8 }} onClick={(e) => e.stopPropagation()} />
-    </div>
+    </div>,
+    document.body
   );
 }
 
