@@ -3950,14 +3950,20 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
 
   return (
     <div className="px-5 pt-5">
-      <div className="relative mb-4">
-        <Search size={15} color={SLATE} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาบัญชีหรือสัญลักษณ์หุ้น..." style={{ border: '1px solid #E7EAF0' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
+      <div className="relative mb-2.5" style={{ background: 'white', borderRadius: 14, boxShadow: '0 2px 10px rgba(28,26,20,0.06)' }}>
+        <Search size={15} color={SLATE} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาบัญชีหรือสัญลักษณ์หุ้น..." className="rounded-[14px] pl-10 pr-3 py-3 text-sm w-full" style={{ border: 'none', background: 'transparent' }} />
       </div>
-      <div className="flex gap-2 mb-4 p-1 rounded-lg" style={{ background: PAPER_DIM }}>
-        <button onClick={() => setViewMode('accounts')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'accounts' ? { background: 'white', color: INK } : { color: SLATE }}>ตามบัญชี</button>
-        <button onClick={() => setViewMode('allbuys')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'allbuys' ? { background: 'white', color: INK } : { color: SLATE }}>ซื้อทั้งหมด ({allBuys.length})</button>
-        <button onClick={() => setViewMode('allsells')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={viewMode === 'allsells' ? { background: 'white', color: INK } : { color: SLATE }}>ขายทั้งหมด ({allSells.length})</button>
+      <div className="flex gap-1 mb-4 p-1.5 rounded-2xl" style={{ background: '#EAE4D4', boxShadow: 'inset 0 1px 3px rgba(28,26,20,0.08)' }}>
+        <button onClick={() => setViewMode('accounts')} className="flex-1 flex items-center justify-center gap-1.5 text-xs rounded-xl py-2.5 font-semibold" style={viewMode === 'accounts' ? { background: INK, color: 'white', boxShadow: '0 2px 6px rgba(28,26,20,0.25)' } : { color: '#6B6350' }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: BRASS, display: 'inline-block' }} />ตามบัญชี
+        </button>
+        <button onClick={() => setViewMode('allbuys')} className="flex-1 flex items-center justify-center gap-1.5 text-xs rounded-xl py-2.5 font-semibold" style={viewMode === 'allbuys' ? { background: GOOD, color: 'white', boxShadow: '0 2px 6px rgba(63,97,82,0.3)' } : { background: '#E3F1E8', color: GOOD }}>
+          ซื้อทั้งหมด <span className="rounded-full font-bold" style={{ fontSize: 10.5, padding: '1px 6px', background: viewMode === 'allbuys' ? 'rgba(255,255,255,0.25)' : GOOD, color: 'white' }}>{allBuys.length}</span>
+        </button>
+        <button onClick={() => setViewMode('allsells')} className="flex-1 flex items-center justify-center gap-1.5 text-xs rounded-xl py-2.5 font-semibold" style={viewMode === 'allsells' ? { background: BAD, color: 'white', boxShadow: '0 2px 6px rgba(166,75,61,0.3)' } : { background: '#FBEAE7', color: BAD }}>
+          ขายทั้งหมด <span className="rounded-full font-bold" style={{ fontSize: 10.5, padding: '1px 6px', background: viewMode === 'allsells' ? 'rgba(255,255,255,0.25)' : BAD, color: 'white' }}>{allSells.length}</span>
+        </button>
       </div>
       {viewMode === 'allsells' ? (
         <div>
