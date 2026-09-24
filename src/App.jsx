@@ -218,18 +218,21 @@ async function askServer(promptText, imageBase64, mediaType, webSearch, fast) {
 let currentNotifyUser = '';
 // สวิตช์เปิด/ปิดแจ้งเตือน LINE ทั้งหมด ตั้งค่าจาก Tracker ตาม state.lineNotifyEnabled (ค่าเริ่มต้นเปิด) — เช็คจุดเดียวตรงนี้ ครอบคลุมทุกจุดเรียกในไฟล์ทันที
 let lineNotifyEnabled = true;
+// ตั้งค่าจาก Tracker (useEffect) ให้ชี้มาที่ฟังก์ชันจริงที่เก็บข้อความเข้าคิว "แชร์ค้างไว้" ในหน้าแอป — ไว้ใช้ตอนยิง LINE อัตโนมัติไม่สำเร็จ (เช่นโควต้ารายเดือนเต็ม) จะได้กดแชร์เองทีหลังได้ ไม่ต้องพึ่ง Messaging API
+let onQueueLineShare = () => {};
 // เช็ค response.ok ด้วยเสมอ (เดิมเช็คแค่ fetch ล้มเหลวจากปัญหาเน็ต ซึ่ง fetch() ไม่ throw ถ้า API ตอบกลับมาเป็น error code เช่น 400/500 — พลาดจุดนี้ไปทำให้ส่ง LINE ไม่สำเร็จแบบเงียบๆ ไม่มี error ให้เห็นเลยที่ไหน)
-// error ที่จับได้ทั้งหมดจะเข้า DEBUG_LOG_BUFFER อัตโนมัติ (ผ่าน console.error ที่ patch ไว้แล้ว) เปิดดูได้จากปุ่ม 🐞 ในแอป
-async function checkLineNotifyResponse(res, label) {
-  // api/line-notify.js ตอบ HTTP 200 เสมอแม้ LINE API จะปฏิเสธข้อความ (error โผล่ในตัว body แทนที่จะเป็น HTTP status code) — ต้องอ่าน body เช็คเองด้วย เช็คแค่ res.ok ไม่พอ
+// error ที่จับได้ทั้งหมดจะเข้า DEBUG_LOG_BUFFER อัตโนมัติ (ผ่าน console.error ที่ patch ไว้แล้ว) เปิดดูได้จากปุ่ม 🐞 ในแอป — และข้อความที่ส่งไม่สำเร็จจะเข้าคิว "แชร์ค้างไว้" ให้แชร์มือได้ด้วย
+async function checkLineNotifyResponse(res, label, fallbackText) {
   let data = null;
   try { data = await res.json(); } catch (e) { /* ไม่ใช่ JSON หรือ body ว่าง ข้ามไป */ }
   if (!res.ok) {
     console.error(`${label} failed: HTTP ${res.status}${data && data.error ? ' — ' + data.error : ''}`);
+    if (fallbackText) onQueueLineShare(fallbackText);
     return;
   }
   if (data && data.error) {
     console.error(`${label} failed: ${data.error}`);
+    if (fallbackText) onQueueLineShare(fallbackText);
   }
 }
 function sendLineNotify(message, to) {
@@ -239,10 +242,11 @@ function sendLineNotify(message, to) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: tagged, ...(to ? { to } : {}) }),
-  }).then((res) => checkLineNotifyResponse(res, 'sendLineNotify')).catch((e) => console.error('sendLineNotify failed', e));
+  }).then((res) => checkLineNotifyResponse(res, 'sendLineNotify', tagged)).catch((e) => { console.error('sendLineNotify failed', e); onQueueLineShare(tagged); });
 }
 // ส่งการ์ด Flex Message แทนข้อความล้วน — ใช้ altText เป็นข้อความสำรอง (โชว์ตอนแจ้งเตือน/บนนาฬิกา ที่มองไม่เห็นการ์ดจริง) ต้องแปะ "โดยใคร" ต่อท้ายใน altText เอง เพราะการ์ดไม่มีที่ใส่ชื่อผู้บันทึกแบบข้อความธรรมดา
 // to (ไม่บังคับ): ระบุ LINE Group ID ปลายทางเฉพาะ (เช่น กลุ่มเฉพาะของสัตว์เลี้ยงแต่ละตัว) ถ้าไม่ระบุจะส่งเข้ากลุ่มหลักตามค่า default ฝั่งเซิร์ฟเวอร์
+// altText คือสิ่งที่จะเก็บเข้าคิว "แชร์ค้างไว้" ถ้าส่งไม่สำเร็จ (การ์ด Flex เต็มรูปแบบแชร์เป็นข้อความล้วนผ่านมือไม่ได้ ใช้ altText แทนเป็นข้อความสรุป)
 function sendLineFlex(altText, contents, to) {
   if (!lineNotifyEnabled) return;
   const taggedAlt = currentNotifyUser ? `${altText} — โดย ${currentNotifyUser}` : altText;
@@ -250,7 +254,7 @@ function sendLineFlex(altText, contents, to) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ flex: { altText: taggedAlt, contents }, ...(to ? { to } : {}) }),
-  }).then((res) => checkLineNotifyResponse(res, 'sendLineFlex')).catch((e) => console.error('sendLineFlex failed', e));
+  }).then((res) => checkLineNotifyResponse(res, 'sendLineFlex', taggedAlt)).catch((e) => { console.error('sendLineFlex failed', e); onQueueLineShare(taggedAlt); });
 }
 const APP_URL = 'https://portfolio-tracker-six-chi.vercel.app';
 // การ์ด Flex Message มาตรฐานที่ใช้ซ้ำได้ทุกจุดแจ้งเตือน — หัวเข้ม, แถว label/value, ยอดเงินตัวใหญ่ (สีเขียว/แดงได้ตามทิศทางเงิน), โน้ตท้ายการ์ด, ปุ่มเปิดแอปไปแท็บที่เกี่ยวข้อง
@@ -1161,6 +1165,12 @@ export default function App() {
   useEffect(() => {
     lineNotifyEnabled = !(state && state.lineNotifyEnabled === false);
   }, [state && state.lineNotifyEnabled]);
+  // ทุกครั้งที่ยิง LINE อัตโนมัติไม่สำเร็จ (เช่นโควต้ารายเดือนเต็ม) ให้เก็บข้อความไว้ในคิว "แชร์ค้างไว้" แทน — ผู้ใช้กดแชร์เองผ่านปุ่มลอยได้ทีหลัง โดยไม่เสียโควต้า Messaging API เพราะเป็นการแชร์ผ่านแอป LINE ตรงๆ ไม่ใช่ push API
+  useEffect(() => {
+    onQueueLineShare = (text) => {
+      persist({ ...state, pendingLineShares: [...(state?.pendingLineShares || []), { id: uid(), text, at: new Date().toISOString() }] });
+    };
+  }, [state]);
 
   const dailyPriceRefreshTriggered = useRef(false);
   useEffect(() => {
@@ -2298,6 +2308,13 @@ export default function App() {
   return (
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK, fontVariantNumeric: 'tabular-nums' }} className="pb-24">
       <ConfirmDeleteHost />
+      <PendingLineSharesFab
+        items={state?.pendingLineShares || []}
+        onShareOne={(item) => shareTextToLine(item.text, () => persist({ ...state, pendingLineShares: (state?.pendingLineShares || []).filter((x) => x.id !== item.id) }))}
+        onShareAll={(items) => shareTextToLine(items.map((x) => x.text).join('\n\n---\n\n'), () => persist({ ...state, pendingLineShares: [] }))}
+        onDismiss={(item) => persist({ ...state, pendingLineShares: (state?.pendingLineShares || []).filter((x) => x.id !== item.id) })}
+        onClearAll={() => persist({ ...state, pendingLineShares: [] })}
+      />
       {saveError && (
         <div style={{ background: BAD, position: 'sticky', top: 0, zIndex: 100 }} className="px-4 py-3 text-white text-xs flex items-start gap-2">
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -2868,7 +2885,57 @@ async function shareVisitCards(cardBlobs, text) {
   }
   return result;
 }
-// แชร์ข้อความ+รูปผ่านเมนูแชร์ของเครื่อง (รองรับ LINE/Messenger/อีเมล ฯลฯ) ถ้าเครื่องไม่รองรับ fallback ไปเปิด LINE ด้วยข้อความอย่างเดียว
+// แชร์ข้อความหนึ่งก้อนผ่านเมนูแชร์ของเครื่อง (เลือก LINE ได้เลย) ไม่ผ่าน Messaging API เลยไม่เสียโควต้ารายเดือน — ถ้าเครื่องไม่รองรับเมนูแชร์ fallback ไปเปิด LINE ด้วยลิงก์ข้อความแทน
+// คืนค่า true ถ้าถือว่า "จัดการแล้ว" (แชร์สำเร็จ หรือ fallback เปิดไปแล้ว) — false เฉพาะตอนผู้ใช้กดยกเลิกเมนูแชร์เอง (ไว้ตัดสินใจว่าจะลบออกจากคิวไหม)
+async function shareTextToLine(text, onDone) {
+  try {
+    if (navigator.share) {
+      await navigator.share({ text });
+      onDone();
+      return true;
+    }
+    window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`, '_blank');
+    onDone();
+    return true;
+  } catch (e) {
+    if (e && e.name === 'AbortError') return false; // ผู้ใช้กดยกเลิกเมนูแชร์เอง — เก็บไว้ในคิวต่อ ไม่ลบ
+    console.error('shareTextToLine failed', e);
+    return false;
+  }
+}
+// ปุ่มลอย "แชร์ค้างไว้" — โผล่ทุกหน้าในแอปเมื่อมีข้อความที่ยิง LINE อัตโนมัติไม่สำเร็จ (เช่นโควต้ารายเดือนเต็ม) ให้กดแชร์เองผ่านแอป LINE ตรงๆ แทนได้
+function PendingLineSharesFab({ items, onShareOne, onShareAll, onDismiss, onClearAll }) {
+  const [open, setOpen] = useState(false);
+  if (!items || items.length === 0) return null;
+  return (
+    <>
+      <button onClick={() => setOpen(true)} style={{ position: 'fixed', right: 16, bottom: 88, zIndex: 200, background: '#06C755', width: 52, height: 52, borderRadius: '50%', boxShadow: '0 4px 14px rgba(6,199,85,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-label="แชร์ค้างไว้">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 4.36 3.6 8.01 8.44 8.7.33.07.78.22.89.5.1.26.07.66.03.92l-.14.87c-.04.26-.2 1.01.88.55 1.08-.46 5.84-3.44 7.97-5.89C21.6 14.1 22 12.5 22 10.8 22 5.94 17.52 2 12 2z"/></svg>
+        <span style={{ position: 'absolute', top: -4, right: -4, background: '#C0574D', color: 'white', fontSize: 11, fontWeight: 700, minWidth: 20, height: 20, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>{items.length}</span>
+      </button>
+      {open && (
+        <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: PAPER, width: '100%', maxHeight: '75vh', overflowY: 'auto', borderRadius: '18px 18px 0 0', padding: 18 }}>
+            <div className="flex justify-between items-center mb-3">
+              <p className="text-sm font-semibold">📤 แชร์ค้างไว้ ({items.length}) — ส่งอัตโนมัติไม่สำเร็จ (โควต้า LINE เต็มหรือเน็ตหลุด)</p>
+              <button onClick={() => setOpen(false)}><X size={18} color={SLATE} /></button>
+            </div>
+            <button onClick={() => onShareAll(items)} style={{ background: '#06C755' }} className="w-full text-white text-sm rounded-lg py-2.5 mb-2">แชร์ทั้งหมดรวมเป็นข้อความเดียว</button>
+            <button onClick={() => confirmDelete(`ล้างคิวทั้งหมด ${items.length} รายการทิ้ง? (จะไม่ได้แชร์อีก)`, onClearAll)} className="w-full text-xs rounded-lg py-2 mb-3" style={{ color: BAD, border: `1px solid ${BAD}` }}>ล้างทั้งหมดทิ้ง (ไม่แชร์)</button>
+            {items.map((item) => (
+              <div key={item.id} style={{ borderTop: `1px solid ${BORDER}` }} className="py-2.5 flex items-start gap-2">
+                <p className="text-xs flex-1 whitespace-pre-line" style={{ color: SLATE }}>{item.text}</p>
+                <button onClick={() => onShareOne(item)} style={{ color: '#06C755', flexShrink: 0 }} className="text-xs font-semibold underline">แชร์</button>
+                <button onClick={() => onDismiss(item)} style={{ flexShrink: 0 }}><X size={14} color={SLATE} /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 async function shareContent(text, photoUrls) {
   const result = { ok: false, sharedWithPhotos: false, error: null, requestedPhotoCount: (photoUrls || []).length, attachedPhotoCount: 0, textCopiedToClipboard: false };
   // คัดลอกคลิปบอร์ดแบบไม่รอ (fire-and-forget) — เดิม await ตรงนี้ก่อน แล้วค่อยโหลดรูปทีละใบตามลำดับ (sequential)
