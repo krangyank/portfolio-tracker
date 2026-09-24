@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { doc, getDoc, setDoc, updateDoc, arrayUnion, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion, deleteField, onSnapshot } from 'firebase/firestore';
 import {
   PlusCircle, Trash2, TrendingUp, Wallet, PiggyBank, Flame, Landmark,
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
@@ -945,6 +945,19 @@ export default function App() {
     }
     return obj;
   }
+  // เทียบ field ระดับบนสุดระหว่างเอกสารเก่ากับใหม่ คืนเฉพาะ field ที่ค่าเปลี่ยนจริง (ใช้ JSON.stringify เทียบ เจอความต่างระดับลึกในนั้นด้วย)
+  // field ที่หายไปจากเอกสารใหม่ (ถูกลบ) จะใส่ deleteField() ให้ Firestore ลบ field นั้นออกจริงด้วย ไม่ใช่แค่เว้นว่างไว้เฉยๆ
+  function diffTopLevelFields(prev, next) {
+    const out = {};
+    const allKeys = new Set([...Object.keys(prev || {}), ...Object.keys(next || {})]);
+    allKeys.forEach((k) => {
+      const prevVal = prev ? prev[k] : undefined;
+      const nextVal = next ? next[k] : undefined;
+      if (JSON.stringify(prevVal) === JSON.stringify(nextVal)) return;
+      out[k] = nextVal === undefined ? deleteField() : nextVal;
+    });
+    return out;
+  }
   // จำหน้าที่ใช้ล่าสุดไว้เบาๆ (แค่ field เดียว ไม่เขียนทับข้อมูลทั้งก้อน) เผื่อผู้ใช้เปิดใช้ "จำหน้าที่ใช้ล่าสุด" ไว้ในตั้งค่า
   useEffect(() => {
     if (!state) return;
@@ -954,10 +967,16 @@ export default function App() {
   }, [tab]);
   function persist(rawNext) {
     const next = stripUndefined(rawNext);
+    const prev = stateRef.current || state || {};
     setState(next); stateRef.current = next;
     setPendingWrites((n) => n + 1);
+    // เขียนเฉพาะ field ระดับบนสุดที่เปลี่ยนจริง (ไม่ใช่ setDoc ทับทั้งก้อนเหมือนเดิม) — ลดขนาดข้อมูลที่ส่งจริงต่อครั้ง กันช้า/timeout เวลาเอกสารใหญ่ขึ้นเรื่อยๆ
+    const changedFields = diffTopLevelFields(prev, next);
+    const writePromise = Object.keys(changedFields).length > 0
+      ? updateDoc(docRef, changedFields).catch((e) => (e && e.code === 'not-found' ? setDoc(docRef, next) : Promise.reject(e)))
+      : Promise.resolve();
     try {
-      withTimeout(setDoc(docRef, next), 15000, 'บันทึกข้อมูล')
+      withTimeout(writePromise, 15000, 'บันทึกข้อมูล')
         .catch((e) => { console.error('save failed', e); setSaveError(`บันทึกไม่สำเร็จ: ${e.message || e.code || e}`); })
         .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
     } catch (e) {
@@ -987,10 +1006,17 @@ export default function App() {
   }
   function persistShared(rawNext) {
     const next = stripUndefined(rawNext);
+    const prev = sharedStateRef.current || sharedState || {};
     setSharedState(next); sharedStateRef.current = next;
     setPendingWrites((n) => n + 1);
+    // เอกสารนี้ใหญ่มาก (รวมข้อมูลลูกๆ ทุกตัว+บัญชีทุกใบ+บ้านเช่า+รถยนต์ทั้งหมด) — เขียนเฉพาะ field ระดับบนสุดที่เปลี่ยนจริง (updateDoc) แทนการ setDoc ทับทั้งก้อนทุกครั้งแบบเดิม
+    // ของเดิมพอแก้แค่ accounts field เดียว ก็ยังส่งข้อมูล dogs/properties/vehicles ทั้งหมดไปด้วยทุกรอบ ยิ่งเอกสารโตขึ้นเรื่อยๆ ยิ่งช้าและเสี่ยง timeout (เกิน 15 วิ) มากขึ้น
+    const changedFields = diffTopLevelFields(prev, next);
+    const writePromise = Object.keys(changedFields).length > 0
+      ? updateDoc(sharedDocRef, changedFields).catch((e) => (e && e.code === 'not-found' ? setDoc(sharedDocRef, next) : Promise.reject(e)))
+      : Promise.resolve();
     try {
-      withTimeout(setDoc(sharedDocRef, next), 15000, 'ข้อมูลแชร์')
+      withTimeout(writePromise, 15000, 'ข้อมูลแชร์')
         .catch((e) => { console.error('shared save failed', e); setSaveError(`บันทึกไม่สำเร็จ (ข้อมูลแชร์): ${e.message || e.code || e}`); })
         .finally(() => setPendingWrites((n) => Math.max(0, n - 1)));
     } catch (e) {
@@ -6621,7 +6647,10 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
       <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูทุกบัตร</button>
       <Card>
         <div className="flex justify-between items-center mb-2">
-          <p className="text-base font-bold" style={{ color: INK }}>💳 {card.bankName} {card.cardName}</p>
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <span style={{ width: 34, height: 34, borderRadius: 10, background: '#EDE7F6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 15 }}>💳</span>
+            <p className="text-base font-bold truncate" style={{ color: INK }}>{card.bankName} {card.cardName}</p>
+          </div>
           <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveCard(card.id))}><Trash2 size={16} color={BAD} /></button>
         </div>
         <p className="text-xs mb-1" style={{ color: SLATE }}>ใช้ไปเดือนนี้ ฿{fmt(spent)} จากวงเงิน ฿{fmt(card.creditLimit)}</p>
@@ -7045,9 +7074,9 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
   (dogs || []).forEach((d) => {
     (d.appointments || []).forEach((a) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: a.date, time: a.time, label: a.purpose || 'นัดหมาย', sub: a.hospital, type: 'appt' }));
     (d.weights || []).forEach((w) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: w.date, label: `ชั่งน้ำหนัก — ${w.weight} กก.`, type: 'weight' }));
-    (d.bloodTests || []).forEach((b) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: b.date, label: `ตรวจเลือด${b.type ? ' — ' + b.type : ''}`, type: 'blood' }));
-    (d.imaging || []).forEach((im) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: im.date, label: im.type || 'Imaging', type: 'imaging' }));
-    (d.organExams || []).forEach((o) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: o.date, label: `ตรวจอวัยวะ — ${o.organ || ''}`, type: 'organ' }));
+    (d.bloodTests || []).forEach((b) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: b.date, label: `ตรวจเลือด${b.type ? ' — ' + b.type : ''}`, type: 'blood', note: b.note, thumbUrl: b.photos && b.photos[0] && b.photos[0].url }));
+    (d.imaging || []).forEach((im) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: im.date, label: im.type || 'Imaging', type: 'imaging', note: im.note, thumbUrl: im.photos && im.photos[0] && im.photos[0].url }));
+    (d.organExams || []).forEach((o) => allItems.push({ dogId: d.id, dogName: d.name, dogPhoto: d.photoUrl, date: o.date, label: `ตรวจอวัยวะ — ${o.organ || ''}`, type: 'organ', note: o.note, thumbUrl: o.photos && o.photos[0] && o.photos[0].url }));
   });
   allItems.sort((a, b) => compareByNearestDate(a.date, b.date)); // ใกล้วันนี้ที่สุดอยู่บนสุดเสมอ เหมือนกับรายการนัดหมายทั้งหมด
 
@@ -7133,7 +7162,9 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate" style={{ color: INK }}>{it.dogName} <span style={{ color: SLATE }}>·</span> {it.label}</p>
                       {(it.time || it.sub) && <p className="text-[11px] truncate" style={{ color: SLATE }}>{it.time || ''}{it.time && it.sub ? ' · ' : ''}{it.sub || ''}</p>}
+                      {it.note && <p className="text-[11px] truncate" style={{ color: SLATE }}>{it.note}</p>}
                     </div>
+                    {it.thumbUrl && <img src={it.thumbUrl} alt="" style={{ width: 32, height: 32, borderRadius: 8, objectFit: 'cover', flexShrink: 0, border: `1px solid ${BORDER}` }} />}
                     <ChevronRight size={14} color={SLATE} style={{ flexShrink: 0 }} />
                   </button>
                 ))}
@@ -7287,7 +7318,10 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
   return (
     <Card>
       <div className="flex justify-between items-center mb-3">
-        <input value={p.name} onChange={(e) => onUpdate(p.id, { name: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <span style={{ width: 34, height: 34, borderRadius: 10, background: '#F3E9DD', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 15 }}>🏠</span>
+          <input value={p.name} onChange={(e) => onUpdate(p.id, { name: e.target.value })} className="text-base font-bold flex-1 outline-none min-w-0" style={{ border: 'none', color: INK }} />
+        </div>
         <div className="flex items-center gap-1.5 flex-shrink-0" title={p.lineGroupId ? 'ผูก LINE กลุ่มเฉพาะหลังนี้แล้ว' : 'ยังไม่ผูก LINE กลุ่มเฉพาะหลังนี้'}>
           <div style={{ background: p.lineGroupId ? '#16A34A14' : PAPER_DIM }} className="w-7 h-7 rounded-full flex items-center justify-center">
             <ChatBubbleIcon size={14} color={p.lineGroupId ? GOOD : '#9CA3AF'} />
@@ -7919,7 +7953,10 @@ function VehicleDetail({ vehicle, onBack, onUpdate, onRemove, onUpdateItem, onUp
       <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูรถทั้งหมด</button>
       <Card>
         <div className="flex justify-between items-center mb-2">
-          <input value={vehicle.name} onChange={(e) => onUpdate(vehicle.id, { name: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <span style={{ width: 34, height: 34, borderRadius: 10, background: '#E0EBE8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 15 }}>🚗</span>
+            <input value={vehicle.name} onChange={(e) => onUpdate(vehicle.id, { name: e.target.value })} className="text-base font-bold flex-1 outline-none min-w-0" style={{ border: 'none', color: INK }} />
+          </div>
           <button onClick={onRemove}><Trash2 size={16} color={BAD} /></button>
         </div>
         <input value={vehicle.plate || ''} onChange={(e) => onUpdate(vehicle.id, { plate: e.target.value })} placeholder="ทะเบียนรถ" className="text-sm w-full outline-none" style={{ border: 'none', color: SLATE }} />
@@ -8274,7 +8311,10 @@ function InsurancePolicyDetail({ policy: p, onBack, onUpdate, onRemove, onAddRid
       <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูทุกกรมธรรม์</button>
       <Card>
         <div className="flex justify-between items-center mb-2">
-          <input value={p.planName || ''} onChange={(e) => onUpdate(p.id, { planName: e.target.value })} className="text-base font-bold flex-1 outline-none" style={{ border: 'none', color: INK }} />
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <span style={{ width: 34, height: 34, borderRadius: 10, background: '#E3EAF1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 15 }}>🛡️</span>
+            <input value={p.planName || ''} onChange={(e) => onUpdate(p.id, { planName: e.target.value })} className="text-base font-bold flex-1 outline-none min-w-0" style={{ border: 'none', color: INK }} />
+          </div>
           <button onClick={() => confirmDelete('ลบกรมธรรม์นี้? ข้อมูลทั้งหมดจะหายถาวร', onRemove)}><Trash2 size={16} color={BAD} /></button>
         </div>
         {dl !== null && <p className="text-xs mb-2" style={{ color: dl < 0 ? BAD : dl <= 30 ? WARN : GOOD }}>{dl < 0 ? '⚫ หมดอายุแล้ว' : `🟢 มีผลคุ้มครอง (ต่ออายุอีก ${dl} วัน)`}</p>}
