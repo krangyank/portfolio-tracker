@@ -221,10 +221,16 @@ let lineNotifyEnabled = true;
 // เช็ค response.ok ด้วยเสมอ (เดิมเช็คแค่ fetch ล้มเหลวจากปัญหาเน็ต ซึ่ง fetch() ไม่ throw ถ้า API ตอบกลับมาเป็น error code เช่น 400/500 — พลาดจุดนี้ไปทำให้ส่ง LINE ไม่สำเร็จแบบเงียบๆ ไม่มี error ให้เห็นเลยที่ไหน)
 // error ที่จับได้ทั้งหมดจะเข้า DEBUG_LOG_BUFFER อัตโนมัติ (ผ่าน console.error ที่ patch ไว้แล้ว) เปิดดูได้จากปุ่ม 🐞 ในแอป
 async function checkLineNotifyResponse(res, label) {
-  if (res.ok) return;
-  let detail = '';
-  try { detail = await res.text(); } catch (e) { /* ignore */ }
-  console.error(`${label} failed: HTTP ${res.status}${detail ? ' — ' + detail.slice(0, 300) : ''}`);
+  // api/line-notify.js ตอบ HTTP 200 เสมอแม้ LINE API จะปฏิเสธข้อความ (error โผล่ในตัว body แทนที่จะเป็น HTTP status code) — ต้องอ่าน body เช็คเองด้วย เช็คแค่ res.ok ไม่พอ
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* ไม่ใช่ JSON หรือ body ว่าง ข้ามไป */ }
+  if (!res.ok) {
+    console.error(`${label} failed: HTTP ${res.status}${data && data.error ? ' — ' + data.error : ''}`);
+    return;
+  }
+  if (data && data.error) {
+    console.error(`${label} failed: ${data.error}`);
+  }
 }
 function sendLineNotify(message, to) {
   if (!lineNotifyEnabled) return;
