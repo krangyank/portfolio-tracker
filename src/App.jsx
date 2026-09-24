@@ -218,6 +218,14 @@ async function askServer(promptText, imageBase64, mediaType, webSearch, fast) {
 let currentNotifyUser = '';
 // สวิตช์เปิด/ปิดแจ้งเตือน LINE ทั้งหมด ตั้งค่าจาก Tracker ตาม state.lineNotifyEnabled (ค่าเริ่มต้นเปิด) — เช็คจุดเดียวตรงนี้ ครอบคลุมทุกจุดเรียกในไฟล์ทันที
 let lineNotifyEnabled = true;
+// เช็ค response.ok ด้วยเสมอ (เดิมเช็คแค่ fetch ล้มเหลวจากปัญหาเน็ต ซึ่ง fetch() ไม่ throw ถ้า API ตอบกลับมาเป็น error code เช่น 400/500 — พลาดจุดนี้ไปทำให้ส่ง LINE ไม่สำเร็จแบบเงียบๆ ไม่มี error ให้เห็นเลยที่ไหน)
+// error ที่จับได้ทั้งหมดจะเข้า DEBUG_LOG_BUFFER อัตโนมัติ (ผ่าน console.error ที่ patch ไว้แล้ว) เปิดดูได้จากปุ่ม 🐞 ในแอป
+async function checkLineNotifyResponse(res, label) {
+  if (res.ok) return;
+  let detail = '';
+  try { detail = await res.text(); } catch (e) { /* ignore */ }
+  console.error(`${label} failed: HTTP ${res.status}${detail ? ' — ' + detail.slice(0, 300) : ''}`);
+}
 function sendLineNotify(message, to) {
   if (!lineNotifyEnabled) return;
   const tagged = currentNotifyUser ? `${message}\n— โดย ${currentNotifyUser}` : message;
@@ -225,7 +233,7 @@ function sendLineNotify(message, to) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: tagged, ...(to ? { to } : {}) }),
-  }).catch((e) => console.error('sendLineNotify failed', e));
+  }).then((res) => checkLineNotifyResponse(res, 'sendLineNotify')).catch((e) => console.error('sendLineNotify failed', e));
 }
 // ส่งการ์ด Flex Message แทนข้อความล้วน — ใช้ altText เป็นข้อความสำรอง (โชว์ตอนแจ้งเตือน/บนนาฬิกา ที่มองไม่เห็นการ์ดจริง) ต้องแปะ "โดยใคร" ต่อท้ายใน altText เอง เพราะการ์ดไม่มีที่ใส่ชื่อผู้บันทึกแบบข้อความธรรมดา
 // to (ไม่บังคับ): ระบุ LINE Group ID ปลายทางเฉพาะ (เช่น กลุ่มเฉพาะของสัตว์เลี้ยงแต่ละตัว) ถ้าไม่ระบุจะส่งเข้ากลุ่มหลักตามค่า default ฝั่งเซิร์ฟเวอร์
@@ -236,7 +244,7 @@ function sendLineFlex(altText, contents, to) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ flex: { altText: taggedAlt, contents }, ...(to ? { to } : {}) }),
-  }).catch((e) => console.error('sendLineFlex failed', e));
+  }).then((res) => checkLineNotifyResponse(res, 'sendLineFlex')).catch((e) => console.error('sendLineFlex failed', e));
 }
 const APP_URL = 'https://portfolio-tracker-six-chi.vercel.app';
 // การ์ด Flex Message มาตรฐานที่ใช้ซ้ำได้ทุกจุดแจ้งเตือน — หัวเข้ม, แถว label/value, ยอดเงินตัวใหญ่ (สีเขียว/แดงได้ตามทิศทางเงิน), โน้ตท้ายการ์ด, ปุ่มเปิดแอปไปแท็บที่เกี่ยวข้อง
