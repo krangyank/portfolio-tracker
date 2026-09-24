@@ -32,7 +32,8 @@ export default async function handler(req, res) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      res.status(200).json({ error: (data && data.message) || `LINE API error (status ${response.status})` });
+      // แก้จากเดิมที่ตอบ 200 แม้ LINE ปฏิเสธข้อความ (ทำให้ฝั่งแอปเช็ค error ไม่เจอเลย เพราะเช็คแค่ HTTP status) — ตอนนี้ส่ง status จริงกลับไปให้แอปเห็น error ได้
+      res.status(response.status >= 400 ? response.status : 502).json({ error: (data && data.message) || `LINE API error (status ${response.status})` });
       return;
     }
     res.status(200).json({ ok: true });
