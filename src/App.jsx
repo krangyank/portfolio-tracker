@@ -7013,6 +7013,8 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
 
 // นัดหมายรวมทุกตัว — ไม่ต้องเปิดทีละตัวเพื่อดู เรียงตามวันที่ใกล้สุด ไม่จำกัดจำนวน/ไม่จำกัดช่วงเวลา
 const PET_EVENT_ICONS = { appt: '📅', weight: '⚖️', blood: '🩸', imaging: '🩻', organ: '👁️' };
+// สีพื้นหลังไอคอนแยกตามประเภทเหตุการณ์ — ใช้จัดกลุ่มสายตาในลิสต์รายการแจ้งเตือนให้ดูเป็นมืออาชีพขึ้น สแกนหาประเภทที่ต้องการได้เร็ว
+const PET_EVENT_COLORS = { appt: '#F5E9D2', weight: '#EDE7F6', blood: '#FBEAE7', imaging: '#E3EAF1', organ: '#F1EBFB' };
 // คำย่อชื่อลูกๆ สำหรับโชว์ในปฏิทิน — เช็คคำที่ระบุไว้ก่อน แล้วค่อย fallback เป็นชื่อเต็ม
 function dogAbbrev(name) {
   const n = name || '';
@@ -7108,20 +7110,37 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>รายการแจ้งเตือนเดือนนี้</p>
         {filteredMonthItems.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ไม่มีรายการ</p>}
-        {filteredMonthItems.map((it, i) => {
-          const d_ = daysUntil(it.date);
-          const isFuture = d_ !== null && d_ >= 0 && new Date(it.date) >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
-          return (
-            <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-              {it.dogPhoto ? <img src={it.dogPhoto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" /> : <div style={{ background: PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"><Dog size={16} color={SLATE} /></div>}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold" style={{ color: INK }}>{PET_EVENT_ICONS[it.type]} {it.dogName} — {it.label}</p>
-                <p className="text-xs" style={{ color: isFuture ? GOOD : SLATE }}>{formatDateThai(it.date)} {it.time || ''}{isFuture ? ` (อีก ${d_} วัน)` : ''}{it.sub ? ` · ${it.sub}` : ''}</p>
+        {(() => {
+          // จัดกลุ่มตามวันที่ — โชว์หัววันที่ครั้งเดียวต่อกลุ่ม แทนที่จะขึ้นรูปโปรไฟล์ซ้ำทุกแถวแบบเดิม ดูเป็นระเบียบและสแกนหาได้เร็วขึ้น
+          const groups = [];
+          filteredMonthItems.forEach((it) => {
+            const last = groups[groups.length - 1];
+            if (last && last.date === it.date) last.items.push(it);
+            else groups.push({ date: it.date, items: [it] });
+          });
+          return groups.map((g, gi) => {
+            const d_ = daysUntil(g.date);
+            const isFuture = d_ !== null && d_ >= 0 && new Date(g.date) >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            return (
+              <div key={g.date} style={{ marginTop: gi > 0 ? 10 : 0 }}>
+                <div className="flex items-center justify-between px-2 py-1.5 mb-1" style={{ background: isFuture ? '#E3F1E8' : PAPER_DIM, borderRadius: 8 }}>
+                  <span className="text-xs font-semibold" style={{ color: isFuture ? GOOD : INK }}>{formatDateThai(g.date)}{isFuture ? ` · อีก ${d_} วัน` : ''}</span>
+                  <span className="text-[10px] font-medium" style={{ color: SLATE }}>{g.items.length} รายการ</span>
+                </div>
+                {g.items.map((it, i) => (
+                  <button key={i} onClick={() => onJumpTo(it.dogId)} className="w-full text-left flex items-center gap-2.5 py-2 px-1" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
+                    <span style={{ width: 28, height: 28, borderRadius: 9, background: PET_EVENT_COLORS[it.type], display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13 }}>{PET_EVENT_ICONS[it.type]}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate" style={{ color: INK }}>{it.dogName} <span style={{ color: SLATE }}>·</span> {it.label}</p>
+                      {(it.time || it.sub) && <p className="text-[11px] truncate" style={{ color: SLATE }}>{it.time || ''}{it.time && it.sub ? ' · ' : ''}{it.sub || ''}</p>}
+                    </div>
+                    <ChevronRight size={14} color={SLATE} style={{ flexShrink: 0 }} />
+                  </button>
+                ))}
               </div>
-              <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-            </button>
-          );
-        })}
+            );
+          });
+        })()}
       </Card>
 
       <Card>
