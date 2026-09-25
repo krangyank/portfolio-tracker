@@ -9861,6 +9861,59 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       if (bloodScanFileRef.current) bloodScanFileRef.current.value = '';
     }
   }
+  // เหมือน handleBloodTestScan แต่ใช้กับ Imaging/ตรวจอวัยวะ — 1 รูปได้ 1 ผล (ต่างจากผลเลือดที่ 1 ใบอาจมีหลายหมวด)
+  const imagingScanFileRef = useRef(null);
+  const [imagingScanning, setImagingScanning] = useState(false);
+  const [imagingScanError, setImagingScanError] = useState('');
+  async function handleImagingScan(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setImagingScanning(true); setImagingScanError('');
+    try {
+      const r = await scanMedicalResult(file, 'imaging');
+      if (!r || (!r.type && !r.note)) { setImagingScanError('อ่านผลจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้ หรือกรอกเองแทน'); return; }
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'imaging', file); } catch (e) { /* บันทึกผลตรวจต่อได้แม้แนบรูปไม่สำเร็จ */ } }
+      const newRow = { type: r.type || (imagingTypeList[0] || ''), date: r.date || form.date, note: r.note || '', ...(photo ? { photos: [photo] } : {}) };
+      if (!activeSections.includes('imaging')) setActiveSections((prev) => [...prev, 'imaging']);
+      setSectionData((prev) => {
+        const existing = prev.imaging || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, imaging: isEmptyPlaceholder ? [newRow] : [...existing, newRow] };
+      });
+    } catch (err) {
+      setImagingScanError('อ่านภาพไม่สำเร็จ: ' + err.message);
+    } finally {
+      setImagingScanning(false);
+      if (imagingScanFileRef.current) imagingScanFileRef.current.value = '';
+    }
+  }
+  const organScanFileRef = useRef(null);
+  const [organScanning, setOrganScanning] = useState(false);
+  const [organScanError, setOrganScanError] = useState('');
+  async function handleOrganScan(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setOrganScanning(true); setOrganScanError('');
+    try {
+      const r = await scanMedicalResult(file, 'organExam');
+      if (!r || (!r.type && !r.note)) { setOrganScanError('อ่านผลจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้ หรือกรอกเองแทน'); return; }
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'organExams', file); } catch (e) { /* บันทึกผลตรวจต่อได้แม้แนบรูปไม่สำเร็จ */ } }
+      const newRow = { organ: r.type || (organTypeList[0] || ''), date: r.date || form.date, note: r.note || '', ...(photo ? { photos: [photo] } : {}) };
+      if (!activeSections.includes('organExam')) setActiveSections((prev) => [...prev, 'organExam']);
+      setSectionData((prev) => {
+        const existing = prev.organExam || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, organExam: isEmptyPlaceholder ? [newRow] : [...existing, newRow] };
+      });
+    } catch (err) {
+      setOrganScanError('อ่านภาพไม่สำเร็จ: ' + err.message);
+    } finally {
+      setOrganScanning(false);
+      if (organScanFileRef.current) organScanFileRef.current.value = '';
+    }
+  }
 
   async function submitAll() {
     if (!form.date) return;
@@ -10149,6 +10202,11 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
           {activeSections.includes('imaging') && (
             <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
               <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>🩻 X-ray/CT/MRI/Ultrasound</span><button onClick={() => toggleSection('imaging')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              <input ref={imagingScanFileRef} type="file" accept="image/*" onChange={handleImagingScan} className="hidden" />
+              <button type="button" onClick={() => imagingScanFileRef.current && imagingScanFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                {imagingScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {imagingScanning ? 'กำลังอ่านผล...' : 'ถ่ายรูปผล ให้ AI อ่านและกรอกให้'}
+              </button>
+              {imagingScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{imagingScanError}</p>}
               {(sectionData.imaging || []).map((row, idx) => (
                 <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                   <div className="flex justify-between items-center mb-1">{(sectionData.imaging || []).length > 1 && <button onClick={() => removeRowFromSection('imaging', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
@@ -10175,6 +10233,11 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
           {activeSections.includes('organExam') && (
             <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
               <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>🫁 ตรวจอวัยวะ</span><button onClick={() => toggleSection('organExam')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              <input ref={organScanFileRef} type="file" accept="image/*" onChange={handleOrganScan} className="hidden" />
+              <button type="button" onClick={() => organScanFileRef.current && organScanFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                {organScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {organScanning ? 'กำลังอ่านผล...' : 'ถ่ายรูปผล ให้ AI อ่านและกรอกให้'}
+              </button>
+              {organScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{organScanError}</p>}
               {(sectionData.organExam || []).map((row, idx) => (
                 <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                   <div className="flex justify-between items-center mb-1">{(sectionData.organExam || []).length > 1 && <button onClick={() => removeRowFromSection('organExam', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
@@ -10369,6 +10432,59 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
       if (bloodScanFileRef.current) bloodScanFileRef.current.value = '';
     }
   }
+  // เหมือน handleBloodTestScan แต่ใช้กับ Imaging/ตรวจอวัยวะ — 1 รูปได้ 1 ผล (ต่างจากผลเลือดที่ 1 ใบอาจมีหลายหมวด)
+  const imagingScanFileRef = useRef(null);
+  const [imagingScanning, setImagingScanning] = useState(false);
+  const [imagingScanError, setImagingScanError] = useState('');
+  async function handleImagingScan(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setImagingScanning(true); setImagingScanError('');
+    try {
+      const r = await scanMedicalResult(file, 'imaging');
+      if (!r || (!r.type && !r.note)) { setImagingScanError('อ่านผลจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้ หรือกรอกเองแทน'); return; }
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'imaging', file); } catch (e) { /* บันทึกผลตรวจต่อได้แม้แนบรูปไม่สำเร็จ */ } }
+      const newRow = { type: r.type || (imagingTypeList[0] || ''), date: r.date || visit.date, note: r.note || '', ...(photo ? { photos: [photo] } : {}) };
+      if (!procSections.includes('imaging')) setProcSections((prev) => [...prev, 'imaging']);
+      setProcData((prev) => {
+        const existing = prev.imaging || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, imaging: isEmptyPlaceholder ? [newRow] : [...existing, newRow] };
+      });
+    } catch (err) {
+      setImagingScanError('อ่านภาพไม่สำเร็จ: ' + err.message);
+    } finally {
+      setImagingScanning(false);
+      if (imagingScanFileRef.current) imagingScanFileRef.current.value = '';
+    }
+  }
+  const organScanFileRef = useRef(null);
+  const [organScanning, setOrganScanning] = useState(false);
+  const [organScanError, setOrganScanError] = useState('');
+  async function handleOrganScan(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setOrganScanning(true); setOrganScanError('');
+    try {
+      const r = await scanMedicalResult(file, 'organExam');
+      if (!r || (!r.type && !r.note)) { setOrganScanError('อ่านผลจากภาพไม่สำเร็จ ลองภาพที่ชัดกว่านี้ หรือกรอกเองแทน'); return; }
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'organExams', file); } catch (e) { /* บันทึกผลตรวจต่อได้แม้แนบรูปไม่สำเร็จ */ } }
+      const newRow = { organ: r.type || (organTypeList[0] || ''), date: r.date || visit.date, note: r.note || '', ...(photo ? { photos: [photo] } : {}) };
+      if (!procSections.includes('organExam')) setProcSections((prev) => [...prev, 'organExam']);
+      setProcData((prev) => {
+        const existing = prev.organExam || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, organExam: isEmptyPlaceholder ? [newRow] : [...existing, newRow] };
+      });
+    } catch (err) {
+      setOrganScanError('อ่านภาพไม่สำเร็จ: ' + err.message);
+    } finally {
+      setOrganScanning(false);
+      if (organScanFileRef.current) organScanFileRef.current.value = '';
+    }
+  }
 
   return (
     <div>
@@ -10528,10 +10644,16 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
             {procSections.includes('imaging') && (
               <div style={{ border: `1px solid ${BORDER}` }} className="rounded-xl p-2.5 mb-2">
                 <p className="text-[11px] font-bold mb-1.5" style={{ color: BRASS }}>🩻 Imaging</p>
+                <input ref={imagingScanFileRef} type="file" accept="image/*" onChange={handleImagingScan} className="hidden" />
+                <button type="button" onClick={() => imagingScanFileRef.current && imagingScanFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                  {imagingScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {imagingScanning ? 'กำลังอ่านผล...' : 'ถ่ายรูปผล ให้ AI อ่านและกรอกให้'}
+                </button>
+                {imagingScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{imagingScanError}</p>}
                 {(procData.imaging || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <TypeSelectWithCustom options={imagingTypeList} value={row.type} onChange={(v) => updateProcRow('imaging', idx, { type: v })} onAddToList={onAddImagingType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <textarea value={row.note} onChange={(e) => updateProcRow('imaging', idx, { note: e.target.value })} placeholder="ผลอ่านภาพ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                    {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
                   </div>
                 ))}
                 <button onClick={() => addProcRow('imaging')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มอีกรายการ</button>
@@ -10540,10 +10662,16 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
             {procSections.includes('organExam') && (
               <div style={{ border: `1px solid ${BORDER}` }} className="rounded-xl p-2.5 mb-2">
                 <p className="text-[11px] font-bold mb-1.5" style={{ color: BRASS }}>🫁 อวัยวะ</p>
+                <input ref={organScanFileRef} type="file" accept="image/*" onChange={handleOrganScan} className="hidden" />
+                <button type="button" onClick={() => organScanFileRef.current && organScanFileRef.current.click()} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                  {organScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {organScanning ? 'กำลังอ่านผล...' : 'ถ่ายรูปผล ให้ AI อ่านและกรอกให้'}
+                </button>
+                {organScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{organScanError}</p>}
                 {(procData.organExam || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <TypeSelectWithCustom options={organTypeList} value={row.organ} onChange={(v) => updateProcRow('organExam', idx, { organ: v })} onAddToList={onAddOrganType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <textarea value={row.note} onChange={(e) => updateProcRow('organExam', idx, { note: e.target.value })} placeholder="ผลตรวจ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                    {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
                   </div>
                 ))}
                 <button onClick={() => addProcRow('organExam')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มอีกรายการ</button>
