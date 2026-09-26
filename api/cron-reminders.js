@@ -160,6 +160,28 @@ export default async function handler(req, res) {
       }
     });
 
+    (sharedState.vehicles || []).forEach((v) => {
+      // ภาษี/พ.ร.บ./ประกันภัยชั้น 1 — ต่ออายุปีละครั้ง
+      const VEHICLE_ITEM_LABELS = { tax: '🚙 ภาษีรถยนต์', compulsory: '📄 พ.ร.บ.', insurance: '🛡️ ประกันภัยชั้น 1' };
+      ['tax', 'compulsory', 'insurance'].forEach((key) => {
+        const item = v[key];
+        if (!item || !item.expiryDate) return;
+        const result = evaluateItem({ id: `vitem_${v.id}_${key}`, label: `${v.name} — ${VEHICLE_ITEM_LABELS[key]}`, dueDate: item.expiryDate, reminderDays: item.reminderDays, todayStr, remindersSent: sharedRemindersSent });
+        if (result && result.shouldNotify) { pushLine(result.line); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
+      });
+      // งานซ่อมบำรุง (เช็คระยะ/เปลี่ยนน้ำมันเครื่อง/เปลี่ยนน้ำมันเกียร์) — ครบกำหนดครั้งถัดไป = ครั้งล่าสุด + ทุกกี่วันที่ตั้งไว้
+      const VEHICLE_MAINTENANCE_LABELS = { service: '🔧 เช็คระยะ', oilChange: '🛢️ เปลี่ยนน้ำมันเครื่อง', transmission: '⚙️ เปลี่ยนน้ำมันเกียร์' };
+      Object.entries(v.maintenance || {}).forEach(([key, m]) => {
+        const history = m && m.history;
+        if (!history || history.length === 0 || !m.intervalDays) return;
+        const latest = [...history].sort((a, b) => b.date.localeCompare(a.date))[0];
+        const due = new Date(latest.date); due.setDate(due.getDate() + Number(m.intervalDays || 0));
+        const dueDate = due.toISOString().slice(0, 10);
+        const result = evaluateItem({ id: `vmaint_${v.id}_${key}`, label: `${v.name} — ${VEHICLE_MAINTENANCE_LABELS[key] || key}`, dueDate, reminderDays: m.reminderDays, todayStr, remindersSent: sharedRemindersSent });
+        if (result && result.shouldNotify) { pushLine(result.line); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
+      });
+    });
+
     nextSharedRemindersSent = pruneRemindersSent(nextSharedRemindersSent, todayStr);
     await sharedRef.set({ remindersSent: nextSharedRemindersSent }, { merge: true });
 
