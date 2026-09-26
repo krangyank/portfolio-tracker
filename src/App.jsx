@@ -88,6 +88,12 @@ const TAB_MASCOTS = {
 };
 const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'ข่าว', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', vehicles: 'รถยนต์', reports: 'รายงาน' };
 const VEHICLE_ITEM_LABELS = { tax: '🚙 ภาษีรถยนต์', compulsory: '📄 พ.ร.บ.', insurance: '🛡️ ประกันภัยชั้น 1' };
+// ประเภทงานซ่อมบำรุงที่เตือนได้ (นอกเหนือจากภาษี/พรบ/ประกัน) — แต่ละอย่างมีประวัติหลายครั้งได้ (ต่างจาก tax/compulsory/insurance ที่มีค่าปัจจุบันค่าเดียว)
+const VEHICLE_MAINTENANCE_TYPES = [
+  { key: 'service', icon: '🔧', label: 'เช็คระยะ' },
+  { key: 'oilChange', icon: '🛢️', label: 'เปลี่ยนน้ำมันเครื่อง' },
+  { key: 'transmission', icon: '⚙️', label: 'เปลี่ยนน้ำมันเกียร์' },
+];
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -7981,7 +7987,110 @@ function VehicleDetail({ vehicle, onBack, onUpdate, onRemove, onUpdateItem, onUp
       {['tax', 'compulsory', 'insurance'].map((key) => (
         <VehicleItemCard key={key} itemKey={key} item={vehicle[key] || {}} onSave={(patch) => onUpdateItem(vehicle.id, key, patch)} />
       ))}
+      {VEHICLE_MAINTENANCE_TYPES.map((t) => (
+        <VehicleMaintenanceCard key={t.key} icon={t.icon} label={t.label} data={vehicle.maintenance?.[t.key] || {}} vehicleName={vehicle.name}
+          onSave={(patch) => onUpdate(vehicle.id, { maintenance: { ...(vehicle.maintenance || {}), [t.key]: patch } })} />
+      ))}
     </div>
+  );
+}
+// การ์ดบันทึก/เตือนงานซ่อมบำรุง 1 ประเภท (เช็คระยะ/เปลี่ยนน้ำมันเครื่อง/เปลี่ยนน้ำมันเกียร์) — มีประวัติหลายครั้ง คำนวณครบกำหนดครั้งถัดไปจากครั้งล่าสุด + ทุกกี่วันที่ตั้งไว้
+function VehicleMaintenanceCard({ icon, label, data, vehicleName, onSave }) {
+  const history = data.history || [];
+  const [intervalDays, setIntervalDays] = useState(data.intervalDays || 180);
+  const [reminderDays, setReminderDays] = useState(data.reminderDays && data.reminderDays.length ? data.reminderDays : [7, 3, 1]);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [mileage, setMileage] = useState('');
+  const [nextDueMileage, setNextDueMileage] = useState('');
+  const [cost, setCost] = useState(0);
+  const [place, setPlace] = useState('');
+  const [editingEntry, setEditingEntry] = useState(null);
+  useEffect(() => {
+    setIntervalDays(data.intervalDays || 180);
+    setReminderDays(data.reminderDays && data.reminderDays.length ? data.reminderDays : [7, 3, 1]);
+  }, [data.intervalDays, data.reminderDays]);
+
+  const sortedHistory = [...history].sort((a, b) => b.date.localeCompare(a.date));
+  const latest = sortedHistory[0];
+  const nextDue = latest ? (() => { const d = new Date(latest.date); d.setDate(d.getDate() + Number(intervalDays || 0)); return d.toISOString().slice(0, 10); })() : null;
+  const dl = nextDue ? daysUntil(nextDue) : null;
+
+  function toggleDay(d) { const next = reminderDays.includes(d) ? reminderDays.filter((x) => x !== d) : [...reminderDays, d].sort((a, b) => b - a); setReminderDays(next); onSave({ ...data, reminderDays: next }); }
+  function saveInterval(v) { setIntervalDays(v); onSave({ ...data, intervalDays: v }); }
+  function addEntry() {
+    if (!cost && !place && !mileage) return; // กันกดพลาดตอนยังไม่ได้กรอกอะไรเลย
+    const entry = { id: uid(), date, mileage: mileage || undefined, nextDueMileage: nextDueMileage || undefined, cost: Number(cost) || 0, place: place || '' };
+    const nextHistory = [entry, ...history];
+    onSave({ ...data, intervalDays, reminderDays, history: nextHistory });
+    sendLineFlex(`${icon} ${label} ${vehicleName}: ฿${fmt(cost)}${place ? ' ที่ ' + place : ''}`, buildFlexCard({
+      title: `${icon} ${label} — ${vehicleName}`,
+      rows: [{ label: 'วันที่', value: formatDateDMY(date) }, ...(mileage ? [{ label: 'เลขไมล์', value: `${mileage} กม.` }] : []), ...(nextDueMileage ? [{ label: 'เปลี่ยนครั้งถัดไปที่', value: `${nextDueMileage} กม.` }] : []), ...(place ? [{ label: 'สถานที่', value: place }] : [])],
+      amount: Number(cost) || 0, amountColor: BAD, tab: 'vehicles',
+    }));
+    setCost(0); setPlace(''); setMileage(''); setNextDueMileage('');
+  }
+  function removeEntry(id) { onSave({ ...data, history: history.filter((h) => h.id !== id) }); }
+  function updateEntry(id, patch) { onSave({ ...data, history: history.map((h) => (h.id === id ? { ...h, ...patch } : h)) }); }
+
+  return (
+    <Card>
+      <p className="text-sm font-semibold mb-2">{icon} {label}</p>
+      {dl !== null && (
+        <p className="text-xs mb-2" style={{ color: dl < 0 ? BAD : dl <= 7 ? BRASS : GOOD }}>
+          {dl < 0 ? `⚫ เลยกำหนดแล้ว ${Math.abs(dl)} วัน (ครบกำหนด ${formatDateThai(nextDue)})` : `🟢 อีก ${dl} วันถึงกำหนด (${formatDateThai(nextDue)})`}
+          {latest && latest.nextDueMileage ? ` — หรือเลขไมล์ถึง ${latest.nextDueMileage} กม. (แล้วแต่ถึงก่อน)` : ''}
+        </p>
+      )}
+      {!latest && <p className="text-xs mb-2" style={{ color: SLATE }}>ยังไม่มีประวัติ — บันทึกครั้งแรกด้านล่าง</p>}
+      <p className="text-[10px] mb-3" style={{ color: SLATE }}>⚠️ แจ้งเตือนอัตโนมัติอิงจากวันที่เท่านั้น (ยังเช็คเลขไมล์จริงให้อัตโนมัติไม่ได้ เพราะแอปไม่รู้เลขไมล์ปัจจุบันของรถ) — เลขไมล์ที่กรอกไว้ใช้เป็นข้อมูลอ้างอิงเวลาเข้าศูนย์ช่วงว่างๆ เท่านั้น</p>
+
+      <label className="text-[10px]" style={{ color: SLATE }}>แจ้งเตือนทุกๆ (วัน)</label>
+      <NumInput value={intervalDays} onChange={saveInterval} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
+      <label className="text-[10px]" style={{ color: SLATE }}>แจ้งเตือนล่วงหน้า (วัน) — เลือกได้หลายค่า</label>
+      <div className="flex gap-1.5 flex-wrap mt-1 mb-3">
+        {[14, 7, 3, 1].map((d) => (
+          <button key={d} onClick={() => toggleDay(d)} style={{ background: reminderDays.includes(d) ? BRASS : PAPER_DIM, color: reminderDays.includes(d) ? 'white' : SLATE }} className="rounded-full px-2.5 py-1 text-xs">{d} วัน</button>
+        ))}
+      </div>
+
+      <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2.5 mb-2">
+        <p className="text-xs font-semibold mb-1.5" style={{ color: SLATE }}>บันทึกครั้งใหม่</p>
+        <div className="grid grid-cols-2 gap-2 mb-1.5">
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: `1px solid ${BORDER}` }} />
+          <input value={mileage} onChange={(e) => setMileage(e.target.value)} placeholder="เลขไมล์ตอนนี้ (กม.)" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: `1px solid ${BORDER}` }} />
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-1.5">
+          <NumInput value={cost} onChange={setCost} placeholder="ราคา (บาท)" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: `1px solid ${BORDER}` }} />
+          <input value={place} onChange={(e) => setPlace(e.target.value)} placeholder="สถานที่/ร้าน" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: `1px solid ${BORDER}` }} />
+        </div>
+        <label className="text-[10px]" style={{ color: SLATE }}>ต้องเปลี่ยนอีกทีตอนเลขไมล์ (กม.) — ไม่บังคับ</label>
+        <input value={nextDueMileage} onChange={(e) => setNextDueMileage(e.target.value)} placeholder="เช่น 85000" className="rounded-lg px-2 py-1.5 text-sm w-full mt-1 mb-1.5" style={{ border: `1px solid ${BORDER}` }} />
+        <button onClick={addEntry} style={{ background: BRASS }} className="w-full text-white rounded-lg py-1.5 text-xs">บันทึก</button>
+      </div>
+
+      {sortedHistory.length > 0 && sortedHistory.map((h) => (
+        <div key={h.id} style={{ borderTop: `1px solid ${BORDER}` }} className="py-1.5 text-xs flex justify-between items-center gap-2">
+          <span className="flex-1 min-w-0 truncate">{formatDateThai(h.date)}{h.mileage ? ` · ${h.mileage} กม.` : ''}{h.nextDueMileage ? ` → ${h.nextDueMileage} กม.` : ''}{h.place ? ` · ${h.place}` : ''}</span>
+          <span className="flex items-center gap-2 flex-shrink-0">฿{fmt(h.cost)}
+            <EditButton onClick={() => setEditingEntry(h)} />
+            <button onClick={() => confirmDelete('ลบประวัตินี้? ข้อมูลจะหายถาวร', () => removeEntry(h.id))}><Trash2 size={12} color={BAD} /></button>
+          </span>
+        </div>
+      ))}
+      {editingEntry && (
+        <EditModal title={`แก้ไขประวัติ${label}`} onClose={() => setEditingEntry(null)}
+          initialValues={{ date: editingEntry.date, mileage: editingEntry.mileage || '', nextDueMileage: editingEntry.nextDueMileage || '', cost: editingEntry.cost, place: editingEntry.place }}
+          fields={[
+            { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'mileage', label: 'เลขไมล์ตอนนี้ (กม.)', type: 'text' },
+            { key: 'nextDueMileage', label: 'ต้องเปลี่ยนอีกทีตอนเลขไมล์ (กม.)', type: 'text' },
+            { key: 'cost', label: 'ราคา (บาท)', type: 'number' },
+            { key: 'place', label: 'สถานที่/ร้าน', type: 'text' },
+          ]}
+          onSave={(v) => { updateEntry(editingEntry.id, { date: v.date, mileage: v.mileage, nextDueMileage: v.nextDueMileage, cost: Number(v.cost) || 0, place: v.place }); setEditingEntry(null); }}
+        />
+      )}
+    </Card>
   );
 }
 
