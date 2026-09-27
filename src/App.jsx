@@ -88,12 +88,33 @@ const TAB_MASCOTS = {
 };
 const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'ข่าว', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', vehicles: 'รถยนต์', reports: 'รายงาน' };
 const VEHICLE_ITEM_LABELS = { tax: '🚙 ภาษีรถยนต์', compulsory: '📄 พ.ร.บ.', insurance: '🛡️ ประกันภัยชั้น 1' };
+// เลขลำดับ + สีประจำแต่ละหมวด ใช้ทำวงกลมเลขนำหน้าการ์ด ให้แยกแต่ละหมวดด้วยตาได้เร็ว (ไล่เลขต่อกับ VEHICLE_MAINTENANCE_TYPES ด้านล่าง)
+const VEHICLE_ITEM_META = { tax: { num: 1, color: '#2E5266' }, compulsory: { num: 2, color: '#3F6152' }, insurance: { num: 3, color: '#7C3AED' } };
 // ประเภทงานซ่อมบำรุงที่เตือนได้ (นอกเหนือจากภาษี/พรบ/ประกัน) — แต่ละอย่างมีประวัติหลายครั้งได้ (ต่างจาก tax/compulsory/insurance ที่มีค่าปัจจุบันค่าเดียว)
 const VEHICLE_MAINTENANCE_TYPES = [
-  { key: 'service', icon: '🔧', label: 'เช็คระยะ' },
-  { key: 'oilChange', icon: '🛢️', label: 'เปลี่ยนน้ำมันเครื่อง' },
-  { key: 'transmission', icon: '⚙️', label: 'เปลี่ยนน้ำมันเกียร์' },
+  { key: 'service', icon: '🔧', label: 'เช็คระยะ', num: 4, color: '#A64B3D' },
+  { key: 'oilChange', icon: '🛢️', label: 'เปลี่ยนน้ำมันเครื่อง', num: 5, color: '#B8874B' },
+  { key: 'transmission', icon: '⚙️', label: 'เปลี่ยนน้ำมันเกียร์', num: 6, color: '#5E4FA2' },
 ];
+// วงกลมเลขนำหน้าการ์ด ใช้ร่วมกันทั้งการ์ด item (ภาษี/พรบ/ประกัน) และการ์ดซ่อมบำรุง
+function NumberBadge({ num, color }) {
+  return <span style={{ width: 24, height: 24, borderRadius: '50%', background: color, color: 'white', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{num}</span>;
+}
+// แถวยุบ ใช้ตอนหมวดนั้นยังไม่มีข้อมูลกรอกไว้เลย — กดแล้วขยายออกมากรอกได้ ลดความยาวหน้าจอเวลามีหลายหมวดที่ยังไม่ได้ใช้
+function CollapsedVehicleRow({ num, color, label, onClick }) {
+  return (
+    <button onClick={onClick} className="w-full text-left flex items-center justify-between" style={{ background: 'white', borderRadius: 14, padding: '13px 15px', border: `1px solid ${BORDER}` }}>
+      <div className="flex items-center gap-2.5">
+        <NumberBadge num={num} color={color} />
+        <span className="text-sm font-semibold">{label}</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs" style={{ color: '#A79E8A' }}>ยังไม่มีข้อมูล</span>
+        <ChevronDown size={15} color="#A79E8A" />
+      </div>
+    </button>
+  );
+}
 
 const SOURCES = [
   { id: 'coop_div', label: 'ปันผลสหกรณ์' },
@@ -7985,17 +8006,17 @@ function VehicleDetail({ vehicle, onBack, onUpdate, onRemove, onUpdateItem, onUp
         )}
       </Card>
       {['tax', 'compulsory', 'insurance'].map((key) => (
-        <VehicleItemCard key={key} itemKey={key} item={vehicle[key] || {}} onSave={(patch) => onUpdateItem(vehicle.id, key, patch)} />
+        <VehicleItemCard key={key} itemKey={key} item={vehicle[key] || {}} num={VEHICLE_ITEM_META[key].num} color={VEHICLE_ITEM_META[key].color} onSave={(patch) => onUpdateItem(vehicle.id, key, patch)} />
       ))}
       {VEHICLE_MAINTENANCE_TYPES.map((t) => (
-        <VehicleMaintenanceCard key={t.key} icon={t.icon} label={t.label} data={vehicle.maintenance?.[t.key] || {}} vehicleName={vehicle.name}
+        <VehicleMaintenanceCard key={t.key} icon={t.icon} label={t.label} num={t.num} color={t.color} data={vehicle.maintenance?.[t.key] || {}} vehicleName={vehicle.name}
           onSave={(patch) => onUpdate(vehicle.id, { maintenance: { ...(vehicle.maintenance || {}), [t.key]: patch } })} />
       ))}
     </div>
   );
 }
 // การ์ดบันทึก/เตือนงานซ่อมบำรุง 1 ประเภท (เช็คระยะ/เปลี่ยนน้ำมันเครื่อง/เปลี่ยนน้ำมันเกียร์) — มีประวัติหลายครั้ง คำนวณครบกำหนดครั้งถัดไปจากครั้งล่าสุด + ทุกกี่วันที่ตั้งไว้
-function VehicleMaintenanceCard({ icon, label, data, vehicleName, onSave }) {
+function VehicleMaintenanceCard({ icon, label, data, vehicleName, num, color, onSave }) {
   const history = data.history || [];
   const [intervalDays, setIntervalDays] = useState(data.intervalDays || 180);
   const [reminderDays, setReminderDays] = useState(data.reminderDays && data.reminderDays.length ? data.reminderDays : [7, 3, 1]);
@@ -8005,6 +8026,9 @@ function VehicleMaintenanceCard({ icon, label, data, vehicleName, onSave }) {
   const [cost, setCost] = useState(0);
   const [place, setPlace] = useState('');
   const [editingEntry, setEditingEntry] = useState(null);
+  const hasData = history.length > 0;
+  const [expanded, setExpanded] = useState(hasData);
+  useEffect(() => { if (hasData) setExpanded(true); }, [hasData]);
   useEffect(() => {
     setIntervalDays(data.intervalDays || 180);
     setReminderDays(data.reminderDays && data.reminderDays.length ? data.reminderDays : [7, 3, 1]);
@@ -8032,14 +8056,32 @@ function VehicleMaintenanceCard({ icon, label, data, vehicleName, onSave }) {
   function removeEntry(id) { onSave({ ...data, history: history.filter((h) => h.id !== id) }); }
   function updateEntry(id, patch) { onSave({ ...data, history: history.map((h) => (h.id === id ? { ...h, ...patch } : h)) }); }
 
+  if (!expanded) return <CollapsedVehicleRow num={num} color={color} label={`${icon} ${label}`} onClick={() => setExpanded(true)} />;
+
   return (
-    <Card>
-      <p className="text-sm font-semibold mb-2">{icon} {label}</p>
+    <Card style={dl !== null && dl < 0 ? { border: `1.5px solid ${BAD}` } : undefined}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2.5">
+          <NumberBadge num={num} color={color} />
+          <p className="text-sm font-semibold">{icon} {label}</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {dl !== null && (
+            <span className="text-[11px] font-semibold flex items-center gap-1" style={{ color: dl < 0 ? BAD : dl <= 7 ? BRASS : GOOD }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: dl < 0 ? BAD : dl <= 7 ? BRASS : GOOD, display: 'inline-block' }} />
+              {dl < 0 ? `เลยกำหนด ${Math.abs(dl)} วัน` : `อีก ${dl} วัน`}
+            </span>
+          )}
+          {hasData && <button onClick={() => setExpanded(false)}><ChevronUp size={15} color={SLATE} /></button>}
+        </div>
+      </div>
       {dl !== null && (
-        <p className="text-xs mb-2" style={{ color: dl < 0 ? BAD : dl <= 7 ? BRASS : GOOD }}>
-          {dl < 0 ? `⚫ เลยกำหนดแล้ว ${Math.abs(dl)} วัน (ครบกำหนด ${formatDateThai(nextDue)})` : `🟢 อีก ${dl} วันถึงกำหนด (${formatDateThai(nextDue)})`}
-          {latest && latest.nextDueMileage ? ` — หรือเลขไมล์ถึง ${latest.nextDueMileage} กม. (แล้วแต่ถึงก่อน)` : ''}
-        </p>
+        <div style={{ background: dl < 0 ? '#FBEAEA' : '#FFF6E8', borderRadius: 10 }} className="p-2.5 mb-2">
+          <p className="text-xs" style={{ color: dl < 0 ? '#8A4A42' : '#6B5F3A' }}>
+            {dl < 0 ? `⚫ เลยกำหนดแล้ว ${Math.abs(dl)} วัน (ครบกำหนด ${formatDateThai(nextDue)})` : `🟢 อีก ${dl} วันถึงกำหนด (${formatDateThai(nextDue)})`}
+            {latest && latest.nextDueMileage ? ` — หรือเลขไมล์ถึง ${latest.nextDueMileage} กม. (แล้วแต่ถึงก่อน)` : ''}
+          </p>
+        </div>
       )}
       {!latest && <p className="text-xs mb-2" style={{ color: SLATE }}>ยังไม่มีประวัติ — บันทึกครั้งแรกด้านล่าง</p>}
       <p className="text-[10px] mb-3" style={{ color: SLATE }}>⚠️ แจ้งเตือนอัตโนมัติอิงจากวันที่เท่านั้น (ยังเช็คเลขไมล์จริงให้อัตโนมัติไม่ได้ เพราะแอปไม่รู้เลขไมล์ปัจจุบันของรถ) — เลขไมล์ที่กรอกไว้ใช้เป็นข้อมูลอ้างอิงเวลาเข้าศูนย์ช่วงว่างๆ เท่านั้น</p>
@@ -8049,7 +8091,7 @@ function VehicleMaintenanceCard({ icon, label, data, vehicleName, onSave }) {
       <label className="text-[10px]" style={{ color: SLATE }}>แจ้งเตือนล่วงหน้า (วัน) — เลือกได้หลายค่า</label>
       <div className="flex gap-1.5 flex-wrap mt-1 mb-3">
         {[14, 7, 3, 1].map((d) => (
-          <button key={d} onClick={() => toggleDay(d)} style={{ background: reminderDays.includes(d) ? BRASS : PAPER_DIM, color: reminderDays.includes(d) ? 'white' : SLATE }} className="rounded-full px-2.5 py-1 text-xs">{d} วัน</button>
+          <button key={d} onClick={() => toggleDay(d)} style={{ background: reminderDays.includes(d) ? color : PAPER_DIM, color: reminderDays.includes(d) ? 'white' : SLATE }} className="rounded-full px-2.5 py-1 text-xs">{d} วัน</button>
         ))}
       </div>
 
@@ -8065,7 +8107,7 @@ function VehicleMaintenanceCard({ icon, label, data, vehicleName, onSave }) {
         </div>
         <label className="text-[10px]" style={{ color: SLATE }}>ต้องเปลี่ยนอีกทีตอนเลขไมล์ (กม.) — ไม่บังคับ</label>
         <input value={nextDueMileage} onChange={(e) => setNextDueMileage(e.target.value)} placeholder="เช่น 85000" className="rounded-lg px-2 py-1.5 text-sm w-full mt-1 mb-1.5" style={{ border: `1px solid ${BORDER}` }} />
-        <button onClick={addEntry} style={{ background: BRASS }} className="w-full text-white rounded-lg py-1.5 text-xs">บันทึก</button>
+        <button onClick={addEntry} style={{ background: color }} className="w-full text-white rounded-lg py-1.5 text-xs">บันทึก</button>
       </div>
 
       {sortedHistory.length > 0 && sortedHistory.map((h) => (
@@ -8094,40 +8136,64 @@ function VehicleMaintenanceCard({ icon, label, data, vehicleName, onSave }) {
   );
 }
 
-function VehicleItemCard({ itemKey, item, onSave }) {
+function VehicleItemCard({ itemKey, item, onSave, num, color }) {
   const [company, setCompany] = useState(item.company || '');
   const [cost, setCost] = useState(item.cost != null ? item.cost : '');
   const [purchaseDate, setPurchaseDate] = useState(item.purchaseDate || '');
   const [expiryDate, setExpiryDate] = useState(item.expiryDate || '');
   const [reminderDays, setReminderDays] = useState(item.reminderDays && item.reminderDays.length ? item.reminderDays : [30, 15, 7]);
+  const hasData = !!item.expiryDate;
+  const [expanded, setExpanded] = useState(hasData);
+  useEffect(() => { if (hasData) setExpanded(true); }, [hasData]);
   useEffect(() => {
     setCompany(item.company || ''); setCost(item.cost != null ? item.cost : ''); setPurchaseDate(item.purchaseDate || ''); setExpiryDate(item.expiryDate || '');
     setReminderDays(item.reminderDays && item.reminderDays.length ? item.reminderDays : [30, 15, 7]);
   }, [item.company, item.cost, item.purchaseDate, item.expiryDate, item.reminderDays]);
   const dl = expiryDate ? daysUntil(expiryDate) : null;
   function toggleDay(d) { setReminderDays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => b - a))); }
+
+  if (!expanded) return <CollapsedVehicleRow num={num} color={color} label={VEHICLE_ITEM_LABELS[itemKey]} onClick={() => setExpanded(true)} />;
+
   return (
-    <Card>
-      <p className="text-sm font-semibold mb-2">{VEHICLE_ITEM_LABELS[itemKey]}</p>
-      {dl !== null && <p className="text-xs mb-2" style={{ color: dl < 0 ? BAD : dl <= 30 ? BRASS : GOOD }}>{dl < 0 ? `⚫ หมดอายุแล้ว ${Math.abs(dl)} วัน` : `🟢 เหลืออีก ${dl} วัน`}</p>}
+    <Card style={dl !== null && dl < 0 ? { border: `1.5px solid ${BAD}` } : undefined}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2.5">
+          <NumberBadge num={num} color={color} />
+          <p className="text-sm font-semibold">{VEHICLE_ITEM_LABELS[itemKey]}</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {dl !== null && (
+            <span className="text-[11px] font-semibold flex items-center gap-1" style={{ color: dl < 0 ? BAD : dl <= 30 ? BRASS : GOOD }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: dl < 0 ? BAD : dl <= 30 ? BRASS : GOOD, display: 'inline-block' }} />
+              {dl < 0 ? `เลยกำหนด ${Math.abs(dl)} วัน` : `เหลืออีก ${dl} วัน`}
+            </span>
+          )}
+          {hasData && <button onClick={() => setExpanded(false)}><ChevronUp size={15} color={SLATE} /></button>}
+        </div>
+      </div>
+      {dl !== null && (
+        <div style={{ background: dl < 0 ? '#FBEAEA' : '#E3F1E8', borderRadius: 10 }} className="p-2.5 mb-3">
+          <p className="text-xs" style={{ color: dl < 0 ? '#8A4A42' : '#3F6152' }}>{dl < 0 ? `⚫ หมดอายุแล้ว ${Math.abs(dl)} วัน` : `🟢 เหลืออีก ${dl} วัน (${formatDateThai(expiryDate)})`}</p>
+        </div>
+      )}
       <label className="text-[10px]" style={{ color: SLATE }}>บริษัท</label>
       <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="ชื่อบริษัท" className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
-      <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่าย (บาท)</label>
-      <NumInput value={cost} onChange={setCost} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
       <div className="flex gap-2 mb-2">
         <div className="flex-1">
-          <label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label>
-          <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: `1px solid ${BORDER}` }} />
+          <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่าย (บาท)</label>
+          <NumInput value={cost} onChange={setCost} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: `1px solid ${BORDER}` }} />
         </div>
         <div className="flex-1">
-          <label className="text-[10px]" style={{ color: SLATE }}>วันหมดอายุ</label>
+          <label className="text-[10px]" style={{ color: SLATE }}>วันหมดอายุใหม่</label>
           <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: `1px solid ${BORDER}` }} />
         </div>
       </div>
+      <label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label>
+      <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: `1px solid ${BORDER}` }} />
       <label className="text-[10px]" style={{ color: SLATE }}>แจ้งเตือนล่วงหน้า (วัน) — เลือกได้หลายค่า</label>
       <div className="flex gap-1.5 flex-wrap mt-1 mb-3">
         {[60, 30, 15, 7, 3, 1].map((d) => (
-          <button key={d} onClick={() => toggleDay(d)} style={{ background: reminderDays.includes(d) ? INK : PAPER, color: reminderDays.includes(d) ? 'white' : INK, border: `1px solid ${reminderDays.includes(d) ? INK : BORDER}` }} className="text-xs rounded-full px-3 py-1">{d} วัน</button>
+          <button key={d} onClick={() => toggleDay(d)} style={{ background: reminderDays.includes(d) ? color : PAPER_DIM, color: reminderDays.includes(d) ? 'white' : SLATE }} className="text-xs rounded-full px-3 py-1">{d} วัน</button>
         ))}
       </div>
       <button onClick={() => onSave({ company: company.trim(), cost: cost === '' ? null : Number(cost), purchaseDate: purchaseDate || null, expiryDate: expiryDate || null, reminderDays })} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึก</button>
