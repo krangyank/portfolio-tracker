@@ -6,7 +6,7 @@ import {
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
   Dog, Scale, Syringe, Shield, Bug, Stethoscope, Eye, EyeOff, Search, Upload,
-  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper, Rss, Car,
+  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper, Rss, Car, Coins,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
@@ -5327,15 +5327,46 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   }
 
   return (
-    <div style={{ background: PAPER_DIM }} className="rounded-lg p-3 mb-2">
-      <div className="flex gap-2 mb-2"><input value={h.symbol} onChange={(e) => onUpdate(accountId, h.id, { symbol: e.target.value.toUpperCase() })} placeholder="สัญลักษณ์" className="text-sm font-semibold flex-1 outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(accountId, h.id))}><Trash2 size={14} color={BAD} /></button></div>
+    <div style={{ background: PAPER_DIM, borderRadius: CARD_RADIUS, overflow: 'hidden' }} className="mb-2">
+      <div style={{ background: 'linear-gradient(135deg, #FBF3E3, #E9CFA0)', padding: '14px 12px' }} className="flex items-center gap-2.5">
+        <div style={{ width: 36, height: 36, borderRadius: 11, background: BRASS, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <TrendingUp size={17} color="white" />
+        </div>
+        <input value={h.symbol} onChange={(e) => onUpdate(accountId, h.id, { symbol: e.target.value.toUpperCase() })} placeholder="สัญลักษณ์" className="text-sm font-bold flex-1 outline-none rounded px-2 py-1.5" style={{ border: 'none', background: 'rgba(255,255,255,0.6)' }} />
+        <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(accountId, h.id))} style={{ width: 30, height: 30, borderRadius: '50%', background: '#FBEAEA', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
+      </div>
+      <div className="p-3">
       <div className="grid grid-cols-2 gap-2 mb-2">
-        <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={h.shares} onChange={(v) => onUpdate(accountId, h.id, { shares: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
-        <div><label className="text-[10px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ย/หุ้น ({h.currency})</label><NumInput value={h.avgCost} onChange={(v) => onUpdate(accountId, h.id, { avgCost: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
-        {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนซื้อเฉลี่ย</label><NumInput value={h.purchaseFx} onChange={(v) => onUpdate(accountId, h.id, { purchaseFx: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>}
-        <div><label className="text-[10px]" style={{ color: SLATE }}>ราคาปัจจุบัน/หุ้น ({h.currency})</label><NumInput value={h.currentPrice} onChange={(v) => onUpdate(accountId, h.id, { currentPrice: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
-        {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ปัจจุบัน</label><NumInput value={h.currentFx} onChange={(v) => onUpdate(accountId, h.id, { currentFx: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>}
-        <div className="col-span-2"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่มถือ (สำหรับ CAGR)</label><input type="date" value={h.purchaseDate || ''} onChange={(e) => onUpdate(accountId, h.id, { purchaseDate: e.target.value })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+        <div style={{ background: 'white', borderRadius: 11 }} className="flex items-center gap-2 px-2.5 py-2">
+          <span style={{ width: 26, height: 26, borderRadius: 8, background: '#F5E9D2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Coins size={13} color={BRASS} /></span>
+          <div className="flex-1 min-w-0"><label className="text-[9px] block" style={{ color: SLATE }}>จำนวนหุ้น</label><NumInput value={h.shares} onChange={(v) => onUpdate(accountId, h.id, { shares: v })} className="text-sm w-full outline-none" style={{ border: 'none', background: 'transparent', padding: 0 }} /></div>
+        </div>
+        <div style={{ background: 'white', borderRadius: 11 }} className="flex items-center gap-2 px-2.5 py-2">
+          <span style={{ width: 26, height: 26, borderRadius: 8, background: '#EDE7F6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Wallet size={13} color="#7C3AED" /></span>
+          <div className="flex-1 min-w-0"><label className="text-[9px] block truncate" style={{ color: SLATE }}>ต้นทุนเฉลี่ย/หุ้น ({h.currency})</label><NumInput value={h.avgCost} onChange={(v) => onUpdate(accountId, h.id, { avgCost: v })} className="text-sm w-full outline-none" style={{ border: 'none', background: 'transparent', padding: 0 }} /></div>
+        </div>
+        {h.currency === 'USD' && (
+          <div style={{ background: 'white', borderRadius: 11 }} className="flex items-center gap-2 px-2.5 py-2">
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: '#E3EAF1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Percent size={13} color="#2E5266" /></span>
+            <div className="flex-1 min-w-0"><label className="text-[9px] block" style={{ color: SLATE }}>FX ตอนซื้อเฉลี่ย</label><NumInput value={h.purchaseFx} onChange={(v) => onUpdate(accountId, h.id, { purchaseFx: v })} className="text-sm w-full outline-none" style={{ border: 'none', background: 'transparent', padding: 0 }} /></div>
+          </div>
+        )}
+        <div style={{ background: 'white', borderRadius: 11 }} className="flex items-center gap-2 px-2.5 py-2">
+          <span style={{ width: 26, height: 26, borderRadius: 8, background: '#E3EAF1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><BarChart3 size={13} color="#2E5266" /></span>
+          <div className="flex-1 min-w-0"><label className="text-[9px] block truncate" style={{ color: SLATE }}>ราคาปัจจุบัน/หุ้น ({h.currency})</label><NumInput value={h.currentPrice} onChange={(v) => onUpdate(accountId, h.id, { currentPrice: v })} className="text-sm w-full outline-none" style={{ border: 'none', background: 'transparent', padding: 0 }} /></div>
+        </div>
+        {h.currency === 'USD' && (
+          <div style={{ background: 'white', borderRadius: 11 }} className="flex items-center gap-2 px-2.5 py-2">
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: '#E3EAF1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Percent size={13} color="#2E5266" /></span>
+            <div className="flex-1 min-w-0"><label className="text-[9px] block" style={{ color: SLATE }}>FX ปัจจุบัน</label><NumInput value={h.currentFx} onChange={(v) => onUpdate(accountId, h.id, { currentFx: v })} className="text-sm w-full outline-none" style={{ border: 'none', background: 'transparent', padding: 0 }} /></div>
+          </div>
+        )}
+        <div className="col-span-2" style={{ background: 'white', borderRadius: 11 }}>
+          <div className="flex items-center gap-2 px-2.5 py-2">
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: '#FBEAE7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Calendar size={13} color="#A64B3D" /></span>
+            <div className="flex-1 min-w-0"><label className="text-[9px] block" style={{ color: SLATE }}>วันที่เริ่มถือ (สำหรับ CAGR)</label><input type="date" value={h.purchaseDate || ''} onChange={(e) => onUpdate(accountId, h.id, { purchaseDate: e.target.value })} className="text-sm w-full outline-none" style={{ border: 'none', background: 'transparent', padding: 0 }} /></div>
+          </div>
+        </div>
       </div>
       {isMutualFund && (
         <div style={{ background: 'white', border: `1px solid ${BORDER}` }} className="rounded-lg p-2 mb-2">
@@ -5430,9 +5461,17 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         </div>
       )}
       {h.lastUpdated && <p className="text-[10px] mb-2" style={{ color: SLATE }}>อัพเดทล่าสุด: {h.lastUpdated}</p>}
-      <div className="flex justify-between items-center mt-1"><span className="text-xl font-bold">฿{fmt(marketValue)}</span><span className="text-xl font-bold" style={{ color: gain >= 0 ? GOOD : BAD }}>{gain >= 0 ? '+' : ''}{gainPct.toFixed(1)}%</span></div>
-      <p className="text-[11px]" style={{ color: SLATE }}>ต้นทุน ฿{fmt(costBasis)} · ปันผลสะสม ฿{fmt(totalDiv)} (Yield {yieldPct.toFixed(1)}%){cagr !== null && ` · CAGR ${cagr.toFixed(1)}%/ปี`}</p>
-      {h.currency === 'USD' && <p className="text-[11px]" style={{ color: SLATE }}>ต้นทุนเฉลี่ยต่อหุ้นเป็นบาท ≈ ฿{fmt2(Number(h.avgCost || 0) * Number(h.purchaseFx || 0))} (จาก {Number(h.avgCost || 0).toFixed(2)} USD × FX {Number(h.purchaseFx || 0).toFixed(2)})</p>}
+      <div style={{ background: 'linear-gradient(135deg, #FBF3E3, #F3E0C0)', borderRadius: 14 }} className="p-3 mb-2">
+        <div className="flex justify-between items-end">
+          <div>
+            <p className="text-[10px] font-semibold mb-0.5" style={{ color: '#8A7B4E' }}>มูลค่าปัจจุบัน</p>
+            <span className="text-xl font-bold">฿{fmt(marketValue)}</span>
+          </div>
+          <span className="text-base font-bold" style={{ color: gain >= 0 ? GOOD : BAD }}>{gain >= 0 ? '+' : ''}{gainPct.toFixed(1)}%</span>
+        </div>
+        <p className="text-[11px] mt-1" style={{ color: '#8A7B4E' }}>ต้นทุน ฿{fmt(costBasis)} · ปันผลสะสม ฿{fmt(totalDiv)} (Yield {yieldPct.toFixed(1)}%){cagr !== null && ` · CAGR ${cagr.toFixed(1)}%/ปี`}</p>
+        {h.currency === 'USD' && <p className="text-[11px]" style={{ color: '#8A7B4E' }}>ต้นทุนเฉลี่ยต่อหุ้นเป็นบาท ≈ ฿{fmt2(Number(h.avgCost || 0) * Number(h.purchaseFx || 0))} (จาก {Number(h.avgCost || 0).toFixed(2)} USD × FX {Number(h.purchaseFx || 0).toFixed(2)})</p>}
+      </div>
       {(h.sells || []).length > 0 && (
         <p className="text-[11px] mb-1" style={{ color: totalRealized >= 0 ? GOOD : BAD }}>กำไร/ขาดทุนที่รับรู้แล้ว (ขายไปแล้ว): {totalRealized >= 0 ? '+' : ''}฿{fmt(totalRealized)}</p>
       )}
@@ -5614,6 +5653,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           onSave={(v) => { onUpdateDividend(accountId, h.id, editingDiv.id, { date: v.date, amount: Number(v.amount) || 0 }); setEditingDiv(null); }}
         />
       )}
+      </div>
     </div>
   );
 }
