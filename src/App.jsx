@@ -4907,10 +4907,10 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   return (
     <Card style={{ borderTop: `3px solid ${categoryColor}` }}>
       <div className="flex items-center gap-2.5 mb-1">
-        <div style={{ background: `${categoryColor}1F`, color: categoryColor, flexShrink: 0 }} className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold">{(a.name || '?').trim().slice(0, 2).toUpperCase()}</div>
-        <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-semibold" style={{ border: 'none' }} />
+        <div style={{ background: `${categoryColor}1F`, color: categoryColor, flexShrink: 0 }} className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold">{(a.name || '?').trim().slice(0, 2).toUpperCase()}</div>
+        <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-bold" style={{ border: 'none' }} />
         {a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}
-        <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(a.id))}><Trash2 size={16} color={BAD} /></button>
+        <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(a.id))} style={{ width: 30, height: 30, borderRadius: '50%', background: '#FBEAEA', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
       </div>
       {a.category === 'mutual_fund' && (
         <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0', color: SLATE }} />
@@ -4988,11 +4988,17 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           )}
         </div>
       )}
-      <p className="text-lg font-semibold mt-1">฿{fmt(displayValue)}{cashTHB > 0 && <span className="text-sm font-normal" style={{ color: SLATE }}> (รวมเงินสด ≈ ฿{fmt(displayValue + cashTHB)})</span>}</p>
-      {holdings.length > 0 && totalCost > 0 && <p className="text-xs mb-2" style={{ color: totalGain >= 0 ? GOOD : BAD }}>ต้นทุนรวม ฿{fmt(totalCost)} · {totalGain >= 0 ? '+' : ''}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</p>}
+      <div style={{ background: 'linear-gradient(135deg, #FBF3E3, #F3E0C0)', borderRadius: 16 }} className="p-3.5 mt-1 mb-2">
+        <p className="text-[10px] font-semibold mb-0.5" style={{ color: '#8A7B4E' }}>มูลค่าปัจจุบัน</p>
+        <p className="text-xl font-bold">฿{fmt(displayValue)}{cashTHB > 0 && <span className="text-sm font-normal" style={{ color: '#8A7B4E' }}> (รวมเงินสด ≈ ฿{fmt(displayValue + cashTHB)})</span>}</p>
+        {holdings.length > 0 && totalCost > 0 && <p className="text-xs mt-1" style={{ color: totalGain >= 0 ? GOOD : BAD }}>ต้นทุนรวม ฿{fmt(totalCost)} · {totalGain >= 0 ? '+' : ''}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</p>}
+      </div>
       {holdings.length > 0 && a.category !== 'dime' && (
         <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-2">
-          <p className="text-[10px] mb-1" style={{ color: SLATE }}>💵 เงินสดในบัญชี (Cash Balance)</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span style={{ width: 22, height: 22, borderRadius: 7, background: '#E3F1E8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Wallet size={11} color={GOOD} /></span>
+            <p className="text-[10px]" style={{ color: SLATE }}>เงินสดในบัญชี (Cash Balance)</p>
+          </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center flex-1"><span className="text-sm mr-1">฿</span><NumInput value={a.cashBalance} onChange={(v) => onUpdate(a.id, { cashBalance: v })} className="text-sm flex-1 outline-none" style={{ border: 'none', color: INK, background: 'white', borderRadius: 6, padding: '4px 6px' }} placeholder="0" /></div>
           </div>
@@ -5116,10 +5122,13 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       {expanded && (
         <div className="mt-3">
           <div style={{ borderRadius: CARD_RADIUS, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
-            {holdings.map((h, i) => (
+            {holdings.map((h, i) => {
+              const AVATAR_COLORS = ['#2E5266', '#B8874B', '#7C3AED', '#3F6152', '#A64B3D'];
+              const avatarColor = AVATAR_COLORS[i % AVATAR_COLORS.length];
+              return (
               <button key={h.id} onClick={() => setSelectedHoldingId(h.id)} className="w-full flex items-center justify-between px-3 py-3" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', background: 'white' }}>
                 <div className="flex items-center gap-2.5">
-                  <div style={{ background: PAPER_DIM, color: INK }} className="w-9 h-9 rounded-xl flex items-center justify-center text-[10px] font-bold flex-shrink-0">{(h.symbol || '?').slice(0, 2)}</div>
+                  <div style={{ background: `${avatarColor}1F`, color: avatarColor }} className="w-9 h-9 rounded-xl flex items-center justify-center text-[10px] font-bold flex-shrink-0">{(h.symbol || '?').slice(0, 2)}</div>
                   <div className="text-left">
                     <p style={{ color: INK }} className="text-sm font-semibold">{h.symbol || '(ยังไม่ตั้งชื่อ)'}</p>
                     <p style={{ color: SLATE }} className="text-[11px]">{fmt2(h.shares)} หุ้น</p>
@@ -5135,7 +5144,8 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
                   <ChevronRight size={15} color={SLATE} />
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
           <button onClick={() => onAddHolding(a.id)} className="flex items-center gap-1 text-xs mt-2" style={{ color: BRASS }}><PlusCircle size={13} /> เพิ่มหุ้นในบัญชีนี้</button>
         </div>
