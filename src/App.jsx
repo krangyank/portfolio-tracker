@@ -5369,13 +5369,16 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         </div>
       </div>
       {isMutualFund && (
-        <div style={{ background: 'white', border: `1px solid ${BORDER}` }} className="rounded-lg p-2 mb-2">
-          <p className="text-[11px] font-semibold mb-2" style={{ color: SLATE }}>YieldTech (ถอนแบบไม่กินทุน)</p>
-          <div className="grid grid-cols-2 gap-2 mb-1">
-            <div><label className="text-[9px]" style={{ color: SLATE }}>ถอนต่อเดือน (บาท)</label><NumInput value={h.yieldTechMonthly} onChange={(v) => onUpdate(accountId, h.id, { yieldTechMonthly: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
-            <div><label className="text-[9px]" style={{ color: SLATE }}>วันที่ตัดในเดือน</label><NumInput value={h.yieldTechDay} onChange={(v) => onUpdate(accountId, h.id, { yieldTechDay: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+        <div style={{ background: '#FFF6E8', border: '1px solid #EBD9A8' }} className="rounded-2xl p-3 mb-2">
+          <div className="flex items-center gap-2 mb-2.5">
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: '#E3F1E8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Percent size={13} color={GOOD} /></span>
+            <p className="text-[12px] font-bold">YieldTech <span className="font-normal" style={{ color: '#8A7B4E' }}>(ถอนแบบไม่กินทุน)</span></p>
           </div>
-          {yieldAnnualPct > 0 && <p className="text-[11px] mb-1" style={{ color: GOOD }}>คิดเป็น Yield ~{yieldAnnualPct.toFixed(2)}% ต่อปี</p>}
+          <div className="grid grid-cols-2 gap-2 mb-1">
+            <div style={{ background: 'white', borderRadius: 10 }} className="px-2.5 py-2"><label className="text-[9px] block" style={{ color: SLATE }}>ถอนต่อเดือน (บาท)</label><NumInput value={h.yieldTechMonthly} onChange={(v) => onUpdate(accountId, h.id, { yieldTechMonthly: v })} className="text-xs w-full outline-none" style={{ border: 'none', background: 'transparent', padding: 0 }} /></div>
+            <div style={{ background: 'white', borderRadius: 10 }} className="px-2.5 py-2"><label className="text-[9px] block" style={{ color: SLATE }}>วันที่ตัดในเดือน</label><NumInput value={h.yieldTechDay} onChange={(v) => onUpdate(accountId, h.id, { yieldTechDay: v })} className="text-xs w-full outline-none" style={{ border: 'none', background: 'transparent', padding: 0 }} /></div>
+          </div>
+          {yieldAnnualPct > 0 && <p className="text-[11px] mb-1 mt-1.5" style={{ color: GOOD }}>คิดเป็น Yield ~{yieldAnnualPct.toFixed(2)}% ต่อปี</p>}
           {yieldDueThisMonth && !yieldRecordedThisMonth && (
             <div style={{ background: '#FFF6E5', border: '1px solid #E7D0A0' }} className="rounded-lg p-2 mt-1 mb-1">
               <p className="text-[11px] mb-2" style={{ color: WARN }}>เดือนนี้ถึงวันตัดแล้ว (วันที่ {h.yieldTechDay}) — บันทึกยอดที่ได้รับจริง</p>
@@ -5505,19 +5508,25 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           </div>
         </div>
       ) : (
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-2">
           <input ref={buyFileRef} type="file" accept="image/*" onChange={handleBuyFile} className="hidden" />
-          <button onClick={() => buyFileRef.current && buyFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
-            {buyScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {buyScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการซื้อ'}
-          </button>
-          <button onClick={() => setBuyDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? defaultFxFor(h) : undefined })} className="flex items-center gap-1 text-[11px]" style={{ color: BRASS }}>
-            ✍️ กรอกด้วยมือ
-          </button>
+          <div style={{ background: '#F7F4EC', borderRadius: 13 }} className="flex items-center gap-2.5 px-3 py-2.5">
+            <span style={{ width: 30, height: 30, borderRadius: 9, background: '#FBEAE7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Camera size={14} color="#A64B3D" /></span>
+            <span className="flex-1 text-xs">
+              <button onClick={() => buyFileRef.current && buyFileRef.current.click()} className="font-semibold" style={{ color: INK }}>{buyScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการซื้อ'}</button>
+              {' '}<button onClick={() => setBuyDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? defaultFxFor(h) : undefined })} className="underline" style={{ color: BRASS }}>· กรอกด้วยมือ</button>
+            </span>
+            {buyScanning && <Loader2 size={13} className="animate-spin" color={BRASS} />}
+          </div>
           {buyError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{buyError}</p>}
         </div>
       )}
       {(h.buys || []).length > 0 && (
-        <button onClick={() => setShowBuys(!showBuys)} className="text-[11px] mt-1" style={{ color: BRASS }}>{showBuys ? 'ซ่อนประวัติการซื้อ' : `ดูประวัติการซื้อ (${h.buys.length})`}</button>
+        <button onClick={() => setShowBuys(!showBuys)} style={{ background: '#F7F4EC', borderRadius: 13 }} className="flex items-center gap-2.5 px-3 py-2.5 w-full mt-2 text-left">
+          <span style={{ width: 30, height: 30, borderRadius: 9, background: '#F5E9D2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><ClipboardList size={14} color={BRASS} /></span>
+          <span className="flex-1 text-xs font-semibold" style={{ color: INK }}>{showBuys ? 'ซ่อนประวัติการซื้อ' : `ประวัติการซื้อ (${h.buys.length})`}</span>
+          {showBuys ? <ChevronUp size={15} color={SLATE} /> : <ChevronRight size={15} color={SLATE} />}
+        </button>
       )}
       {showBuys && (h.buys || []).map((b) => (
         <div key={b.id} className="flex justify-between text-xs mt-1">
@@ -5577,19 +5586,25 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           </div>
         </div>
       ) : (
-        <div className="mt-1 flex items-center gap-3">
+        <div className="mt-1">
           <input ref={sellFileRef} type="file" accept="image/*" onChange={handleSellFile} className="hidden" />
-          <button onClick={() => sellFileRef.current && sellFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
-            {sellScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {sellScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการขาย'}
-          </button>
-          <button onClick={() => setSellDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? defaultFxFor(h) : undefined })} className="flex items-center gap-1 text-[11px]" style={{ color: BAD }}>
-            ✍️ กรอกด้วยมือ
-          </button>
+          <div style={{ background: '#F7F4EC', borderRadius: 13 }} className="flex items-center gap-2.5 px-3 py-2.5">
+            <span style={{ width: 30, height: 30, borderRadius: 9, background: '#FBEAE7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Camera size={14} color="#A64B3D" /></span>
+            <span className="flex-1 text-xs">
+              <button onClick={() => sellFileRef.current && sellFileRef.current.click()} className="font-semibold" style={{ color: INK }}>{sellScanning ? 'กำลังอ่านภาพ...' : 'ถ่ายรูปรายการขาย'}</button>
+              {' '}<button onClick={() => setSellDraft({ symbol: null, amount: 0, shares: 0, price: 0, date: new Date().toISOString().slice(0, 10), fx: h.currency === 'USD' ? defaultFxFor(h) : undefined })} className="underline" style={{ color: BAD }}>· กรอกด้วยมือ</button>
+            </span>
+            {sellScanning && <Loader2 size={13} className="animate-spin" color={BAD} />}
+          </div>
           {sellError && <p className="text-[10px] mt-1" style={{ color: BAD }}>{sellError}</p>}
         </div>
       )}
       {(h.sells || []).length > 0 && (
-        <button onClick={() => setShowSells(!showSells)} className="text-[11px] mt-1" style={{ color: BRASS }}>{showSells ? 'ซ่อนประวัติการขาย' : `ดูประวัติการขาย (${h.sells.length})`}</button>
+        <button onClick={() => setShowSells(!showSells)} style={{ background: '#F7F4EC', borderRadius: 13 }} className="flex items-center gap-2.5 px-3 py-2.5 w-full mt-2 text-left">
+          <span style={{ width: 30, height: 30, borderRadius: 9, background: '#FBEAE7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><ClipboardList size={14} color={BAD} /></span>
+          <span className="flex-1 text-xs font-semibold" style={{ color: INK }}>{showSells ? 'ซ่อนประวัติการขาย' : `ประวัติการขาย (${h.sells.length})`}</span>
+          {showSells ? <ChevronUp size={15} color={SLATE} /> : <ChevronRight size={15} color={SLATE} />}
+        </button>
       )}
       {showSells && (h.sells || []).map((s) => (
         <div key={s.id} className="flex justify-between text-xs mt-1">
@@ -5627,7 +5642,11 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         />
       )}
 
-      <button onClick={() => setShowDiv(!showDiv)} className="text-[11px] mt-2" style={{ color: BRASS }}>{showDiv ? 'ซ่อน' : 'ดู/บันทึกปันผล'}</button>
+      <button onClick={() => setShowDiv(!showDiv)} style={{ background: '#F7F4EC', borderRadius: 13 }} className="flex items-center gap-2.5 px-3 py-2.5 w-full mt-2 text-left">
+        <span style={{ width: 30, height: 30, borderRadius: 9, background: '#E3F1E8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><ClipboardList size={14} color={GOOD} /></span>
+        <span className="flex-1 text-xs font-semibold" style={{ color: INK }}>{showDiv ? 'ซ่อนปันผล' : 'ดู/บันทึกปันผล'}</span>
+        {showDiv ? <ChevronUp size={15} color={SLATE} /> : <ChevronRight size={15} color={SLATE} />}
+      </button>
       {showDiv && (
         <div className="mt-2">
           <div className="flex gap-2 mb-2">
