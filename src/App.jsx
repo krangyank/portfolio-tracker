@@ -9643,6 +9643,9 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
   const [actualCost, setActualCost] = useState(0);
   const [claimReason, setClaimReason] = useState('');
   const [editingClaim, setEditingClaim] = useState(null);
+  const [showRenewalHistory, setShowRenewalHistory] = useState(false);
+  const [editingRenewal, setEditingRenewal] = useState(null);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
   const reimbursePct = Number(ins.reimbursementPct || 0);
 
   // คำนวณวันเริ่มรอบปีกรมธรรม์ปัจจุบัน (จากวันครบรอบปีล่าสุดของ startDate ที่ผ่านมาแล้ว)
@@ -9690,7 +9693,10 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
         </div>
       )}
       <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>ข้อมูลกรมธรรม์</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs" style={{ color: SLATE }}>ข้อมูลกรมธรรม์</p>
+          <button onClick={() => confirmDelete('บันทึกข้อมูลรอบปัจจุบันเป็นประวัติ แล้วเริ่มกรอกรอบต่ออายุใหม่? (ข้อมูลรอบเก่าจะไม่หายไป ดูย้อนหลังได้)', () => onUpdateInsurance(dog.id, { renewalHistory: [{ id: uid(), company: ins.company, policyNumber: ins.policyNumber, startDate: ins.startDate, endDate: ins.endDate, premium: ins.premium, annualLimit: ins.annualLimit, reimbursementPct: ins.reimbursementPct }, ...(ins.renewalHistory || [])] }))} className="text-[11px] font-semibold flex items-center gap-1" style={{ color: BRASS }}><RefreshCw size={11} /> ต่ออายุกรมธรรม์ใหม่</button>
+        </div>
         {['company:บริษัทประกัน', 'policyNumber:เลขกรมธรรม์'].map((f) => { const [k, l] = f.split(':'); return <div key={k} className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={ins[k] || ''} onChange={(e) => onUpdateInsurance(dog.id, { [k]: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>; })}
         <div className="grid grid-cols-2 gap-2 mb-2">
           <div><label className="text-[10px]" style={{ color: SLATE }}>วันเริ่ม</label><input type="date" value={ins.startDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
@@ -9711,6 +9717,41 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
         <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2.5 mt-1">
           <p className="text-xs" style={{ color: INK }}>ใช้สิทธิ์ไปแล้ว ฿{fmt(totalReimbursedThisYear)} จาก ฿{fmt(annualLimit)} (รอบปีนี้)</p>
         </div>
+        {(ins.renewalHistory || []).length > 0 && (
+          <div className="mt-3">
+            <button onClick={() => setShowRenewalHistory(!showRenewalHistory)} className="text-[11px] font-semibold" style={{ color: BRASS }}>{showRenewalHistory ? 'ซ่อนประวัติการต่ออายุ' : `ดูประวัติการต่ออายุ (${(ins.renewalHistory || []).length})`}</button>
+            {showRenewalHistory && (ins.renewalHistory || []).map((r) => (
+              <div key={r.id} style={{ borderTop: `1px solid ${BORDER}` }} className="py-2 text-xs flex justify-between items-start gap-2 mt-1">
+                <div className="flex-1 min-w-0">
+                  <p style={{ color: INK }} className="font-medium truncate">{r.company || '-'}{r.policyNumber ? ` · ${r.policyNumber}` : ''}</p>
+                  <p style={{ color: SLATE }} className="text-[11px]">{formatDateThai(r.startDate)} – {formatDateThai(r.endDate)} · เบี้ย ฿{fmt(r.premium)} · วงเงิน ฿{fmt(r.annualLimit)} · เบิกคืน {r.reimbursementPct || 0}%</p>
+                </div>
+                <span className="flex items-center gap-2 flex-shrink-0">
+                  <EditButton onClick={() => setEditingRenewal(r)} />
+                  <button onClick={() => confirmDelete('ลบประวัติการต่ออายุนี้? ข้อมูลจะหายถาวร', () => onUpdateInsurance(dog.id, { renewalHistory: (ins.renewalHistory || []).filter((x) => x.id !== r.id) }))}><Trash2 size={12} color={BAD} /></button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {editingRenewal && (
+          <EditModal title="แก้ไขประวัติการต่ออายุ" onClose={() => setEditingRenewal(null)}
+            initialValues={{ company: editingRenewal.company, policyNumber: editingRenewal.policyNumber, startDate: editingRenewal.startDate, endDate: editingRenewal.endDate, premium: editingRenewal.premium, annualLimit: editingRenewal.annualLimit, reimbursementPct: editingRenewal.reimbursementPct }}
+            fields={[
+              { key: 'company', label: 'บริษัทประกัน', type: 'text' },
+              { key: 'policyNumber', label: 'เลขกรมธรรม์', type: 'text' },
+              { key: 'startDate', label: 'วันเริ่ม', type: 'date' },
+              { key: 'endDate', label: 'วันหมดอายุ', type: 'date' },
+              { key: 'premium', label: 'ค่าเบี้ย', type: 'number' },
+              { key: 'annualLimit', label: 'วงเงินรวมต่อปี', type: 'number' },
+              { key: 'reimbursementPct', label: 'เบิกคืน (%)', type: 'number' },
+            ]}
+            onSave={(v) => {
+              onUpdateInsurance(dog.id, { renewalHistory: (ins.renewalHistory || []).map((x) => (x.id === editingRenewal.id ? { ...x, ...v, premium: Number(v.premium) || 0, annualLimit: Number(v.annualLimit) || 0, reimbursementPct: Number(v.reimbursementPct) || 0 } : x)) });
+              setEditingRenewal(null);
+            }}
+          />
+        )}
         <div className="mt-3">
           <CopyToOthersButton dogs={dogs} currentDogId={dog.id} label="เงื่อนไขประกัน (ไม่รวมเลขกรมธรรม์/ประวัติเคลม)"
             onCopy={(ids) => onCopyToMultipleDogs(ids, (targetDog) => ({
@@ -9729,12 +9770,24 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
         <button onClick={() => docFileRef.current && docFileRef.current.click()} style={{ border: `1px dashed ${BRASS}`, color: BRASS }} className="w-full rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 mb-2">{docUploading ? <Loader2 size={14} className="animate-spin" /> : <PlusCircle size={14} />}{docUploading ? 'กำลังอัพโหลด...' : 'แนบเอกสารกรมธรรม์ (รูป/PDF)'}</button>
         {docError && <p className="text-xs mb-2" style={{ color: BAD }}>{docError}</p>}
         {(ins.documents || []).length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีเอกสารแนบไว้</p>}
-        {(ins.documents || []).map((doc) => (
-          <a key={doc.id} href={doc.url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ border: `1px solid ${BORDER}` }}>
-            <div className="flex items-center gap-2 flex-1 min-w-0"><ClipboardList size={16} color={BRASS} style={{ flexShrink: 0 }} /><div className="min-w-0"><p className="text-sm truncate" style={{ color: INK }}>{doc.name}</p><p className="text-[11px]" style={{ color: SLATE }}>{doc.uploadedAt}</p></div></div>
-            <button onClick={(e) => { e.preventDefault(); confirmDelete('ลบเอกสารนี้? ข้อมูลจะหายถาวร', () => onRemoveInsuranceDocument(dog.id, doc.id)); }} style={{ flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
-          </a>
-        ))}
+        {(ins.documents || []).map((doc) => {
+          const isImage = !/\.pdf$/i.test(doc.name || '');
+          return (
+          <div key={doc.id} className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ border: `1px solid ${BORDER}` }}>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              {isImage ? (
+                <button onClick={() => setLightboxUrl(doc.url)} style={{ flexShrink: 0 }}>
+                  <img src={doc.url} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', border: `1px solid ${BORDER}` }} />
+                </button>
+              ) : (
+                <a href={doc.url} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}><ClipboardList size={16} color={BRASS} /></a>
+              )}
+              <a href={doc.url} target="_blank" rel="noreferrer" className="min-w-0"><p className="text-sm truncate" style={{ color: INK }}>{doc.name}</p><p className="text-[11px]" style={{ color: SLATE }}>{doc.uploadedAt}</p></a>
+            </div>
+            <button onClick={() => confirmDelete('ลบเอกสารนี้? ข้อมูลจะหายถาวร', () => onRemoveInsuranceDocument(dog.id, doc.id))} style={{ flexShrink: 0 }}><Trash2 size={14} color={BAD} /></button>
+          </div>
+          );
+        })}
       </Card>
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการเคลม</p>
@@ -9765,6 +9818,7 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
           onSave={(v) => { onUpdateInsuranceClaim(dog.id, editingClaim.id, { date: v.date, actualCost: Number(v.actualCost) || 0, reimbursedAmount: Number(v.reimbursedAmount) || 0, reason: v.reason }); setEditingClaim(null); }}
         />
       )}
+      <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </div>
   );
 }
