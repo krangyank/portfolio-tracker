@@ -141,6 +141,13 @@ function formatDateDMY(dateStr) {
   const [y, m, d] = parts;
   return `${d}/${m}/${y}`;
 }
+// แปลง "YYYY-MM-DDTHH:MM" (จาก input type=datetime-local) เป็น "1/10/2569 09:53 น." — ใช้โชว์วันที่+เวลาที่รับโอนจริง
+function formatDateTimeDMY(datetimeStr) {
+  if (!datetimeStr || typeof datetimeStr !== 'string') return datetimeStr;
+  const [datePart, timePart] = datetimeStr.split('T');
+  const dateFmt = formatDateDMY(datePart);
+  return timePart ? `${dateFmt} ${timePart.slice(0, 5)} น.` : dateFmt;
+}
 // แปลง YYYY-MM-DD เป็น "20 เมษายน 2569" (วัน เดือนเต็ม ปี พ.ศ.)
 function formatDateThai(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') return dateStr;
@@ -1920,6 +1927,36 @@ export default function App() {
     const totalPaid = (cur.installments || []).reduce((s, it) => s + Number(it.amount || 0), 0);
     updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, manualConfirm: confirmed, paid: confirmed || totalPaid >= Number(p.rent || 0), date: confirmed ? new Date().toISOString().slice(0, 10) : cur.date } } });
   }
+  // เงินประกัน/ค่ามัดจำ — เป็นก้อนเดียว ไม่ผูกรายเดือนแบบค่าเช่า แต่ใช้แพทเทิร์นเดียวกัน (โน้ต, บัญชีปลายทาง, สร้าง "เงินเข้า" ให้อัตโนมัติ) + เก็บเวลาที่รับโอนด้วย ไม่ใช่แค่วันที่
+  function addDepositReceipt(propertyId, entry) {
+    const p = properties.find((x) => x.id === propertyId);
+    const receipts = [{ id: uid(), amount: entry.amount, datetime: entry.datetime, note: entry.note || '', accountId: entry.accountId || '' }, ...(p.depositReceipts || [])];
+    updateProperty(propertyId, { depositReceipts: receipts });
+    if (entry.accountId) {
+      const dateOnly = (entry.datetime || '').slice(0, 10);
+      addContribution({ date: dateOnly, amount: entry.amount, source: 'rental', accountId: entry.accountId });
+      const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
+      const totalReceived = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
+      const target = Number(p.depositAmount || 0);
+      const rows = [{ label: 'วันที่เวลารับโอน', value: formatDateTimeDMY(entry.datetime) }, { label: 'ฝากเข้าบัญชี', value: accName }];
+      if (entry.note) rows.push({ label: 'โน้ต', value: entry.note });
+      if (target > 0 && totalReceived < target) rows.push({ label: 'ยังขาดอีก', value: `฿${fmt(target - totalReceived)} จากยอดเต็ม ฿${fmt(target)}` });
+      sendLineFlex(`รับเงินประกัน/มัดจำ ${p.name} ฿${fmt(entry.amount)}`, buildFlexCard({ title: `🔑 รับเงินประกัน/มัดจำ ${p.name}`, rows, amount: Number(entry.amount || 0), amountColor: GOOD, tab: 'realestate' }), p.lineGroupId);
+    }
+  }
+  function removeDepositReceipt(propertyId, receiptId) {
+    const p = properties.find((x) => x.id === propertyId);
+    updateProperty(propertyId, { depositReceipts: (p.depositReceipts || []).filter((r) => r.id !== receiptId) });
+  }
+  function updateDepositReceipt(propertyId, receiptId, patch) {
+    const p = properties.find((x) => x.id === propertyId);
+    const old = (p.depositReceipts || []).find((r) => r.id === receiptId);
+    if (!old) return;
+    const receipts = (p.depositReceipts || []).map((r) => (r.id === receiptId ? { ...r, ...patch } : r));
+    updateProperty(propertyId, { depositReceipts: receipts });
+    const linkedContribution = contributions.find((c) => c.source === 'rental' && c.date === (old.datetime || '').slice(0, 10) && Number(c.amount) === Number(old.amount) && c.accountId === old.accountId);
+    if (linkedContribution) updateContribution(linkedContribution.id, { date: patch.datetime !== undefined ? patch.datetime.slice(0, 10) : (old.datetime || '').slice(0, 10), amount: patch.amount !== undefined ? patch.amount : old.amount, accountId: patch.accountId !== undefined ? patch.accountId : old.accountId });
+  }
   // ฟีเจอร์ KK: รูปโปรไฟล์ของลูกๆ แต่ละตัว (ใช้ Storage เดียวกับรูปห้อง)
   // ใช้อัพโหลดรูปแล้วแนบเข้ากับ "รายการใหม่" ที่กำลังจะสร้างโดยตรง (กันปัญหาข้อมูลไม่ทันอัพเดทถ้าไปแนบทีหลัง)
   async function uploadDogRecordPhoto(dogId, subfolder, file) {
@@ -2491,6 +2528,7 @@ export default function App() {
           onAddRepair={addPropertyRepair} onRemoveRepair={removePropertyRepair} onAddPhoto={addPropertyPhoto} onRemovePhoto={removePropertyPhoto}
           onAddDocument={addPropertyDocument} onRemoveDocument={removePropertyDocument}
           onAddRentInstallment={addRentInstallment} onRemoveRentInstallment={removeRentInstallment} onUpdateRentInstallment={updateRentInstallment} onSetRentManualConfirm={setRentManualConfirm}
+          onAddDepositReceipt={addDepositReceipt} onRemoveDepositReceipt={removeDepositReceipt} onUpdateDepositReceipt={updateDepositReceipt}
           accounts={accounts}
           googleConnected={!!googleToken} onAddToCalendar={addPropertyEventToCalendar} onRefreshShared={refreshSharedData} onCurrentPhotoChange={setHeaderPhotoOverride} />
       )}
@@ -7281,7 +7319,7 @@ function AllDogsAppointmentsCalendar({ dogs, onJumpTo }) {
   );
 }
 
-function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onUpdateRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar, onRefreshShared, onCurrentPhotoChange }) {
+function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onUpdateRentInstallment, onSetRentManualConfirm, onAddDepositReceipt, onRemoveDepositReceipt, onUpdateDepositReceipt, accounts, googleConnected, onAddToCalendar, onRefreshShared, onCurrentPhotoChange }) {
   const [section, setSection] = useState('overview');
   const [selectedId, setSelectedId] = useState(properties[0]?.id || '');
   const selected = properties.find((p) => p.id === selectedId) || properties[0];
@@ -7312,7 +7350,7 @@ function RealEstateTab({ properties, onUpdate, onAdd, onRemove, onTogglePayment,
             ))}
             <button onClick={() => onAdd({ name: 'ทรัพย์สินใหม่' })} style={{ color: BRASS, flexShrink: 0 }} className="flex items-center gap-1 text-xs"><PlusCircle size={14} /> เพิ่ม</button>
           </div>
-          {selected && <PropertyDetail property={selected} onUpdate={onUpdate} onRemove={onRemove} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument} onAddRentInstallment={onAddRentInstallment} onRemoveRentInstallment={onRemoveRentInstallment} onUpdateRentInstallment={onUpdateRentInstallment} onSetRentManualConfirm={onSetRentManualConfirm} accounts={accounts} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
+          {selected && <PropertyDetail property={selected} onUpdate={onUpdate} onRemove={onRemove} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} onAddDocument={onAddDocument} onRemoveDocument={onRemoveDocument} onAddRentInstallment={onAddRentInstallment} onRemoveRentInstallment={onRemoveRentInstallment} onUpdateRentInstallment={onUpdateRentInstallment} onSetRentManualConfirm={onSetRentManualConfirm} onAddDepositReceipt={onAddDepositReceipt} onRemoveDepositReceipt={onRemoveDepositReceipt} onUpdateDepositReceipt={onUpdateDepositReceipt} accounts={accounts} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />}
         </>
       )}
       {section === 'collection' && <RentCollectionMatrix properties={properties} onTogglePayment={onTogglePayment} />}
@@ -7397,7 +7435,7 @@ function RealEstateOverview({ properties, onSelectProperty }) {
   );
 }
 
-function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onUpdateRentInstallment, onSetRentManualConfirm, accounts, googleConnected, onAddToCalendar }) {
+function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onRemoveTransaction, onAddRepair, onRemoveRepair, onAddPhoto, onRemovePhoto, onAddDocument, onRemoveDocument, onAddRentInstallment, onRemoveRentInstallment, onUpdateRentInstallment, onSetRentManualConfirm, onAddDepositReceipt, onRemoveDepositReceipt, onUpdateDepositReceipt, accounts, googleConnected, onAddToCalendar }) {
   const [sub, setSub] = useState('info');
   const [editMode, setEditMode] = useState(false);
   const heroPhoto = p.photos && p.photos[0] && p.photos[0].url;
@@ -7471,7 +7509,7 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
           <PropertyInfoSection property={p} onUpdate={onUpdate} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />
         </div>
       )}
-      {sub === 'rent' && <PropertyRentSection property={p} accounts={accounts} onAddInstallment={onAddRentInstallment} onRemoveInstallment={onRemoveRentInstallment} onUpdateInstallment={onUpdateRentInstallment} onSetManualConfirm={onSetRentManualConfirm} />}
+      {sub === 'rent' && <PropertyRentSection property={p} accounts={accounts} onAddInstallment={onAddRentInstallment} onRemoveInstallment={onRemoveRentInstallment} onUpdateInstallment={onUpdateRentInstallment} onSetManualConfirm={onSetRentManualConfirm} onAddDepositReceipt={onAddDepositReceipt} onRemoveDepositReceipt={onRemoveDepositReceipt} onUpdateDepositReceipt={onUpdateDepositReceipt} />}
       {sub === 'money' && <PropertyMoneySection property={p} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} />}
       {sub === 'repairs' && <PropertyRepairsSection property={p} onAddRepair={onAddRepair} onRemoveRepair={onRemoveRepair} />}
       {sub === 'roi' && <PropertyROISection property={p} />}
@@ -7481,7 +7519,7 @@ function PropertyDetail({ property: p, onUpdate, onRemove, onAddTransaction, onR
 }
 
 // หน้ารับเงินค่าเช่าแบบแบ่งจ่ายได้หลายงวด — เลือกเดือน ดูสถานะ จ่ายครบ/ไม่ครบ เพิ่มงวดใหม่พร้อมเลือกบัญชีปลายทาง (สร้างรายการเงินเข้าให้อัตโนมัติ)
-function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemoveInstallment, onUpdateInstallment, onSetManualConfirm }) {
+function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemoveInstallment, onUpdateInstallment, onSetManualConfirm, onAddDepositReceipt, onRemoveDepositReceipt, onUpdateDepositReceipt }) {
   const [ym, setYm] = useState(thisMonth());
   const [amount, setAmount] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -7564,6 +7602,87 @@ function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemove
         <input type="checkbox" checked={!!pay.manualConfirm} onChange={(e) => onSetManualConfirm(p.id, ym, e.target.checked)} />
         ติ๊กยืนยันว่าเดือนนี้ "จ่ายครบแล้ว" ด้วยตัวเอง (เผื่อกรณีพิเศษ)
       </label>
+
+      <PropertyDepositSection property={p} accounts={accounts} onAddReceipt={onAddDepositReceipt} onRemoveReceipt={onRemoveDepositReceipt} onUpdateReceipt={onUpdateDepositReceipt} />
+    </div>
+  );
+}
+
+// เงินประกัน/ค่ามัดจำ — คนละก้อนกับค่าเช่ารายเดือน มักจ่ายครั้งเดียวตอนเข้าอยู่ (บางทีแบ่งจ่ายได้) เก็บวันที่+เวลาที่รับโอนจริง ไม่ใช่แค่วันที่เฉยๆ เพราะบางทีรับหลายรอบในวันเดียวกัน
+function PropertyDepositSection({ property: p, accounts, onAddReceipt, onRemoveReceipt, onUpdateReceipt }) {
+  const [amount, setAmount] = useState(0);
+  const [datetime, setDatetime] = useState(new Date().toISOString().slice(0, 16));
+  const [note, setNote] = useState('');
+  const [accountId, setAccountId] = useState('');
+  const [editingReceipt, setEditingReceipt] = useState(null);
+  const receipts = p.depositReceipts || [];
+  const totalReceived = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const target = Number(p.depositAmount || 0);
+  const remaining = Math.max(0, target - totalReceived);
+  const isFull = target > 0 && totalReceived >= target;
+
+  function submit() {
+    if (!amount) return;
+    onAddReceipt(p.id, { amount, datetime, note, accountId });
+    setAmount(0); setNote('');
+  }
+
+  return (
+    <div className="mt-5" style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16 }}>
+      <p className="text-sm font-bold mb-2">🔑 ค่ามัดจำ/เงินประกัน</p>
+      {target > 0 && (
+        <>
+          <div style={{ background: isFull ? '#16A34A14' : PAPER_DIM }} className="rounded-full px-3 py-1.5 text-xs font-semibold inline-block mb-2">
+            {isFull ? '✅ ได้รับครบแล้ว' : `🟠 ได้รับไม่ครบ — ขาดอีก ฿${fmt(remaining)}`}
+          </div>
+          <div style={{ background: PAPER_DIM }} className="h-2.5 rounded-full overflow-hidden mb-1">
+            <div style={{ width: `${target ? Math.min(100, (totalReceived / target) * 100) : 0}%`, background: isFull ? GOOD : BRASS }} className="h-full rounded-full" />
+          </div>
+          <div className="flex justify-between text-xs mb-3" style={{ color: SLATE }}><span>ได้รับแล้ว <b style={{ color: INK }}>฿{fmt(totalReceived)}</b></span><span>เป้าหมาย <b style={{ color: INK }}>฿{fmt(target)}</b></span></div>
+        </>
+      )}
+      {target === 0 && <p className="text-xs mb-3" style={{ color: SLATE }}>ยังไม่ได้ตั้งยอดเงินประกันเป้าหมาย (ตั้งได้ที่แท็บ "ข้อมูล") — ยังบันทึกรายการรับเงินด้านล่างได้ตามปกติ</p>}
+
+      <p className="text-[10px] font-semibold mb-1.5 uppercase" style={{ color: SLATE }}>รายการที่ได้รับมาแล้ว</p>
+      {receipts.length === 0 && <p className="text-xs mb-2" style={{ color: SLATE }}>ยังไม่มีการรับเงินประกัน</p>}
+      {receipts.map((r) => {
+        const acc = accounts.find((a) => a.id === r.accountId);
+        return (
+          <div key={r.id} style={{ border: `1px solid ${BORDER}` }} className="rounded-xl px-3 py-2 mb-2 flex justify-between items-center">
+            <div><p className="text-sm font-semibold">฿{fmt(r.amount)}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateTimeDMY(r.datetime)}{r.note ? ` · ${r.note}` : ''}</p>{acc ? <p className="text-xs font-semibold mt-0.5" style={{ color: BRASS }}>💰 นำไปลง: {acc.name}</p> : <p className="text-xs mt-0.5" style={{ color: SLATE }}>ยังไม่ได้ระบุว่านำไปลงที่ไหน</p>}</div>
+            <div className="flex items-center gap-3"><EditButton onClick={() => setEditingReceipt(r)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveReceipt(p.id, r.id))}><Trash2 size={14} color={BAD} /></button></div>
+          </div>
+        );
+      })}
+      {editingReceipt && (
+        <EditModal title="แก้ไขรายการเงินประกัน" onClose={() => setEditingReceipt(null)}
+          initialValues={{ datetime: editingReceipt.datetime, amount: editingReceipt.amount, note: editingReceipt.note || '', accountId: editingReceipt.accountId || '' }}
+          fields={[
+            { key: 'datetime', label: 'วันที่เวลารับโอน', type: 'datetime-local' },
+            { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
+            { key: 'note', label: 'โน้ต', type: 'text' },
+            { key: 'accountId', label: 'นำเงินนี้ไปฝาก/ลงทุนที่บัญชีไหน', type: 'select', options: [{ value: '', label: '— ไม่ระบุ —' }, ...accounts.map((a) => ({ value: a.id, label: a.name }))] },
+          ]}
+          onSave={(v) => { onUpdateReceipt(p.id, editingReceipt.id, { datetime: v.datetime, amount: Number(v.amount) || 0, note: v.note, accountId: v.accountId }); setEditingReceipt(null); }}
+        />
+      )}
+
+      <div style={{ background: PAPER_DIM }} className="rounded-xl p-3 mt-2">
+        <p className="text-xs font-semibold mb-2" style={{ color: SLATE }}>+ เพิ่มรายการรับเงินประกัน</p>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนเงิน</label><NumInput value={amount} onChange={setAmount} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+          <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่เวลารับโอน</label><input type="datetime-local" value={datetime} onChange={(e) => setDatetime(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+        </div>
+        <label className="text-[10px]" style={{ color: SLATE }}>โน้ต (ไม่บังคับ)</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น มัดจำงวดแรก, รับเป็นเงินสด" className="rounded-lg px-2 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>นำเงินนี้ไปฝาก/ลงทุนที่บัญชีไหน (ไม่บังคับ)</label>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }}>
+          <option value="">— ไม่ระบุ (แค่บันทึกว่าได้รับเงินประกัน) —</option>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+        <p className="text-[10px] mb-2" style={{ color: SLATE }}>💡 ถ้าระบุบัญชีไว้ ระบบจะสร้างรายการ "เงินเข้า" ให้อัตโนมัติในบัญชีนั้นเลย</p>
+        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">+ บันทึกรายการนี้</button>
+      </div>
     </div>
   );
 }
@@ -10808,29 +10927,6 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
             <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveVetVisit(visit.id))}><Trash2 size={16} color={BAD} /></button>
           </div>
         </div>
-        <div style={{ background: '#FFF6E8', border: '1px solid #EBD9A8', borderRadius: 14 }} className="p-3 mb-3">
-          <div className="flex items-center gap-2 mb-2">
-            <span style={{ width: 26, height: 26, borderRadius: 8, background: '#06C755', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 4.36 3.6 8.01 8.44 8.7.33.07.78.22.89.5.1.26.07.66.03.92l-.14.87c-.04.26-.2 1.01.88.55 1.08-.46 5.84-3.44 7.97-5.89C21.6 14.1 22 12.5 22 10.8 22 5.94 17.52 2 12 2z"/></svg>
-            </span>
-            <span className="text-[13px] font-bold">แจ้งเตือน LINE</span>
-          </div>
-          <p className="text-[11px] mb-2.5" style={{ color: '#6B5F3A' }}>กดส่งเมื่อไหร่ก็ได้ครับ จะรวมทุกอย่างที่กรอกไว้ ณ ตอนนั้นเป็นข้อความเดียว ไม่ส่งอัตโนมัติทุกครั้งที่เพิ่มหัตถการแล้ว — กรอกให้ครบก่อนค่อยกดส่งทีเดียว หรือกดอัปเดตเป็นระยะก็ได้</p>
-          <button onClick={async () => {
-            setLineSending(true);
-            try {
-              const fullText = buildVetVisitShareText(dog, visit);
-              sendLineNotify(`🏥 บันทึกไปหาหมอ\n${fullText}`, dog.lineGroupId);
-              const now = new Date().toISOString();
-              onUpdateVetVisit(dog.id, visit.id, { lastLineNotifyAt: now });
-              setLineSentAt(now);
-            } finally { setLineSending(false); }
-          }} disabled={lineSending} style={{ background: '#06C755', opacity: lineSending ? 0.7 : 1 }} className="w-full text-white rounded-xl py-2.5 text-[13px] font-bold flex items-center justify-center gap-2">
-            {lineSending ? <Loader2 size={14} className="animate-spin" /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.3"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>}
-            {lineSending ? 'กำลังส่ง...' : 'ส่งสรุปเข้า LINE ตอนนี้'}
-          </button>
-          <p className="text-[10px] text-center mt-1.5" style={{ color: '#A79E8A' }}>{lineSentAt ? `ส่งล่าสุดเมื่อ ${formatDateDMY(lineSentAt.slice(0, 10))} ${lineSentAt.slice(11, 16)} น.` : 'ยังไม่เคยส่งสำหรับครั้งนี้'}</p>
-        </div>
         {onStartFollowUp && (
           <button
             onClick={() => onStartFollowUp({
@@ -11059,6 +11155,26 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
           <button onClick={() => setShowLinker(true)} className="flex items-center gap-1 text-xs mt-2" style={{ color: BRASS }}><PlusCircle size={13} /> เชื่อมโยงรายการที่มีอยู่แล้ว</button>
         )}
       </Card>
+
+      <div style={{ background: '#06C755', borderRadius: 13 }} className="flex items-center gap-2.5 px-3 py-2.5 mb-4">
+        <button onClick={async () => {
+          setLineSending(true);
+          try {
+            const fullText = buildVetVisitShareText(dog, visit);
+            sendLineNotify(`🏥 บันทึกไปหาหมอ\n${fullText}`, dog.lineGroupId);
+            const now = new Date().toISOString();
+            onUpdateVetVisit(dog.id, visit.id, { lastLineNotifyAt: now });
+            setLineSentAt(now);
+          } finally { setLineSending(false); }
+        }} disabled={lineSending} className="flex items-center gap-2 flex-1" style={{ opacity: lineSending ? 0.7 : 1 }}>
+          {lineSending ? <Loader2 size={15} className="animate-spin" color="white" /> : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 4.36 3.6 8.01 8.44 8.7.33.07.78.22.89.5.1.26.07.66.03.92l-.14.87c-.04.26-.2 1.01.88.55 1.08-.46 5.84-3.44 7.97-5.89C21.6 14.1 22 12.5 22 10.8 22 5.94 17.52 2 12 2z"/></svg>
+          )}
+          <span className="text-[13px] font-bold text-white">{lineSending ? 'กำลังส่ง...' : 'ส่งสรุปเข้า LINE ตอนนี้'}</span>
+        </button>
+        <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.85)', flexShrink: 0 }}>{lineSentAt ? `ส่งล่าสุด ${lineSentAt.slice(11, 16)} น.` : 'ยังไม่เคยส่ง'}</span>
+      </div>
+
       <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </div>
   );
