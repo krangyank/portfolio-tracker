@@ -11121,12 +11121,21 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                 })()}
                 {(procData.medication || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
-                    <TypeSelectWithCustom options={medicationList} value={row.name} onChange={(v) => updateProcRow('medication', idx, { name: v })} onAddToList={onAddMedicationPreset} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
+                    {(medicationList || []).length > 0 && (
+                      <select value="" onChange={(e) => { const p = (medicationList || [])[Number(e.target.value)]; if (p) updateProcRow('medication', idx, { name: p.name, strength: p.strength || '', dose: p.dose || '', usage: p.usage || '', timing: p.timing || '' }); }} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0', color: SLATE }}>
+                        <option value="">— เลือกจากยาที่เคยใช้ —</option>
+                        {(medicationList || []).map((p, pi) => <option key={pi} value={pi}>{p.name}{p.strength ? ` ${p.strength}` : ''}</option>)}
+                      </select>
+                    )}
+                    <input value={row.name} onChange={(e) => updateProcRow('medication', idx, { name: e.target.value })} placeholder="ชื่อยา" className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <div className="grid grid-cols-2 gap-2 mb-1">
                       <input value={row.dose} onChange={(e) => updateProcRow('medication', idx, { dose: e.target.value })} placeholder="ขนาดยา (เช่น 5 มก.)" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
                       <input value={row.usage} onChange={(e) => updateProcRow('medication', idx, { usage: e.target.value })} placeholder="วิธีใช้ (เช่น กินวันละ 2 ครั้ง)" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
                     </div>
-                    <input value={row.timing || ''} onChange={(e) => updateProcRow('medication', idx, { timing: e.target.value })} placeholder="เวลาที่ให้ยา (เช่น เช้า-เย็น, ก่อนอาหาร)" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                    <input value={row.timing || ''} onChange={(e) => updateProcRow('medication', idx, { timing: e.target.value })} placeholder="เวลาที่ให้ยา (เช่น เช้า-เย็น, ก่อนอาหาร)" className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
+                    {row.name && !(medicationList || []).some((p) => p.name === row.name && p.dose === row.dose && p.usage === row.usage) && (
+                      <button type="button" onClick={() => onAddMedicationPreset({ name: row.name, strength: row.strength || '', dose: row.dose || '', usage: row.usage || '', timing: row.timing || '' })} className="text-xs font-semibold" style={{ color: BRASS }}>+ จำยาตัวนี้ไว้ด้วย</button>
+                    )}
                   </div>
                 ))}
                 <button onClick={() => addProcRow('medication')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มยาอีกตัว</button>
