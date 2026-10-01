@@ -7411,6 +7411,17 @@ function RealEstateOverview({ properties, onSelectProperty }) {
           const pay = (p.payments || {})[ym];
           const paid = pay && pay.paid;
           const thumb = (p.photos || [])[0];
+          // เดิมเช็คแค่ paid/ไม่paid แล้วขึ้น "ค้างชำระ" สีแดงทันที แม้ยังไม่ถึงวันครบกำหนดจ่ายเลยก็ตาม — แก้ให้เทียบกับวันครบกำหนดจริงก่อน แยก 3 สถานะ (ยังไม่ถึงกำหนด/ถึงกำหนดวันนี้/เลยกำหนดแล้ว) ให้ตรงความจริงและไม่ตกใจเกินเหตุ
+          const dueDay = Number(p.rentDueDay || 5);
+          const dueDate = `${ym}-${String(dueDay).padStart(2, '0')}`;
+          const daysToDue = daysUntilGeneric(dueDate);
+          let statusLabel, statusBg, statusColor;
+          if (p.status !== 'occupied') { statusLabel = 'ว่าง'; statusBg = '#D9770614'; statusColor = WARN; }
+          else if (paid) { statusLabel = 'เก็บแล้ว'; statusBg = '#16A34A14'; statusColor = GOOD; }
+          else if (daysToDue === null) { statusLabel = 'ยังไม่ครบ'; statusBg = '#D9770614'; statusColor = WARN; }
+          else if (daysToDue < 0) { statusLabel = `เลยกำหนด ${Math.abs(daysToDue)} วัน`; statusBg = '#DC262614'; statusColor = BAD; }
+          else if (daysToDue === 0) { statusLabel = 'ครบกำหนดวันนี้'; statusBg = '#D9770614'; statusColor = WARN; }
+          else { statusLabel = `อีก ${daysToDue} วันถึงกำหนด`; statusBg = PAPER_DIM; statusColor = SLATE; }
           return (
             <button key={p.id} onClick={() => onSelectProperty(p.id)} className="w-full flex justify-between items-center py-2.5" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
               <div className="flex items-center gap-3 text-left">
@@ -7421,7 +7432,7 @@ function RealEstateOverview({ properties, onSelectProperty }) {
                 )}
                 <div><p className="text-sm font-medium" style={{ color: INK }}>{p.name}</p><p className="text-xs" style={{ color: SLATE }}>฿{fmt(p.rent)}/เดือน</p></div>
               </div>
-              <span style={{ background: p.status !== 'occupied' ? '#D9770614' : (paid ? '#16A34A14' : '#DC262614'), color: p.status !== 'occupied' ? WARN : (paid ? GOOD : BAD) }} className="text-[11px] font-semibold px-2 py-1 rounded-full flex-shrink-0">{p.status !== 'occupied' ? 'ว่าง' : (paid ? 'เก็บแล้ว' : 'ค้างชำระ')}</span>
+              <span style={{ background: statusBg, color: statusColor }} className="text-[11px] font-semibold px-2 py-1 rounded-full flex-shrink-0 text-right">{statusLabel}</span>
             </button>
           );
         })}
