@@ -4,7 +4,7 @@ export default async function handler(req, res) {
     return;
   }
   try {
-    const { message, to, flex } = req.body;
+    const { message, to, flex, images } = req.body;
     const target = to || process.env.LINE_GROUP_ID;
     if (!target) {
       res.status(400).json({ error: 'ไม่มี LINE Group ID ตั้งค่าไว้ (LINE_GROUP_ID) — ต้องดึงจาก webhook log ก่อน' });
@@ -21,6 +21,13 @@ export default async function handler(req, res) {
     } else {
       res.status(400).json({ error: 'ไม่มีข้อความหรือการ์ดที่จะส่ง' });
       return;
+    }
+    // แนบรูปเพิ่มได้ (images: URL[]) — ส่งต่อจากข้อความหลัก แต่ละรูปเป็น message แยก (type: image) LINE จำกัดรวมไม่เกิน 5 ข้อความต่อการ push หนึ่งครั้ง จึงตัดรูปส่วนเกินทิ้งถ้ามีเกิน
+    if (Array.isArray(images) && images.length > 0) {
+      const room = Math.max(0, 5 - messages.length);
+      images.slice(0, room).forEach((url) => {
+        if (typeof url === 'string' && /^https:\/\//.test(url)) messages.push({ type: 'image', originalContentUrl: url, previewImageUrl: url });
+      });
     }
     const response = await fetch('https://api.line.me/v2/bot/message/push', {
       method: 'POST',
