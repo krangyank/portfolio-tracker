@@ -10712,20 +10712,41 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       )}
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติการไปหาหมอ</p>
       {visits.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีบันทึก</p>}
-      {visits.map((v) => (
-        <button key={v.id} onClick={() => setSelectedVisitId(v.id)} className="w-full text-left" style={{ display: 'block' }}>
-          <Card>
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-sm font-semibold" style={{ color: INK }}>{formatDateThai(v.date)} · {v.hospital || 'ไม่ระบุโรงพยาบาล'}</p>
-                <p className="text-xs" style={{ color: SLATE }}>{v.reason || 'ไม่ได้ระบุเหตุผล'}{v.cost ? ` · ฿${fmt(v.cost)}` : ''}</p>
-                {(v.linkedRecords || []).length > 0 && <p className="text-[11px] mt-1" style={{ color: BRASS }}>🔗 เชื่อมโยงไว้ {v.linkedRecords.length} รายการ</p>}
+      {visits.map((v) => {
+        // สรุปรายการที่เชื่อมโยงไว้เป็นไอคอนย่อแยกตามประเภท พร้อมจำนวน แทนตัวเลขรวมเฉยๆ แบบเดิม จะได้รู้ทันทีว่าครั้งนั้นตรวจอะไรไปบ้างโดยไม่ต้องกดเข้าไปดู
+        const typeCounts = {};
+        (v.linkedRecords || []).forEach((r) => { typeCounts[r.type] = (typeCounts[r.type] || 0) + 1; });
+        const CHIP_COLORS = {
+          weights: { bg: '#EDE7F6', fg: '#5E4FA2' },
+          appointments: { bg: '#F5E9D2', fg: BRASS },
+          bloodTests: { bg: '#FBEAE7', fg: '#A64B3D' },
+          imaging: { bg: '#E3EAF1', fg: '#2E5266' },
+          organExams: { bg: '#F1EBFB', fg: '#7C3AED' },
+          medications: { bg: '#FDEBD0', fg: '#9C6B1F' },
+          expenses: { bg: '#E3F1E8', fg: '#3F6152' },
+        };
+        return (
+          <button key={v.id} onClick={() => setSelectedVisitId(v.id)} className="w-full text-left" style={{ display: 'block' }}>
+            <Card>
+              <div className="flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold" style={{ color: INK }}>{formatDateThai(v.date)} · {v.hospital || 'ไม่ระบุโรงพยาบาล'}</p>
+                  {v.doctor && <p className="text-[11px] mt-0.5" style={{ color: SLATE }}>👨‍⚕️ {v.doctor}</p>}
+                  <p className="text-xs mt-0.5" style={{ color: SLATE }}>{v.reason || 'ไม่ได้ระบุเหตุผล'}{v.cost ? ` · ฿${fmt(v.cost)}` : ''}</p>
+                  {Object.keys(typeCounts).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {VISIT_SECTION_DEFS.filter((def) => typeCounts[def.field]).map((def) => (
+                        <span key={def.field} style={{ background: (CHIP_COLORS[def.field] || {}).bg || PAPER_DIM, color: (CHIP_COLORS[def.field] || {}).fg || SLATE }} className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-full">{def.icon} {typeCounts[def.field]}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0, marginTop: 2 }} />
               </div>
-              <ChevronRight size={15} color={SLATE} />
-            </div>
-          </Card>
-        </button>
-      ))}
+            </Card>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -10761,6 +10782,9 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
   const [shareStatus, setShareStatus] = useState(null); // { loading, message, failedPhotoUrls }
   const [lineSending, setLineSending] = useState(false);
   const [lineSentAt, setLineSentAt] = useState(visit.lastLineNotifyAt || null);
+  const [stoppingMedId, setStoppingMedId] = useState(null);
+  const [stopDate, setStopDate] = useState(visit.date);
+  const [stopReason, setStopReason] = useState('');
   const photoFileRef = useRef(null);
   const list = hospitalList || [];
   const linkedRecords = visit.linkedRecords || [];
@@ -11114,7 +11138,22 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                     <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-2">
                       <p className="text-[10px] font-semibold mb-1" style={{ color: SLATE }}>ยาที่ใช้อยู่ตอนนี้ ({activeMeds.length})</p>
                       {activeMeds.map((m) => (
-                        <p key={m.id} className="text-[11px]" style={{ color: INK }}>• {m.name}{m.dose ? ` ${m.dose}` : ''}{m.usage ? ` — ${m.usage}` : ''}{m.timing ? ` (${m.timing})` : ''}</p>
+                        <div key={m.id} style={{ borderTop: `1px dashed ${BORDER}` }} className="py-1.5 first:border-t-0 first:pt-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] flex-1" style={{ color: INK }}>• {m.name}{m.dose ? ` ${m.dose}` : ''}{m.usage ? ` — ${m.usage}` : ''}{m.timing ? ` (${m.timing})` : ''}</p>
+                            <button type="button" onClick={() => setStoppingMedId(stoppingMedId === m.id ? null : m.id)} className="text-[10.5px] font-semibold flex-shrink-0" style={{ color: stoppingMedId === m.id ? SLATE : BAD }}>{stoppingMedId === m.id ? 'ยกเลิก' : 'หยุดยา'}</button>
+                          </div>
+                          {stoppingMedId === m.id && (
+                            <div className="mt-1.5">
+                              <input type="date" value={stopDate} onChange={(e) => setStopDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
+                              <input value={stopReason} onChange={(e) => setStopReason(e.target.value)} placeholder="สาเหตุที่หยุด (ไม่บังคับ)" className="rounded-lg px-2 py-1.5 text-xs w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
+                              <button type="button" onClick={() => {
+                                onUpdateDog(dog.id, { medications: (dog.medications || []).map((x) => (x.id === m.id ? { ...x, stopDate: stopDate || visit.date, stopReason } : x)) });
+                                setStoppingMedId(null); setStopDate(visit.date); setStopReason('');
+                              }} style={{ background: BAD }} className="text-white rounded-lg py-1.5 text-xs w-full">ยืนยันหยุดยา {m.name}</button>
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   ) : null;
@@ -11133,8 +11172,9 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                       <input value={row.usage} onChange={(e) => updateProcRow('medication', idx, { usage: e.target.value })} placeholder="วิธีใช้ (เช่น กินวันละ 2 ครั้ง)" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
                     </div>
                     <input value={row.timing || ''} onChange={(e) => updateProcRow('medication', idx, { timing: e.target.value })} placeholder="เวลาที่ให้ยา (เช่น เช้า-เย็น, ก่อนอาหาร)" className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
+                    <input value={row.startReason || ''} onChange={(e) => updateProcRow('medication', idx, { startReason: e.target.value })} placeholder="สาเหตุที่เริ่ม/ปรับยานี้" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
                     {row.name && !(medicationList || []).some((p) => p.name === row.name && p.dose === row.dose && p.usage === row.usage) && (
-                      <button type="button" onClick={() => onAddMedicationPreset({ name: row.name, strength: row.strength || '', dose: row.dose || '', usage: row.usage || '', timing: row.timing || '' })} className="text-xs font-semibold" style={{ color: BRASS }}>+ จำยาตัวนี้ไว้ด้วย</button>
+                      <button type="button" onClick={() => onAddMedicationPreset({ name: row.name, strength: row.strength || '', dose: row.dose || '', usage: row.usage || '', timing: row.timing || '' })} className="text-xs font-semibold mt-1" style={{ color: BRASS }}>+ จำยาตัวนี้ไว้ด้วย</button>
                     )}
                   </div>
                 ))}
