@@ -10256,13 +10256,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
       });
       patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, doctor: form.doctor, department: form.department, reason: form.reason, diagnosis: form.diagnosis, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
       onUpdateDog(dog.id, patch);
-      // แจ้งเตือน LINE เป็นข้อความเต็มแบบเดียวกับปุ่ม "แชร์" ในหน้ารายละเอียด (ไม่ใช้การ์ด Flex ที่ตัดข้อมูลบางส่วนออกอีกต่อไป) — รวมทุกรายการที่เชื่อมโยงไว้ครบ
-      {
-        const dogAfterPatch = { ...dog, ...patch };
-        const newVisit = patch.vetVisits[0];
-        const fullText = buildVetVisitShareText(dogAfterPatch, newVisit);
-        sendLineNotify(`🏥 บันทึกไปหาหมอ\n${fullText}`, dog.lineGroupId);
-      }
+      // ไม่ยิง LINE อัตโนมัติตอนสร้างแล้ว (เดิมส่งทันทีแม้กรอกแค่บางส่วน) — ย้ายไปเป็นปุ่ม "ส่งสรุปเข้า LINE ตอนนี้" ในหน้ารายละเอียด ให้กดส่งเองได้ทุกเมื่อ หลังกรอกครบตามต้องการแล้ว
       // บันทึกยาที่พิมพ์เองใหม่เข้ารายการ "ยาที่เคยใช้" ด้วย เหมือน Tab ยาโดยตรง (แก้บั๊กที่เคยตกหล่นมาก่อน)
       if (activeSections.includes('medication') && onAddMedicationPreset) {
         (sectionData.medication || []).forEach((row) => {
@@ -10633,6 +10627,8 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
   const [photoUploading, setPhotoUploading] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState(null);
   const [shareStatus, setShareStatus] = useState(null); // { loading, message, failedPhotoUrls }
+  const [lineSending, setLineSending] = useState(false);
+  const [lineSentAt, setLineSentAt] = useState(visit.lastLineNotifyAt || null);
   const photoFileRef = useRef(null);
   const list = hospitalList || [];
   const linkedRecords = visit.linkedRecords || [];
@@ -10811,6 +10807,29 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
             }}><Share2 size={16} color={BRASS} /></button>
             <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveVetVisit(visit.id))}><Trash2 size={16} color={BAD} /></button>
           </div>
+        </div>
+        <div style={{ background: '#FFF6E8', border: '1px solid #EBD9A8', borderRadius: 14 }} className="p-3 mb-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: '#06C755', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 4.36 3.6 8.01 8.44 8.7.33.07.78.22.89.5.1.26.07.66.03.92l-.14.87c-.04.26-.2 1.01.88.55 1.08-.46 5.84-3.44 7.97-5.89C21.6 14.1 22 12.5 22 10.8 22 5.94 17.52 2 12 2z"/></svg>
+            </span>
+            <span className="text-[13px] font-bold">แจ้งเตือน LINE</span>
+          </div>
+          <p className="text-[11px] mb-2.5" style={{ color: '#6B5F3A' }}>กดส่งเมื่อไหร่ก็ได้ครับ จะรวมทุกอย่างที่กรอกไว้ ณ ตอนนั้นเป็นข้อความเดียว ไม่ส่งอัตโนมัติทุกครั้งที่เพิ่มหัตถการแล้ว — กรอกให้ครบก่อนค่อยกดส่งทีเดียว หรือกดอัปเดตเป็นระยะก็ได้</p>
+          <button onClick={async () => {
+            setLineSending(true);
+            try {
+              const fullText = buildVetVisitShareText(dog, visit);
+              sendLineNotify(`🏥 บันทึกไปหาหมอ\n${fullText}`, dog.lineGroupId);
+              const now = new Date().toISOString();
+              onUpdateVetVisit(dog.id, visit.id, { lastLineNotifyAt: now });
+              setLineSentAt(now);
+            } finally { setLineSending(false); }
+          }} disabled={lineSending} style={{ background: '#06C755', opacity: lineSending ? 0.7 : 1 }} className="w-full text-white rounded-xl py-2.5 text-[13px] font-bold flex items-center justify-center gap-2">
+            {lineSending ? <Loader2 size={14} className="animate-spin" /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.3"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>}
+            {lineSending ? 'กำลังส่ง...' : 'ส่งสรุปเข้า LINE ตอนนี้'}
+          </button>
+          <p className="text-[10px] text-center mt-1.5" style={{ color: '#A79E8A' }}>{lineSentAt ? `ส่งล่าสุดเมื่อ ${formatDateDMY(lineSentAt.slice(0, 10))} ${lineSentAt.slice(11, 16)} น.` : 'ยังไม่เคยส่งสำหรับครั้งนี้'}</p>
         </div>
         {onStartFollowUp && (
           <button
