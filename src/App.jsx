@@ -269,13 +269,15 @@ async function checkLineNotifyResponse(res, label, fallbackText) {
     if (fallbackText) onQueueLineShare(fallbackText);
   }
 }
-function sendLineNotify(message, to) {
+// images (ไม่บังคับ): URL รูปที่จะแนบไปด้วย (สูงสุด 4 รูป — LINE จำกัดรวมไม่เกิน 5 ข้อความต่อการส่งหนึ่งครั้ง นับรวมข้อความตัวหนังสือด้วย)
+function sendLineNotify(message, to, images) {
   if (!lineNotifyEnabled) return;
   const tagged = currentNotifyUser ? `${message}\n— โดย ${currentNotifyUser}` : message;
+  const imageUrls = (images || []).filter(Boolean).slice(0, 4);
   fetch('/api/line-notify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: tagged, ...(to ? { to } : {}) }),
+    body: JSON.stringify({ message: tagged, ...(imageUrls.length ? { images: imageUrls } : {}), ...(to ? { to } : {}) }),
   }).then((res) => checkLineNotifyResponse(res, 'sendLineNotify', tagged)).catch((e) => { console.error('sendLineNotify failed', e); onQueueLineShare(tagged); });
 }
 // ส่งการ์ด Flex Message แทนข้อความล้วน — ใช้ altText เป็นข้อความสำรอง (โชว์ตอนแจ้งเตือน/บนนาฬิกา ที่มองไม่เห็นการ์ดจริง) ต้องแปะ "โดยใคร" ต่อท้ายใน altText เอง เพราะการ์ดไม่มีที่ใส่ชื่อผู้บันทึกแบบข้อความธรรมดา
@@ -10856,6 +10858,28 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
       if (bloodScanFileRef.current) bloodScanFileRef.current.value = '';
     }
   }
+  // แนบรูปอย่างเดียว ไม่ให้ AI อ่าน — เผื่อกรณีถ่ายเก็บไว้หลายใบรวดเดียว แล้วค่อยมากรอกรายละเอียดทีหลังทีเดียว
+  const bloodAttachFileRef = useRef(null);
+  const [bloodAttaching, setBloodAttaching] = useState(false);
+  async function handleBloodPlainAttach(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setBloodAttaching(true);
+    try {
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'bloodTests', file); } catch (e) { /* ignore */ } }
+      const newRow = { type: BLOOD_TEST_TYPES[0], date: visit.date, note: '', ...(photo ? { photos: [photo] } : {}) };
+      if (!procSections.includes('bloodTest')) setProcSections((prev) => [...prev, 'bloodTest']);
+      setProcData((prev) => {
+        const existing = prev.bloodTest || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, bloodTest: isEmptyPlaceholder ? [newRow] : [...existing, newRow] };
+      });
+    } finally {
+      setBloodAttaching(false);
+      if (bloodAttachFileRef.current) bloodAttachFileRef.current.value = '';
+    }
+  }
   // เหมือน handleBloodTestScan แต่ใช้กับ Imaging/ตรวจอวัยวะ — 1 รูปได้ 1 ผล (ต่างจากผลเลือดที่ 1 ใบอาจมีหลายหมวด)
   const imagingScanFileRef = useRef(null);
   const [imagingScanning, setImagingScanning] = useState(false);
@@ -10907,6 +10931,49 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
     } finally {
       setOrganScanning(false);
       if (organScanFileRef.current) organScanFileRef.current.value = '';
+    }
+  }
+  // แนบรูปอย่างเดียว ไม่ให้ AI อ่าน — ทั้ง Imaging และตรวจอวัยวะ เผื่อถ่ายเก็บไว้หลายใบรวดเดียวแล้วค่อยกรอกรายละเอียดทีหลัง
+  const imagingAttachFileRef = useRef(null);
+  const [imagingAttaching, setImagingAttaching] = useState(false);
+  async function handleImagingPlainAttach(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setImagingAttaching(true);
+    try {
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'imaging', file); } catch (e) { /* ignore */ } }
+      const newRow = { type: imagingTypeList[0] || '', date: visit.date, note: '', ...(photo ? { photos: [photo] } : {}) };
+      if (!procSections.includes('imaging')) setProcSections((prev) => [...prev, 'imaging']);
+      setProcData((prev) => {
+        const existing = prev.imaging || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, imaging: isEmptyPlaceholder ? [newRow] : [...existing, newRow] };
+      });
+    } finally {
+      setImagingAttaching(false);
+      if (imagingAttachFileRef.current) imagingAttachFileRef.current.value = '';
+    }
+  }
+  const organAttachFileRef = useRef(null);
+  const [organAttaching, setOrganAttaching] = useState(false);
+  async function handleOrganPlainAttach(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setOrganAttaching(true);
+    try {
+      let photo = null;
+      if (onUploadRecordPhoto) { try { photo = await onUploadRecordPhoto(dog.id, 'organExams', file); } catch (e) { /* ignore */ } }
+      const newRow = { organ: organTypeList[0] || '', date: visit.date, note: '', ...(photo ? { photos: [photo] } : {}) };
+      if (!procSections.includes('organExam')) setProcSections((prev) => [...prev, 'organExam']);
+      setProcData((prev) => {
+        const existing = prev.organExam || [];
+        const isEmptyPlaceholder = existing.length === 1 && !existing[0].note && !existing[0].photos;
+        return { ...prev, organExam: isEmptyPlaceholder ? [newRow] : [...existing, newRow] };
+      });
+    } finally {
+      setOrganAttaching(false);
+      if (organAttachFileRef.current) organAttachFileRef.current.value = '';
     }
   }
 
@@ -11023,6 +11090,13 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                 <p className="text-[11px] font-bold mb-1.5" style={{ color: BRASS }}>📅 นัดหมาย</p>
                 <input type="date" value={procData.appointment?.date || ''} onChange={(e) => updateProcSingle('appointment', { date: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1.5" style={{ border: '1px solid #E7EAF0' }} />
                 <input value={procData.appointment?.purpose || ''} onChange={(e) => updateProcSingle('appointment', { purpose: e.target.value })} placeholder="วัตถุประสงค์" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                <div className="flex items-center gap-2 mt-1.5">
+                  {procData.appointment?.photos && procData.appointment.photos[0] && <img src={procData.appointment.photos[0].url} alt="" className="w-16 h-16 object-cover rounded-lg" />}
+                  <label className="text-[11px] font-semibold flex items-center gap-1 cursor-pointer" style={{ color: BRASS }}>
+                    <input type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const photo = onUploadRecordPhoto ? await onUploadRecordPhoto(dog.id, 'appointments', f).catch(() => null) : null; if (photo) updateProcSingle('appointment', { photos: [photo] }); e.target.value = ''; }} />
+                    <Camera size={12} /> {procData.appointment?.photos && procData.appointment.photos[0] ? 'เปลี่ยนรูป' : 'แนบรูป'}
+                  </label>
+                </div>
               </div>
             )}
             {procSections.includes('weight') && (
@@ -11054,12 +11128,22 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                   {bloodScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {bloodScanning ? 'กำลังอ่านใบผลเลือด...' : 'ถ่ายรูปใบผลเลือด ให้ AI อ่านและกรอกให้'}
                 </button>
                 {bloodScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{bloodScanError}</p>}
+                <input ref={bloodAttachFileRef} type="file" accept="image/*" onChange={handleBloodPlainAttach} className="hidden" />
+                <button type="button" onClick={() => bloodAttachFileRef.current && bloodAttachFileRef.current.click()} style={{ border: `1px solid ${BORDER}`, color: INK }} className="w-full rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                  {bloodAttaching ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color={SLATE} />} {bloodAttaching ? 'กำลังแนบรูป...' : '📎 แนบรูปอย่างเดียว (ไม่ต้องให้ AI อ่าน)'}
+                </button>
                 <p className="text-[10px] mb-2" style={{ color: SLATE }}>AI จะแยกเป็นรายการต่อ 1 หมวด (เช่น CBC, Chemistry) และแนบรูปใบผลตรวจไว้ให้อัตโนมัติ — ตรวจสอบข้อความที่กรอกให้ก่อนบันทึกเสมอ</p>
                 {(procData.bloodTest || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <TypeSelectWithCustom options={bloodTestTypeList} value={row.type} onChange={(v) => updateProcRow('bloodTest', idx, { type: v })} onAddToList={onAddBloodTestType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <textarea value={row.note} onChange={(e) => updateProcRow('bloodTest', idx, { note: e.target.value })} placeholder="ผลตรวจ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
-                    {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-16 h-16 object-cover rounded-lg" />}
+                      <label className="text-[11px] font-semibold flex items-center gap-1 cursor-pointer" style={{ color: BRASS }}>
+                        <input type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const photo = onUploadRecordPhoto ? await onUploadRecordPhoto(dog.id, 'bloodTests', f).catch(() => null) : null; if (photo) updateProcRow('bloodTest', idx, { photos: [photo] }); e.target.value = ''; }} />
+                        <Camera size={12} /> {row.photos && row.photos[0] ? 'เปลี่ยนรูป' : 'แนบรูป'}
+                      </label>
+                    </div>
                   </div>
                 ))}
                 <button onClick={() => addProcRow('bloodTest')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มอีกรายการ</button>
@@ -11073,11 +11157,21 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                   {imagingScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {imagingScanning ? 'กำลังอ่านผล...' : 'ถ่ายรูปผล ให้ AI อ่านและกรอกให้'}
                 </button>
                 {imagingScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{imagingScanError}</p>}
+                <input ref={imagingAttachFileRef} type="file" accept="image/*" onChange={handleImagingPlainAttach} className="hidden" />
+                <button type="button" onClick={() => imagingAttachFileRef.current && imagingAttachFileRef.current.click()} style={{ border: `1px solid ${BORDER}`, color: INK }} className="w-full rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                  {imagingAttaching ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color={SLATE} />} {imagingAttaching ? 'กำลังแนบรูป...' : '📎 แนบรูปอย่างเดียว (ไม่ต้องให้ AI อ่าน)'}
+                </button>
                 {(procData.imaging || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <TypeSelectWithCustom options={imagingTypeList} value={row.type} onChange={(v) => updateProcRow('imaging', idx, { type: v })} onAddToList={onAddImagingType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <textarea value={row.note} onChange={(e) => updateProcRow('imaging', idx, { note: e.target.value })} placeholder="ผลอ่านภาพ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
-                    {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-16 h-16 object-cover rounded-lg" />}
+                      <label className="text-[11px] font-semibold flex items-center gap-1 cursor-pointer" style={{ color: BRASS }}>
+                        <input type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const photo = onUploadRecordPhoto ? await onUploadRecordPhoto(dog.id, 'imaging', f).catch(() => null) : null; if (photo) updateProcRow('imaging', idx, { photos: [photo] }); e.target.value = ''; }} />
+                        <Camera size={12} /> {row.photos && row.photos[0] ? 'เปลี่ยนรูป' : 'แนบรูป'}
+                      </label>
+                    </div>
                   </div>
                 ))}
                 <button onClick={() => addProcRow('imaging')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มอีกรายการ</button>
@@ -11091,11 +11185,21 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                   {organScanning ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color="#FBBF24" />} {organScanning ? 'กำลังอ่านผล...' : 'ถ่ายรูปผล ให้ AI อ่านและกรอกให้'}
                 </button>
                 {organScanError && <p className="text-[11px] mb-2" style={{ color: BAD }}>{organScanError}</p>}
+                <input ref={organAttachFileRef} type="file" accept="image/*" onChange={handleOrganPlainAttach} className="hidden" />
+                <button type="button" onClick={() => organAttachFileRef.current && organAttachFileRef.current.click()} style={{ border: `1px solid ${BORDER}`, color: INK }} className="w-full rounded-lg py-2 text-xs flex items-center justify-center gap-1.5 mb-2">
+                  {organAttaching ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} color={SLATE} />} {organAttaching ? 'กำลังแนบรูป...' : '📎 แนบรูปอย่างเดียว (ไม่ต้องให้ AI อ่าน)'}
+                </button>
                 {(procData.organExam || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <TypeSelectWithCustom options={organTypeList} value={row.organ} onChange={(v) => updateProcRow('organExam', idx, { organ: v })} onAddToList={onAddOrganType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <textarea value={row.note} onChange={(e) => updateProcRow('organExam', idx, { note: e.target.value })} placeholder="ผลตรวจ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
-                    {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-16 h-16 object-cover rounded-lg" />}
+                      <label className="text-[11px] font-semibold flex items-center gap-1 cursor-pointer" style={{ color: BRASS }}>
+                        <input type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const photo = onUploadRecordPhoto ? await onUploadRecordPhoto(dog.id, 'organExams', f).catch(() => null) : null; if (photo) updateProcRow('organExam', idx, { photos: [photo] }); e.target.value = ''; }} />
+                        <Camera size={12} /> {row.photos && row.photos[0] ? 'เปลี่ยนรูป' : 'แนบรูป'}
+                      </label>
+                    </div>
                   </div>
                 ))}
                 <button onClick={() => addProcRow('organExam')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มอีกรายการ</button>
@@ -11172,7 +11276,8 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
           setLineSending(true);
           try {
             const fullText = buildVetVisitShareText(dog, visit);
-            sendLineNotify(`🏥 บันทึกไปหาหมอ\n${fullText}`, dog.lineGroupId);
+            const imageUrls = (visit.photos || []).map((ph) => ph.url).filter(Boolean);
+            sendLineNotify(`🏥 บันทึกไปหาหมอ\n${fullText}`, dog.lineGroupId, imageUrls);
             const now = new Date().toISOString();
             onUpdateVetVisit(dog.id, visit.id, { lastLineNotifyAt: now });
             setLineSentAt(now);
