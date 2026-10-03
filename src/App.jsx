@@ -1882,7 +1882,8 @@ export default function App() {
     const paid = cur.manualConfirm || totalPaid >= Number(p.rent || 0);
     updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid, date: paid ? (cur.date || entry.date) : cur.date } } });
     if (entry.accountId) {
-      addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId });
+      // addToIncome (ค่าเริ่มต้น true ถ้าไม่ได้ส่งมา กันโค้ดเก่า/จุดเรียกอื่นที่ยังไม่รู้จัก field นี้พัง): false = บันทึกงวดนี้ไว้ในห้องเฉยๆ ไม่ต้องขึ้นซ้ำในหน้า "เงินเข้า" รวม
+      if (entry.addToIncome !== false) addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId });
       const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
       const shortfall = Number(p.rent || 0) - totalPaid;
       const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'ฝากเข้าบัญชี', value: accName }];
@@ -1937,7 +1938,7 @@ export default function App() {
     updateProperty(propertyId, { depositReceipts: receipts });
     if (entry.accountId) {
       const dateOnly = (entry.datetime || '').slice(0, 10);
-      addContribution({ date: dateOnly, amount: entry.amount, source: 'rental', accountId: entry.accountId });
+      if (entry.addToIncome !== false) addContribution({ date: dateOnly, amount: entry.amount, source: 'rental', accountId: entry.accountId });
       const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
       const totalReceived = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
       const target = Number(p.depositAmount || 0);
@@ -2171,7 +2172,8 @@ export default function App() {
   function addInsuranceClaim(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
     updateDog(dogId, { insurance: { ...d.insurance, claims: [{ id: uid(), ...entry }, ...(d.insurance.claims || [])] } });
-    if (d && d.lineGroupId) sendLineNotify(`🛡️ เคลมประกัน ${d.name}: ฿${fmt(entry.amount)}${entry.reason ? ` (${entry.reason})` : ''}`, d.lineGroupId);
+    // เดิมอ้าง entry.amount ซึ่งไม่มีจริง (field จริงคือ actualCost/reimbursedAmount) เลยขึ้น ฿0 เสมอ — แก้ให้ใช้ชื่อ field ที่ถูกต้อง และบอกสถานะรอเบิกจ่ายด้วย เพราะตอนบันทึกเคลมเงินยังไม่เข้าจริง
+    if (d && d.lineGroupId) sendLineNotify(`🛡️ เคลมประกัน ${d.name}: ค่ารักษา ฿${fmt(entry.actualCost)} · เบิกได้ ฿${fmt(entry.reimbursedAmount)} (รอเบิกจ่าย)${entry.reason ? `\nเหตุผล: ${entry.reason}` : ''}`, d.lineGroupId);
   }
   function addAppointment(dogId, entry) {
     const d = dogs.find((x) => x.id === dogId);
@@ -7539,6 +7541,7 @@ function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemove
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState('');
   const [accountId, setAccountId] = useState('');
+  const [addToIncome, setAddToIncome] = useState(true);
   const [editingInstallment, setEditingInstallment] = useState(null);
   const pay = (p.payments || {})[ym] || {};
   const installments = pay.installments || [];
@@ -7553,7 +7556,7 @@ function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemove
 
   function submit() {
     if (!amount) return;
-    onAddInstallment(p.id, ym, { amount, date, note, accountId });
+    onAddInstallment(p.id, ym, { amount, date, note, accountId, addToIncome });
     setAmount(0); setNote('');
   }
 
@@ -7591,7 +7594,7 @@ function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemove
             { key: 'note', label: 'โน้ต', type: 'text' },
             { key: 'accountId', label: 'นำเงินนี้ไปฝาก/ลงทุนที่บัญชีไหน', type: 'select', options: [{ value: '', label: '— ไม่ระบุ —' }, ...accounts.map((a) => ({ value: a.id, label: a.name }))] },
           ]}
-          onSave={(v) => { onUpdateInstallment(p.id, ym, editingInstallment.id, { date: v.date, amount: Number(v.amount) || 0, note: v.note, accountId: v.accountId }); setEditingInstallment(null); }}
+          onSave={(v) => { onUpdateInstallment(p.id, ym, editingInstallment.id, { date: v.date, amount: Number(v.amount) || 0, note: v.note, accountId: v.accountId, addToIncome: editingInstallment.addToIncome !== false }); setEditingInstallment(null); }}
         />
       )}
 
@@ -7608,7 +7611,12 @@ function PropertyRentSection({ property: p, accounts, onAddInstallment, onRemove
           <option value="">— ไม่ระบุ (แค่บันทึกว่าเก็บค่าเช่าได้) —</option>
           {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
-        <p className="text-[10px] mb-2" style={{ color: SLATE }}>💡 ถ้าระบุบัญชีไว้ ระบบจะสร้างรายการ "เงินเข้า" ให้อัตโนมัติในบัญชีนั้นเลย</p>
+        {accountId && (
+          <label className="flex items-center gap-1.5 text-xs mb-2" style={{ color: INK }}>
+            <input type="checkbox" checked={addToIncome} onChange={(e) => setAddToIncome(e.target.checked)} /> โชว์รายการนี้ในหน้า "เงินเข้า" ด้วย
+          </label>
+        )}
+        <p className="text-[10px] mb-2" style={{ color: SLATE }}>💡 งวดนี้จะถูกบันทึกไว้ในห้องนี้เสมอไม่ว่าจะติ๊กหรือไม่ — ติ๊กด้านบนแค่ควบคุมว่าจะให้ขึ้นเป็นอีกรายการแยกในหน้า "เงินเข้า" รวมของทุกบัญชีด้วยไหม (กันรายการซ้ำถ้าไม่อยากให้นับซ้อน)</p>
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">+ บันทึกงวดนี้</button>
       </div>
 
@@ -7628,6 +7636,7 @@ function PropertyDepositSection({ property: p, accounts, onAddReceipt, onRemoveR
   const [datetime, setDatetime] = useState(new Date().toISOString().slice(0, 16));
   const [note, setNote] = useState('');
   const [accountId, setAccountId] = useState('');
+  const [addToIncome, setAddToIncome] = useState(true);
   const [editingReceipt, setEditingReceipt] = useState(null);
   const receipts = p.depositReceipts || [];
   const totalReceived = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -7637,7 +7646,7 @@ function PropertyDepositSection({ property: p, accounts, onAddReceipt, onRemoveR
 
   function submit() {
     if (!amount) return;
-    onAddReceipt(p.id, { amount, datetime, note, accountId });
+    onAddReceipt(p.id, { amount, datetime, note, accountId, addToIncome });
     setAmount(0); setNote('');
   }
 
@@ -7694,7 +7703,12 @@ function PropertyDepositSection({ property: p, accounts, onAddReceipt, onRemoveR
           <option value="">— ไม่ระบุ (แค่บันทึกว่าได้รับเงินประกัน) —</option>
           {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
-        <p className="text-[10px] mb-2" style={{ color: SLATE }}>💡 ถ้าระบุบัญชีไว้ ระบบจะสร้างรายการ "เงินเข้า" ให้อัตโนมัติในบัญชีนั้นเลย</p>
+        {accountId && (
+          <label className="flex items-center gap-1.5 text-xs mb-2" style={{ color: INK }}>
+            <input type="checkbox" checked={addToIncome} onChange={(e) => setAddToIncome(e.target.checked)} /> โชว์รายการนี้ในหน้า "เงินเข้า" ด้วย
+          </label>
+        )}
+        <p className="text-[10px] mb-2" style={{ color: SLATE }}>💡 งวดนี้จะถูกบันทึกไว้ในห้องนี้เสมอไม่ว่าจะติ๊กหรือไม่ — ติ๊กด้านบนแค่ควบคุมว่าจะให้ขึ้นเป็นอีกรายการแยกในหน้า "เงินเข้า" รวมของทุกบัญชีด้วยไหม</p>
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">+ บันทึกรายการนี้</button>
       </div>
     </div>
