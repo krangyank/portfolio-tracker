@@ -121,6 +121,7 @@ const SOURCES = [
   { id: 'coop_interest', label: 'ดอกเบี้ยเงินฝากสหกรณ์' },
   { id: 'thai_div', label: 'ปันผลหุ้นไทย' },
   { id: 'rental', label: 'ค่าเช่า' },
+  { id: 'insurance', label: 'เคลมประกันสัตว์เลี้ยง' },
   { id: 'us_div', label: 'ปันผลหุ้นสหรัฐฯ' },
   { id: 'wealthx', label: 'Wealth X (หักอัตโนมัติ)' },
   { id: 'pharmacy', label: 'เงินเก็บร้านยา' },
@@ -2522,7 +2523,7 @@ export default function App() {
           onUpdateInsurance={updateInsurance} onAddInsuranceClaim={addInsuranceClaim} onUpdateInsuranceClaim={updateInsuranceClaim} onAddAppointment={addAppointment} onRemoveAppointment={removeAppointment} onUpdateAppointment={updateAppointment}
           onAddBloodTest={addBloodTest} onUpdateBloodTest={updateBloodTest} onRemoveBloodTest={removeBloodTest} onAddOrganExam={addOrganExam} onUpdateOrganExam={updateOrganExam} onRemoveOrganExam={removeOrganExam} onAddImaging={addImaging} onUpdateImaging={updateImaging} onRemoveImaging={removeImaging} onAddDogExpense={addDogExpense} onRemoveDogExpense={removeDogExpense} onUpdateDogExpense={updateDogExpense}
           googleConnected={!!googleToken} onAddToCalendar={addAppointmentToCalendar} hospitalList={hospitalList} onAddHospital={addHospital} doctorList={doctorList} onAddDoctor={addDoctor} weigherList={weigherList} onAddWeigher={addWeigher} onRefreshShared={refreshSharedData} onSetDogPhoto={setDogPhoto} medicationList={medicationList} onAddMedicationPreset={addMedicationPreset} onAddGenericCalendarEvent={addPropertyEventToCalendar} onAddMedicalPhoto={addMedicalPhoto} onRemoveMedicalPhoto={removeMedicalPhoto} onUploadRecordPhoto={uploadDogRecordPhoto} onAddPersonalExpense={addExpense} expenseCategories={expenseCategories}
-          onAddVetVisit={addVetVisit} onUpdateVetVisit={updateVetVisit} onRemoveVetVisit={removeVetVisit} onLinkRecordToVisit={linkRecordToVisit} onUnlinkRecordFromVisit={unlinkRecordFromVisit} onAddInsuranceDocument={addInsuranceDocument} onRemoveInsuranceDocument={removeInsuranceDocument} onCurrentPhotoChange={setHeaderPhotoOverride} onRunHealthInsight={runDogHealthInsight} departmentList={departmentList} onAddDepartment={addDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={setDoctorDepartment} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={addBloodTestType} organTypeList={organTypeList} onAddOrganType={addOrganType} imagingTypeList={imagingTypeList} onAddImagingType={addImagingType} onAddImagingWithOrgans={addImagingWithOrgans} onAddAlbumPhoto={addAlbumPhoto} onRemoveAlbumPhoto={removeAlbumPhoto} />
+          onAddVetVisit={addVetVisit} onUpdateVetVisit={updateVetVisit} onRemoveVetVisit={removeVetVisit} onLinkRecordToVisit={linkRecordToVisit} onUnlinkRecordFromVisit={unlinkRecordFromVisit} onAddInsuranceDocument={addInsuranceDocument} onRemoveInsuranceDocument={removeInsuranceDocument} onCurrentPhotoChange={setHeaderPhotoOverride} onRunHealthInsight={runDogHealthInsight} departmentList={departmentList} onAddDepartment={addDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={setDoctorDepartment} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={addBloodTestType} organTypeList={organTypeList} onAddOrganType={addOrganType} imagingTypeList={imagingTypeList} onAddImagingType={addImagingType} onAddImagingWithOrgans={addImagingWithOrgans} onAddAlbumPhoto={addAlbumPhoto} onRemoveAlbumPhoto={removeAlbumPhoto} accounts={accounts} onAddContribution={addContribution} />
       )}
       {tab === 'realestate' && (
         <RealEstateTab properties={properties} onUpdate={updateProperty} onAdd={addProperty} onRemove={removeProperty}
@@ -7053,7 +7054,7 @@ function computeDogInsights(dog) {
   return insights;
 }
 
-function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onRemoveMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onRemoveBloodTest, onAddOrganExam, onUpdateOrganExam, onRemoveOrganExam, onAddImaging, onUpdateImaging, onRemoveImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
+function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemoveWeight, onUpdateWeight, onAddMedication, onUpdateMedication, onRemoveMedication, onLogFleaTick, onRemoveFleaTickHistory, onUpdateFleaTickHistory, onUpdateFleaTickInfo, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, onAddAppointment, onRemoveAppointment, onUpdateAppointment, onAddBloodTest, onUpdateBloodTest, onRemoveBloodTest, onAddOrganExam, onUpdateOrganExam, onRemoveOrganExam, onAddImaging, onUpdateImaging, onRemoveImaging, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, googleConnected, onAddToCalendar, hospitalList, onAddHospital, doctorList, onAddDoctor, weigherList, onAddWeigher, onRefreshShared, onSetDogPhoto, medicationList, onAddMedicationPreset, onAddGenericCalendarEvent, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, onAddPersonalExpense, expenseCategories, onAddVetVisit, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onAddInsuranceDocument, onRemoveInsuranceDocument, onCurrentPhotoChange, onRunHealthInsight, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans, onAddAlbumPhoto, onRemoveAlbumPhoto, accounts, onAddContribution }) {
   const [selectedId, setSelectedId] = useState(null); // null = หน้าปฏิทินรวม (ค่าเริ่มต้น) / มีค่า = กำลังดูลูกตัวนั้นอยู่
   const [section, setSection] = useState('overview');
   // ข้อมูลนัดติดตามผลที่ส่งมาจากหน้าบันทึกการไปหาหมอ (กดปุ่ม "นัดติดตามผลครั้งนี้") — ส่งต่อไปให้ฟอร์มสร้างนัดหมายกรอกให้อัตโนมัติ
@@ -7162,7 +7163,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'weight' && <DogWeightSection dog={dog} onAddWeight={onAddWeight} onRemoveWeight={onRemoveWeight} onUpdateWeight={onUpdateWeight} hospitalList={hospitalList} onAddHospital={onAddHospital} weigherList={weigherList} onAddWeigher={onAddWeigher} onUploadRecordPhoto={onUploadRecordPhoto} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} />}
           {section === 'meds' && <DogMedicationSection dog={dog} onAddMedication={onAddMedication} onUpdateMedication={onUpdateMedication} onRemoveMedication={onRemoveMedication} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUploadRecordPhoto={onUploadRecordPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} doctorList={doctorList} onAddDoctor={onAddDoctor} hospitalList={hospitalList} onAddHospital={onAddHospital} />}
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onRemoveFleaTickHistory={onRemoveFleaTickHistory} onUpdateFleaTickHistory={onUpdateFleaTickHistory} onUpdateFleaTickInfo={onUpdateFleaTickInfo} googleConnected={googleConnected} onAddGenericCalendarEvent={onAddGenericCalendarEvent} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
-          {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} onAddInsuranceDocument={onAddInsuranceDocument} onRemoveInsuranceDocument={onRemoveInsuranceDocument} />}
+          {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} onAddInsuranceDocument={onAddInsuranceDocument} onRemoveInsuranceDocument={onRemoveInsuranceDocument} accounts={accounts} onAddContribution={onAddContribution} />}
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} draft={apptDraft} onConsumeDraft={() => setApptDraft(null)} />}
           {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} onStartFollowUp={(d) => { setApptDraft(d); setSection('appt'); }} onAddMedicalPhoto={onAddMedicalPhoto} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onRemoveBloodTest={onRemoveBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onRemoveOrganExam={onRemoveOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onRemoveImaging={onRemoveImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddImagingWithOrgans={onAddImagingWithOrgans} />}
@@ -9760,7 +9761,7 @@ function parseFraction(s) {
   );
 }
 
-function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, dogs, onCopyToMultipleDogs, onAddInsuranceDocument, onRemoveInsuranceDocument }) {
+function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, dogs, onCopyToMultipleDogs, onAddInsuranceDocument, onRemoveInsuranceDocument, accounts, onAddContribution }) {
   const docFileRef = useRef(null);
   const [docUploading, setDocUploading] = useState(false);
   const [docError, setDocError] = useState('');
@@ -9773,11 +9774,16 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
   }
   const ins = dog.insurance || {};
   const [actualCost, setActualCost] = useState(0);
+  const [reimbursedOverride, setReimbursedOverride] = useState(null); // null = ใช้ค่าที่คำนวณจาก % อัตโนมัติ, ไม่ null = ผู้ใช้แก้เอง (เช่น กรมธรรม์แบบเบิกคืนครั้งละเท่านี้ๆ ไม่ใช่คิดเป็น %)
   const [claimReason, setClaimReason] = useState('');
   const [editingClaim, setEditingClaim] = useState(null);
   const [showRenewalHistory, setShowRenewalHistory] = useState(false);
   const [editingRenewal, setEditingRenewal] = useState(null);
   const [lightboxUrl, setLightboxUrl] = useState(null);
+  const [receivingClaimId, setReceivingClaimId] = useState(null);
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [receivedAccountId, setReceivedAccountId] = useState('');
+  const [receivedAddToIncome, setReceivedAddToIncome] = useState(true);
   const reimbursePct = Number(ins.reimbursementPct || 0);
 
   // คำนวณวันเริ่มรอบปีกรมธรรม์ปัจจุบัน (จากวันครบรอบปีล่าสุดของ startDate ที่ผ่านมาแล้ว)
@@ -9806,11 +9812,20 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
     onUpdateInsurance(dog.id, { expiryReminderDays: cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b) });
   }
 
+  const autoReimbursed = Math.round(actualCost * reimbursePct / 100);
   function submitClaim() {
     if (!actualCost) return;
-    const reimbursedAmount = Math.round(actualCost * reimbursePct / 100);
-    onAddInsuranceClaim(dog.id, { date: new Date().toISOString().slice(0, 10), actualCost, reimbursedAmount, reason: claimReason });
-    setActualCost(0); setClaimReason('');
+    const reimbursedAmount = reimbursedOverride !== null ? Number(reimbursedOverride) : autoReimbursed;
+    onAddInsuranceClaim(dog.id, { date: new Date().toISOString().slice(0, 10), actualCost, reimbursedAmount, reason: claimReason, received: false });
+    setActualCost(0); setClaimReason(''); setReimbursedOverride(null);
+  }
+  // ติ๊กว่าเงินเคลมเข้าบัญชีแล้ว — ถ้าเลือกบัญชีปลายทาง+ติ๊กให้โชว์ในเงินเข้า จะสร้างรายการ "เงินเข้า" ให้อัตโนมัติด้วย (เหมือนค่าเช่า/เงินประกันบ้านเช่า)
+  function confirmReceived(c) {
+    onUpdateInsuranceClaim(dog.id, c.id, { received: true, receivedDate, accountId: receivedAccountId || undefined, addToIncome: receivedAddToIncome });
+    if (receivedAddToIncome && receivedAccountId && onAddContribution) {
+      onAddContribution({ date: receivedDate, amount: Number(c.reimbursedAmount ?? c.amount ?? 0), source: 'insurance', accountId: receivedAccountId });
+    }
+    setReceivingClaimId(null); setReceivedAccountId(''); setReceivedAddToIncome(true);
   }
   return (
     <div>
@@ -9834,11 +9849,13 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
           <div><label className="text-[10px]" style={{ color: SLATE }}>วันเริ่ม</label><input type="date" value={ins.startDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
           <div><label className="text-[10px]" style={{ color: SLATE }}>วันหมดอายุ</label><input type="date" value={ins.endDate || ''} onChange={(e) => onUpdateInsurance(dog.id, { endDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         </div>
-        <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="grid grid-cols-3 gap-2 mb-2">
           <div><label className="text-[10px]" style={{ color: SLATE }}>ค่าเบี้ย</label><NumInput value={ins.premium} onChange={(v) => onUpdateInsurance(dog.id, { premium: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
           <div><label className="text-[10px]" style={{ color: SLATE }}>วงเงินรวมต่อปี</label><NumInput value={ins.annualLimit} onChange={(v) => onUpdateInsurance(dog.id, { annualLimit: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
           <div><label className="text-[10px]" style={{ color: SLATE }}>เบิกคืน (%)</label><NumInput value={ins.reimbursementPct} onChange={(v) => onUpdateInsurance(dog.id, { reimbursementPct: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         </div>
+        <label className="text-[10px]" style={{ color: SLATE }}>จำนวนครั้งสูงสุดต่อปี (ไม่บังคับ — เผื่อกรมธรรม์แบบเบิกคืนครั้งละเท่านี้ๆ จำกัดจำนวนครั้ง เช่น ฿1,500/ครั้ง 5 ครั้ง/ปี)</label>
+        <NumInput value={ins.maxClaimsPerYear} onChange={(v) => onUpdateInsurance(dog.id, { maxClaimsPerYear: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <p className="text-[10px] mb-1" style={{ color: SLATE }}>เตือนล่วงหน้าก่อนหมดอายุ (วัน) — เลือกได้หลายอัน</p>
         <div className="flex gap-2 mb-3 flex-wrap">
           {[1, 2, 3, 7, 14, 30].map((d) => (
@@ -9848,6 +9865,7 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
         <div className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>เตือนเมื่อวงเงินคงเหลือต่ำกว่า (บาท)</label><NumInput value={ins.lowBalanceThreshold} onChange={(v) => onUpdateInsurance(dog.id, { lowBalanceThreshold: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2.5 mt-1">
           <p className="text-xs" style={{ color: INK }}>ใช้สิทธิ์ไปแล้ว ฿{fmt(totalReimbursedThisYear)} จาก ฿{fmt(annualLimit)} (รอบปีนี้)</p>
+          {Number(ins.maxClaimsPerYear || 0) > 0 && <p className="text-xs mt-1" style={{ color: claimsThisYear.length >= Number(ins.maxClaimsPerYear) ? BAD : INK }}>เคลมไปแล้ว {claimsThisYear.length} จาก {ins.maxClaimsPerYear} ครั้ง (รอบปีนี้)</p>}
         </div>
         {(ins.renewalHistory || []).length > 0 && (
           <div className="mt-3">
@@ -9924,20 +9942,48 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
       <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการเคลม</p>
         <label className="text-[10px]" style={{ color: SLATE }}>ค่ารักษาจริง</label>
-        <NumInput value={actualCost} onChange={setActualCost} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        {actualCost > 0 && reimbursePct > 0 && <p className="text-xs mb-2" style={{ color: GOOD }}>เบิกได้จริง ≈ ฿{fmt(Math.round(actualCost * reimbursePct / 100))} ({reimbursePct}%)</p>}
+        <NumInput value={actualCost} onChange={(v) => { setActualCost(v); setReimbursedOverride(null); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <label className="text-[10px]" style={{ color: SLATE }}>เบิกได้จริง {reimbursePct > 0 ? `(auto ${reimbursePct}% = ฿${fmt(autoReimbursed)} — แก้ไขได้ถ้ากรมธรรม์เบิกคืนเป็นจำนวนตายตัวต่อครั้งแทน)` : '(กรอกเอง)'}</label>
+        <NumInput value={reimbursedOverride !== null ? reimbursedOverride : autoReimbursed} onChange={setReimbursedOverride} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <input value={claimReason} onChange={(e) => setClaimReason(e.target.value)} placeholder="เหตุผล/อาการ" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <button onClick={submitClaim} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเคลม</button>
       </Card>
       <p className="text-xs mb-2" style={{ color: SLATE }}>ประวัติการเคลม</p>
-      {(ins.claims || []).map((c) => (
+      {(ins.claims || []).map((c) => {
+        const acc = c.accountId ? (accounts || []).find((a) => a.id === c.accountId) : null;
+        return (
         <Card key={c.id}>
           <div className="flex justify-between items-center text-sm">
             <div><span>{formatDateThai(c.date)} · {c.reason}</span><p className="text-[10px]" style={{ color: SLATE }}>ค่ารักษาจริง ฿{fmt(c.actualCost ?? c.amount ?? 0)}</p></div>
             <div className="flex items-center gap-2"><span style={{ color: GOOD }}>เบิกได้ ฿{fmt(c.reimbursedAmount ?? c.amount ?? 0)}</span><EditButton onClick={() => setEditingClaim(c)} /></div>
           </div>
+          <div style={{ borderTop: `1px dashed ${BORDER}` }} className="mt-2 pt-2">
+            {c.received ? (
+              <p className="text-xs" style={{ color: GOOD }}>✅ เงินเข้าแล้ว {c.receivedDate ? formatDateThai(c.receivedDate) : ''}{acc ? ` · เก็บไว้ที่ ${acc.name}` : ''}{c.addToIncome ? ' · โชว์ในเงินเข้าแล้ว' : ''}</p>
+            ) : receivingClaimId === c.id ? (
+              <div>
+                <label className="text-[10px]" style={{ color: SLATE }}>วันที่เงินเข้า</label>
+                <input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1 mb-1.5" style={{ border: '1px solid #E7EAF0' }} />
+                <label className="text-[10px]" style={{ color: SLATE }}>เอาเงินไปไว้ที่บัญชีไหน (ไม่บังคับ)</label>
+                <select value={receivedAccountId} onChange={(e) => setReceivedAccountId(e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1 mb-1.5" style={{ border: '1px solid #E7EAF0' }}>
+                  <option value="">— ไม่ระบุ —</option>
+                  {(accounts || []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                <label className="flex items-center gap-1.5 text-xs mb-2" style={{ color: INK }}>
+                  <input type="checkbox" checked={receivedAddToIncome} onChange={(e) => setReceivedAddToIncome(e.target.checked)} /> โชว์รายการนี้ในหน้า "เงินเข้า" ด้วย
+                </label>
+                <div className="flex gap-2">
+                  <button onClick={() => confirmReceived(c)} style={{ background: GOOD }} className="flex-1 text-white rounded-lg py-1.5 text-xs">ยืนยันเงินเข้าแล้ว</button>
+                  <button onClick={() => setReceivingClaimId(null)} className="text-xs px-3" style={{ color: SLATE }}>ยกเลิก</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => { setReceivingClaimId(c.id); setReceivedDate(new Date().toISOString().slice(0, 10)); }} className="text-xs font-semibold flex items-center gap-1" style={{ color: BRASS }}>⬜ เงินยังไม่เข้า — แตะเพื่อติ๊กเมื่อได้รับแล้ว</button>
+            )}
+          </div>
         </Card>
-      ))}
+        );
+      })}
       {editingClaim && (
         <EditModal title="แก้ไขการเคลม" onClose={() => setEditingClaim(null)}
           initialValues={{ date: editingClaim.date, actualCost: editingClaim.actualCost ?? editingClaim.amount ?? 0, reimbursedAmount: editingClaim.reimbursedAmount ?? editingClaim.amount ?? 0, reason: editingClaim.reason || '' }}
