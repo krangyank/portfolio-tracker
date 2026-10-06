@@ -3852,7 +3852,8 @@ async function scanBloodTestReport(file) {
   const prompt = `นี่คือภาพใบรายงานผลตรวจเลือดของสัตว์เลี้ยงจากโรงพยาบาลสัตว์ (มักเป็นตารางทางการ มีคอลัมน์ Code/Parameter/Value/Unit/Reference/Flag) อาจมีหลายหมวดในใบเดียวกัน เช่น Hematology (CBC), Chemistry, Special Test — อ่านทุกหมวดที่เห็นในภาพ แยกเป็น 1 รายการต่อ 1 หมวด
 สำหรับแต่ละหมวด สรุปผลเป็นข้อความสั้นๆ อ่านง่าย เน้นค่าที่ผิดปกติ (คอลัมน์ Flag เป็น H หรือ L) ขึ้นก่อนพร้อมระบุว่าสูง/ต่ำกว่าเกณฑ์ปกติ ตามด้วยค่าสำคัญอื่นๆ ถ้ามีค่าเยอะมากไม่ต้องเขียนครบทุกตัว เอาเฉพาะที่มีนัยสำคัญพอ
 ประเภทหมวดที่ใกล้เคียงจากรายการนี้ถ้ามี: ${BLOOD_TEST_TYPES.join(', ')} — ถ้าหมวดที่เจอไม่ตรงกับรายการนี้เลย (เช่น "Chemistry" หรือ "Special Test") ให้ตอบชื่อหมวดตามที่เห็นในภาพได้เลย ไม่ต้องฝืนเลือกจากรายการ
-ตอบเป็น JSON array เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ: [{"type": "ชื่อหมวด", "date": "YYYY-MM-DD ถ้ามีวันที่ส่งตรวจระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ"}]`;
+นอกจากนี้ให้ตั้ง "label" สั้นๆ (ไม่เกิน 6-7 คำ) แยกให้ชัดว่าหมวดนี้คือเรื่องอะไรโดยเฉพาะ เช่น "Cortisol ก่อนกระตุ้น (Pre-ACTH)", "⚠️ ค่าผิดปกติ: WBC, MCV ต่ำ", "Lab Panel: BASO#/IPF%/PP" — ใช้แยกแยะเวลามีผลตรวจหลายใบวันเดียวกันที่ล้วนเป็นหมวดเดียวกัน (เช่น CBC ซ้ำหลายรอบในวันเดียว) ถ้ามีค่าผิดปกติให้ label นั้นขึ้นต้นด้วย "⚠️" เสมอ
+ตอบเป็น JSON array เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ: [{"type": "ชื่อหมวด", "date": "YYYY-MM-DD ถ้ามีวันที่ส่งตรวจระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ", "label": "ป้ายสั้นแยกแยะ"}]`;
   const text = await askServer(prompt, base64, file.type || 'image/jpeg');
   const parsed = safeParseJson(text);
   return Array.isArray(parsed) ? parsed : [parsed];
@@ -9210,9 +9211,9 @@ const TIMELINE_TYPES = [
 ];
 function buildDogTimelineItems(dog) {
   const items = [];
-  (dog.imaging || []).forEach((r) => items.push({ date: r.date, label: r.type || 'Imaging', done: true, section: 'records', type: 'imaging' }));
-  (dog.bloodTests || []).forEach((r) => items.push({ date: r.date, label: `ตรวจเลือด${r.type ? ' — ' + r.type : ''}`, done: true, section: 'records', type: 'blood' }));
-  (dog.organExams || []).forEach((r) => items.push({ date: r.date, label: `ตรวจอวัยวะ — ${r.organ || ''}`, done: true, section: 'records', type: 'organ' }));
+  (dog.imaging || []).forEach((r) => items.push({ date: r.date, label: r.type || 'Imaging', done: true, section: 'records', type: 'imaging', subLabel: r.label || '' }));
+  (dog.bloodTests || []).forEach((r) => items.push({ date: r.date, label: `ตรวจเลือด${r.type ? ' — ' + r.type : ''}`, done: true, section: 'records', type: 'blood', subLabel: r.label || '' }));
+  (dog.organExams || []).forEach((r) => items.push({ date: r.date, label: `ตรวจอวัยวะ — ${r.organ || ''}`, done: true, section: 'records', type: 'organ', subLabel: r.label || '' }));
   (dog.appointments || []).forEach((a) => {
     const d = daysUntil(a.date);
     items.push({ date: a.date, label: `นัดหมาย${a.purpose ? ' — ' + a.purpose : ''}`, done: d === null || d < 0, section: 'appt', type: 'appt' });
@@ -9255,23 +9256,43 @@ function DogHealthTimeline({ dog, setSection }) {
     const groupsByYear = {};
     items.forEach((it) => { const y = it.date.slice(0, 4); if (!groupsByYear[y]) groupsByYear[y] = []; groupsByYear[y].push(it); });
     const years = Object.keys(groupsByYear).sort().reverse();
-    return years.map((y) => (
-      <div key={y} className="mb-3">
-        <p className="text-[11px] font-bold mb-2" style={{ color: SLATE }}>{y}</p>
-        {[...groupsByYear[y]].reverse().map((it, i) => (
-          <button key={i} onClick={() => it.section && setSection && setSection(it.section)} className="w-full text-left flex gap-2.5" style={{ background: 'transparent' }}>
-            <div className="flex flex-col items-center" style={{ flexShrink: 0 }}>
-              <div style={{ width: 22, height: 22, borderRadius: '50%', background: it.done ? '#E1F5E9' : '#FBF3E9', color: it.done ? GOOD : BRASS, fontSize: 11 }} className="flex items-center justify-center">{it.done ? '✅' : '⏰'}</div>
-              {i < groupsByYear[y].length - 1 && <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 14 }} />}
+    return years.map((y) => {
+      // รวมรายการที่วันที่+ชื่อหัวข้อตรงกันเป๊ะๆ ติดกัน (เช่น "ตรวจเลือด — CBC" ซ้ำกันหลายรอบวันเดียว) เป็นแถวเดียว โชว์ป้ายสั้น (subLabel) ของแต่ละอันแทน กันแถวซ้ำยาวเป็นพรืด
+      const raw = [...groupsByYear[y]].reverse();
+      const grouped = [];
+      raw.forEach((it) => {
+        const last = grouped[grouped.length - 1];
+        if (last && last.date === it.date && last.label === it.label && last.type === it.type) last.items.push(it);
+        else grouped.push({ ...it, items: [it] });
+      });
+      return (
+        <div key={y} className="mb-3">
+          <p className="text-[11px] font-bold mb-2" style={{ color: SLATE }}>{y}</p>
+          {grouped.map((g, i) => (
+            <div key={i} className="flex gap-2.5">
+              <div className="flex flex-col items-center" style={{ flexShrink: 0 }}>
+                <div style={{ width: 22, height: 22, borderRadius: '50%', background: g.done ? '#E1F5E9' : '#FBF3E9', color: g.done ? GOOD : BRASS, fontSize: 11 }} className="flex items-center justify-center">{g.done ? '✅' : '⏰'}</div>
+                {i < grouped.length - 1 && <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 14 }} />}
+              </div>
+              <div className="pb-3.5 flex-1 min-w-0">
+                <button onClick={() => g.section && setSection && setSection(g.section)} className="w-full text-left" style={{ background: 'transparent' }}>
+                  <p className="text-[11px]" style={{ color: SLATE }}>{formatDateThai(g.date)}</p>
+                  <p className="text-sm font-semibold" style={{ color: INK }}>{g.label}{g.items.length > 1 && <span style={{ background: '#FBEAE7', color: '#A64B3D' }} className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ml-1.5">×{g.items.length} รายการ</span>}</p>
+                </button>
+                {g.items.length > 1 && (
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    {g.items.filter((x) => x.subLabel).slice(0, 4).map((x, xi) => (
+                      <p key={xi} className="text-[11px]" style={{ color: x.subLabel.startsWith('⚠️') ? BAD : SLATE }}>• {x.subLabel}</p>
+                    ))}
+                    {g.items.filter((x) => x.subLabel).length > 4 && <p className="text-[11px]" style={{ color: SLATE }}>+ อีก {g.items.filter((x) => x.subLabel).length - 4} รายการ</p>}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="pb-3.5">
-              <p className="text-[11px]" style={{ color: SLATE }}>{formatDateThai(it.date)}</p>
-              <p className="text-sm font-semibold" style={{ color: INK }}>{it.label}</p>
-            </div>
-          </button>
-        ))}
-      </div>
-    ));
+          ))}
+        </div>
+      );
+    });
   }
 
   const filteredAll = filterType === 'all' ? allItems : allItems.filter((it) => it.type === filterType);
@@ -10274,6 +10295,8 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
   const [selectedVisitId, setSelectedVisitId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hospital: '', doctor: '', department: '', reason: '', diagnosis: '', cost: 0 });
+  // เดิม bug: เงื่อนไขโชว์ช่องพิมพ์ชื่อ รพ. ใหม่ อิงจาก form.hospital ไม่ว่าง แต่กด "+ เพิ่มโรงพยาบาลใหม่" จะเคลียร์ form.hospital เป็นค่าว่างก่อน เลยไม่เข้าเงื่อนไข ช่องพิมพ์เลยไม่โผล่เลยสักครั้ง — แก้เป็น flag แยกต่างหาก ไม่ผูกกับค่าว่าง/ไม่ว่างของ hospital
+  const [showCustomHospital, setShowCustomHospital] = useState(false);
   const [activeSections, setActiveSections] = useState([]); // array of VISIT_SECTION_DEFS keys
   const [sectionData, setSectionData] = useState({}); // key -> object (single) or array of objects (multi)
   const [sectionPhotos, setSectionPhotos] = useState({}); // key -> File (แนบรูปเดียวต่อหมวด ผูกเข้ากับทุกรายการที่สร้างในหมวดนั้น)
@@ -10336,6 +10359,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
         type: r.type || BLOOD_TEST_TYPES[0],
         date: r.date || form.date,
         note: r.note || '',
+        label: r.label || '', // ป้ายสั้นแยกแยะ เผื่อมีหลายผลหมวดเดียวกันวันเดียวกัน (เช่น CBC ซ้ำหลายรอบ)
         ...(photo ? { photos: [photo] } : {}), // แนบรูปเดียวกันนี้ให้ทุกผลที่อ่านได้จากภาพนี้ ไม่ใช่แค่รายการแรก เพราะเป็นภาพต้นฉบับเดียวกัน
       }));
       if (!activeSections.includes('bloodTest')) setActiveSections((prev) => [...prev, 'bloodTest']);
@@ -10556,15 +10580,15 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
           <label className="text-[10px]" style={{ color: SLATE }}>วันที่ไป</label>
           <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
           <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label>
-          <select value={list.includes(form.hospital) ? form.hospital : (form.hospital ? '__custom__' : '')} onChange={(e) => { if (e.target.value === '__new__') setForm({ ...form, hospital: '' }); else setForm({ ...form, hospital: e.target.value }); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
+          <select value={showCustomHospital ? '__new__' : (list.includes(form.hospital) ? form.hospital : '')} onChange={(e) => { if (e.target.value === '__new__') { setShowCustomHospital(true); setForm({ ...form, hospital: '' }); } else { setShowCustomHospital(false); setForm({ ...form, hospital: e.target.value }); } }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
             <option value="">— เลือกโรงพยาบาล —</option>
             {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
             <option value="__new__">+ เพิ่มโรงพยาบาลใหม่</option>
           </select>
-          {(form.hospital && !list.includes(form.hospital)) && (
+          {showCustomHospital && (
             <div className="flex gap-2 mb-2">
-              <input value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
-              <button type="button" onClick={() => { if (form.hospital) onAddHospital(form.hospital); }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+              <input value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} autoFocus />
+              <button type="button" onClick={() => { if (form.hospital) { onAddHospital(form.hospital); setShowCustomHospital(false); } }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
             </div>
           )}
           <label className="text-[10px]" style={{ color: SLATE }}>เหตุผลที่ไป</label>
@@ -10845,6 +10869,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
   const [stoppingMedId, setStoppingMedId] = useState(null);
   const [stopDate, setStopDate] = useState(visit.date);
   const [stopReason, setStopReason] = useState('');
+  const [showCustomHospital, setShowCustomHospital] = useState(false);
   const photoFileRef = useRef(null);
   const list = hospitalList || [];
   const linkedRecords = visit.linkedRecords || [];
@@ -10926,6 +10951,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
         type: r.type || BLOOD_TEST_TYPES[0],
         date: r.date || visit.date,
         note: r.note || '',
+        label: r.label || '', // ป้ายสั้นแยกแยะ เผื่อมีหลายผลหมวดเดียวกันวันเดียวกัน (เช่น CBC ซ้ำหลายรอบ)
         ...(photo ? { photos: [photo] } : {}), // แนบรูปเดียวกันนี้ให้ทุกผลที่อ่านได้จากภาพนี้ ไม่ใช่แค่รายการแรก เพราะเป็นภาพต้นฉบับเดียวกัน
       }));
       if (!procSections.includes('bloodTest')) setProcSections((prev) => [...prev, 'bloodTest']);
@@ -11121,11 +11147,17 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
         <label className="text-[10px]" style={{ color: SLATE }}>วันที่ไป</label>
         <input type="date" value={visit.date} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { date: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label>
-        <select value={list.includes(visit.hospital) ? visit.hospital : (visit.hospital ? '__custom__' : '')} onChange={(e) => { if (e.target.value !== '__new__') onUpdateVetVisit(dog.id, visit.id, { hospital: e.target.value }); }} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }}>
+        <select value={showCustomHospital ? '__new__' : (list.includes(visit.hospital) ? visit.hospital : '')} onChange={(e) => { if (e.target.value === '__new__') { setShowCustomHospital(true); } else { setShowCustomHospital(false); onUpdateVetVisit(dog.id, visit.id, { hospital: e.target.value }); } }} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
           <option value="">— เลือกโรงพยาบาล —</option>
           {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
           <option value="__new__">+ พิมพ์เอง</option>
         </select>
+        {showCustomHospital && (
+          <div className="flex gap-2 mb-2">
+            <input value={visit.hospital || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} autoFocus />
+            <button type="button" onClick={() => { if (visit.hospital) { onAddHospital(visit.hospital); setShowCustomHospital(false); } }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
+          </div>
+        )}
         <label className="text-[10px]" style={{ color: SLATE }}>เหตุผลที่ไป</label>
         <input value={visit.reason || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { reason: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <label className="text-[10px]" style={{ color: SLATE }}>แผนก</label>
@@ -11417,6 +11449,28 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
   );
 }
 
+// การ์ดแสดงผลตรวจ 1 รายการ (ใช้ร่วมกันทั้งผลเลือด/อวัยวะ/Imaging) — มีป้ายสรุปสั้น (label) แยกแยะเวลามีหลายรายการหมวดเดียวกันวันเดียวกัน (เช่น CBC ซ้ำหลายรอบ) และย่อข้อความยาวๆ ไว้ไม่ให้รกตา กดอ่านทั้งหมดได้ทีหลัง
+function MedicalResultCard({ record: r, typeLabel, onEdit, onAddPhoto, onRemovePhoto }) {
+  const [expanded, setExpanded] = useState(false);
+  const isWarning = (r.label || '').startsWith('⚠️');
+  const noteLong = (r.note || '').length > 90;
+  return (
+    <Card>
+      <div className="flex justify-between items-start">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold">{typeLabel} · {formatDateThai(r.date)}</p>
+          {r.label && <span style={{ background: isWarning ? '#FBEAEA' : '#FBEAE7', color: isWarning ? BAD : '#A64B3D' }} className="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full mt-1.5">{r.label}</span>}
+          {r.note && (
+            <p className="text-xs mt-1.5" style={{ color: SLATE, ...(expanded ? {} : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) }}>{r.note}</p>
+          )}
+          {noteLong && <button onClick={() => setExpanded(!expanded)} className="text-[11px] font-semibold mt-1" style={{ color: BRASS }}>{expanded ? 'ย่อ ▴' : 'อ่านทั้งหมด ▾'}</button>}
+        </div>
+        <EditButton onClick={onEdit} />
+      </div>
+      <MedicalPhotoAttach record={r} onAddPhoto={onAddPhoto} onRemovePhoto={onRemovePhoto} />
+    </Card>
+  );
+}
 function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRemoveBloodTest, onAddOrganExam, onUpdateOrganExam, onRemoveOrganExam, onAddImaging, onUpdateImaging, onRemoveImaging, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans }) {
   const [subTab, setSubTab] = useState('blood');
   const [bt, setBt] = useState({ type: BLOOD_TEST_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
@@ -11496,13 +11550,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
           </Card>
           {[...(dog.bloodTests || [])].map((r) => (
             <SwipeToDeleteRow key={r.id} confirmMessage="ลบผลตรวจเลือดรายการนี้? ข้อมูลจะหายถาวร" onDelete={() => onRemoveBloodTest(dog.id, r.id)}>
-              <Card>
-                <div className="flex justify-between items-start">
-                  <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
-                  <EditButton onClick={() => setEditingBt(r)} />
-                </div>
-                <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'bloodTests', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'bloodTests', r.id, pid)} />
-              </Card>
+              <MedicalResultCard record={r} typeLabel={r.type} onEdit={() => setEditingBt(r)} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'bloodTests', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'bloodTests', r.id, pid)} />
             </SwipeToDeleteRow>
           ))}
         </>
@@ -11518,13 +11566,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
           </Card>
           {[...(dog.organExams || [])].map((r) => (
             <SwipeToDeleteRow key={r.id} confirmMessage="ลบผลตรวจอวัยวะรายการนี้? ข้อมูลจะหายถาวร" onDelete={() => onRemoveOrganExam(dog.id, r.id)}>
-              <Card>
-                <div className="flex justify-between items-start">
-                  <div><p className="text-sm font-semibold">{r.organ} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
-                  <EditButton onClick={() => setEditingOe(r)} />
-                </div>
-                <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'organExams', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'organExams', r.id, pid)} />
-              </Card>
+              <MedicalResultCard record={r} typeLabel={r.organ} onEdit={() => setEditingOe(r)} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'organExams', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'organExams', r.id, pid)} />
             </SwipeToDeleteRow>
           ))}
         </>
@@ -11559,23 +11601,18 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
           </Card>
           {[...(dog.imaging || [])].map((r) => (
             <SwipeToDeleteRow key={r.id} confirmMessage="ลบผล Imaging รายการนี้? ข้อมูลจะหายถาวร" onDelete={() => onRemoveImaging(dog.id, r.id)}>
-              <Card>
-                <div className="flex justify-between items-start">
-                  <div><p className="text-sm font-semibold">{r.type} · {formatDateThai(r.date)}</p><p className="text-xs" style={{ color: SLATE }}>{r.note}</p></div>
-                  <EditButton onClick={() => setEditingIm(r)} />
-                </div>
-                <MedicalPhotoAttach record={r} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'imaging', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'imaging', r.id, pid)} />
-              </Card>
+              <MedicalResultCard record={r} typeLabel={r.type} onEdit={() => setEditingIm(r)} onAddPhoto={(file) => onAddMedicalPhoto(dog.id, 'imaging', r.id, file)} onRemovePhoto={(pid) => onRemoveMedicalPhoto(dog.id, 'imaging', r.id, pid)} />
             </SwipeToDeleteRow>
           ))}
         </>
       )}
       {editingBt && (
         <EditModal title="แก้ไขผลตรวจเลือด" onClose={() => setEditingBt(null)}
-          initialValues={{ type: editingBt.type, date: editingBt.date, note: editingBt.note || '' }}
+          initialValues={{ type: editingBt.type, date: editingBt.date, note: editingBt.note || '', label: editingBt.label || '' }}
           fields={[
             { key: 'type', label: 'ประเภท', type: 'select', options: BLOOD_TEST_TYPES },
             { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'label', label: 'ป้ายสั้นแยกแยะ (ไม่บังคับ)', type: 'text' },
             { key: 'note', label: 'ผลตรวจ/ค่าที่ได้', type: 'textarea' },
           ]}
           onSave={(v) => { onUpdateBloodTest(dog.id, editingBt.id, v); setEditingBt(null); }}
