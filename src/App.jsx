@@ -6371,6 +6371,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
           onAddTransaction={onAddCreditCardTransaction} onRemoveTransaction={onRemoveCreditCardTransaction} onUpdateTransaction={onUpdateCreditCardTransaction}
           onAddPayment={onAddCreditCardPayment} onRemovePayment={onRemoveCreditCardPayment}
           cardPaymentNotes={cardPaymentNotes} onAddCardPaymentNote={onAddCardPaymentNote}
+          categories={categories} onAddCategory={onAddCategory}
           googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />
       )}
       {mainSection === 'cash' && (
@@ -6648,7 +6649,7 @@ function ExpenseMonthCalendar({ expenses, creditCards, viewDate, onChangeViewDat
     </Card>
   );
 }
-function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, cardPaymentNotes, onAddCardPaymentNote, googleConnected, onAddToCalendar }) {
+function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, cardPaymentNotes, onAddCardPaymentNote, categories, onAddCategory, googleConnected, onAddToCalendar }) {
   const [selectedId, setSelectedId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ bankName: '', cardName: '', last4: '', creditLimit: 0, statementDay: 1, dueDay: 15 });
@@ -6662,7 +6663,7 @@ function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard
     setShowAddForm(false);
   }
 
-  if (selected) return <CreditCardDetail card={selected} onBack={() => setSelectedId(null)} onUpdateCard={onUpdateCard} onRemoveCard={(id) => { onRemoveCard(id); setSelectedId(null); }} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onUpdateTransaction={onUpdateTransaction} onAddPayment={onAddPayment} onRemovePayment={onRemovePayment} cardPaymentNotes={cardPaymentNotes} onAddCardPaymentNote={onAddCardPaymentNote} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />;
+  if (selected) return <CreditCardDetail card={selected} onBack={() => setSelectedId(null)} onUpdateCard={onUpdateCard} onRemoveCard={(id) => { onRemoveCard(id); setSelectedId(null); }} onAddTransaction={onAddTransaction} onRemoveTransaction={onRemoveTransaction} onUpdateTransaction={onUpdateTransaction} onAddPayment={onAddPayment} onRemovePayment={onRemovePayment} cardPaymentNotes={cardPaymentNotes} onAddCardPaymentNote={onAddCardPaymentNote} categories={categories} onAddCategory={onAddCategory} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} />;
 
   return (
     <div>
@@ -6714,7 +6715,7 @@ function CreditCardsSection({ creditCards, onAddCard, onUpdateCard, onRemoveCard
   );
 }
 
-function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, cardPaymentNotes, onAddCardPaymentNote, googleConnected, onAddToCalendar }) {
+function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTransaction, onRemoveTransaction, onUpdateTransaction, onAddPayment, onRemovePayment, cardPaymentNotes, onAddCardPaymentNote, categories, onAddCategory, googleConnected, onAddToCalendar }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState('อื่นๆ');
   const [note, setNote] = useState('');
@@ -6725,6 +6726,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
   const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
   const [syncingDue, setSyncingDue] = useState(false);
   const [syncDueMsg, setSyncDueMsg] = useState('');
+  const [showPaymentForm, setShowPaymentForm] = useState(false); // พับเก็บไว้เป็นค่าเริ่มต้น กดเปิดเฉพาะตอนจะใช้จริง กันข้อความซ้อนกับ "บันทึกรายจ่ายเข้าบัตร" ด้านล่างดูรกตา
   const statementFileRef = useRef(null);
   const statementGalleryRef = useRef(null);
   const [statementScanning, setStatementScanning] = useState(false);
@@ -6826,32 +6828,39 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
         )}
       </Card>
       <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกการจ่ายบัตร (โอนเงินชำระยอด — แยกจากการใช้จ่ายผ่านบัตร)</p>
-        <NumInput value={payAmount} onChange={setPayAmount} placeholder="จำนวนเงินที่จ่าย" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        {(cardPaymentNotes || []).length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {cardPaymentNotes.map((n) => (
-              <button key={n} onClick={() => setPayNote(n)} className="text-[11px] rounded-full px-2.5 py-1" style={{ background: payNote === n ? GOOD : PAPER_DIM, color: payNote === n ? 'white' : SLATE }}>{n}</button>
-            ))}
-          </div>
-        )}
-        <div className="flex gap-1.5 mb-2">
-          <input value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="โน้ต (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
-          {payNote && !cardPaymentNotes.includes(payNote) && (
-            <button onClick={() => onAddCardPaymentNote(payNote)} className="text-[11px] rounded-lg px-3 whitespace-nowrap" style={{ border: `1px solid ${BRASS}`, color: BRASS }}>+ จำไว้</button>
-          )}
-        </div>
-        <button onClick={submitPayment} style={{ background: GOOD }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกการจ่ายบัตร</button>
-        {monthPayments.length > 0 && (
-          <div className="mt-3 pt-2" style={{ borderTop: `1px solid ${BORDER}` }}>
-            <p className="text-[10px] mb-1" style={{ color: SLATE }}>ประวัติการจ่ายเดือนนี้</p>
-            {monthPayments.map((p) => (
-              <div key={p.id} className="flex justify-between items-center py-1">
-                <p className="text-xs" style={{ color: SLATE }}>{p.date}{p.note ? ' · ' + p.note : ''}</p>
-                <div className="flex items-center gap-2"><span className="text-xs" style={{ color: GOOD }}>฿{fmt(p.amount)}</span><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemovePayment(card.id, p.id))}><Trash2 size={12} color={BAD} /></button></div>
+        <button onClick={() => setShowPaymentForm(!showPaymentForm)} className="w-full flex items-center justify-between text-left">
+          <span className="text-xs" style={{ color: SLATE }}>บันทึกการจ่ายบัตร (โอนเงินชำระยอดให้ธนาคาร — แยกจากการใช้จ่ายผ่านบัตร){monthPayments.length > 0 && !showPaymentForm ? ` · จ่ายไปแล้ว ${monthPayments.length} ครั้งเดือนนี้` : ''}</span>
+          {showPaymentForm ? <ChevronUp size={15} color={SLATE} /> : <ChevronDown size={15} color={SLATE} />}
+        </button>
+        {showPaymentForm && (
+          <div className="mt-3">
+            <NumInput value={payAmount} onChange={setPayAmount} placeholder="จำนวนเงินที่จ่าย" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+            <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+            {(cardPaymentNotes || []).length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {cardPaymentNotes.map((n) => (
+                  <button key={n} onClick={() => setPayNote(n)} className="text-[11px] rounded-full px-2.5 py-1" style={{ background: payNote === n ? GOOD : PAPER_DIM, color: payNote === n ? 'white' : SLATE }}>{n}</button>
+                ))}
               </div>
-            ))}
+            )}
+            <div className="flex gap-1.5 mb-2">
+              <input value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="โน้ต (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
+              {payNote && !cardPaymentNotes.includes(payNote) && (
+                <button onClick={() => onAddCardPaymentNote(payNote)} className="text-[11px] rounded-lg px-3 whitespace-nowrap" style={{ border: `1px solid ${BRASS}`, color: BRASS }}>+ จำไว้</button>
+              )}
+            </div>
+            <button onClick={submitPayment} style={{ background: GOOD }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกการจ่ายบัตร</button>
+            {monthPayments.length > 0 && (
+              <div className="mt-3 pt-2" style={{ borderTop: `1px solid ${BORDER}` }}>
+                <p className="text-[10px] mb-1" style={{ color: SLATE }}>ประวัติการจ่ายเดือนนี้</p>
+                {monthPayments.map((p) => (
+                  <div key={p.id} className="flex justify-between items-center py-1">
+                    <p className="text-xs" style={{ color: SLATE }}>{p.date}{p.note ? ' · ' + p.note : ''}</p>
+                    <div className="flex items-center gap-2"><span className="text-xs" style={{ color: GOOD }}>฿{fmt(p.amount)}</span><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemovePayment(card.id, p.id))}><Trash2 size={12} color={BAD} /></button></div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -6882,7 +6891,7 @@ function CreditCardDetail({ card, onBack, onUpdateCard, onRemoveCard, onAddTrans
         <p className="text-xs mb-2" style={{ color: SLATE }}>บันทึกรายจ่ายเข้าบัตรนี้</p>
         <NumInput value={amount} onChange={setAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="หมวดหมู่ เช่น อาหาร" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+        <TypeSelectWithCustom options={categories || []} value={category} onChange={setCategory} onAddToList={onAddCategory} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="โน้ต (ไม่บังคับ)" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} />
         <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกรายจ่าย</button>
       </Card>
