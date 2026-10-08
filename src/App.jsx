@@ -225,10 +225,34 @@ const makeCreditCard = (entry) => ({
   reminderDays: entry?.reminderDays || [3, 1], transactions: [],
 });
 
+// ย่อรูปก่อนส่งให้ AI อ่านเสมอ (จำกัดด้านยาวสุดไว้ที่ 1600px + บีบอัดเป็น JPEG คุณภาพ 0.85) — รูปจากมือถือมักกว้าง 3000-4000px ซึ่งเกินความจำเป็นมากสำหรับให้ AI อ่านตัวหนังสือ/ตาราง
+// ลด input token ต่อการสแกน 1 รูปได้มาก (มักเกินครึ่ง) โดยไม่กระทบความสามารถอ่านตัวอักษร/ตัวเลขในภาพ — ใช้เฉพาะ pipeline "ให้ AI อ่าน" เท่านั้น ไม่กระทบรูปที่อัปโหลดเก็บไว้ดูจริง (คนละฟังก์ชันกัน เก็บคุณภาพเต็มไว้เหมือนเดิม)
+// ผลลัพธ์เป็น JPEG เสมอไม่ว่าไฟล์ต้นฉบับจะเป็นชนิดไหน — ทุกจุดที่เรียกใช้จึงส่ง mediaType เป็น 'image/jpeg' ตรงๆ ได้เลย ไม่ต้องอิง file.type เดิมอีกต่อไป
 function readFileAsBase64(file) {
+  const MAX_DIMENSION = 1600;
+  const JPEG_QUALITY = 0.85;
   return new Promise((resolve, reject) => {
     const r = new FileReader();
-    r.onload = () => resolve(r.result.split(',')[1]);
+    r.onload = () => {
+      const dataUrl = r.result;
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width <= MAX_DIMENSION && height <= MAX_DIMENSION) {
+          // ไม่ต้องย่อ แต่ยัง re-encode เป็น JPEG เพื่อให้ mediaType คงที่เสมอ
+        }
+        const scale = Math.min(1, MAX_DIMENSION / Math.max(width, height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(width * scale);
+        canvas.height = Math.round(height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const resizedDataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+        resolve(resizedDataUrl.split(',')[1]);
+      };
+      img.onerror = () => resolve(dataUrl.split(',')[1]); // ถ้าโหลดเป็นรูปไม่สำเร็จ (ไฟล์แปลก) ส่ง base64 ดิบไปแทน ดีกว่าพังทั้งหมด
+      img.src = dataUrl;
+    };
     r.onerror = reject;
     r.readAsDataURL(file);
   });
@@ -3544,7 +3568,7 @@ function safeParseJson(text) {
 async function scanSingleValue(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพหน้าจอแอปการลงทุนของสินทรัพย์ชิ้นเดียว อ่านมูลค่ารวม (ยอดใหญ่ที่สุดที่สื่อถึงมูลค่าพอร์ต/สินทรัพย์นี้) และสกุลเงินที่แสดง แล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"value": ตัวเลขไม่มีคอมมา, "currency": "THB หรือ USD"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, 'image/jpeg', false, true);
   const parsed = safeParseJson(text);
   return { value: Number(parsed.value) || 0, currency: parsed.currency === 'USD' ? 'USD' : 'THB' };
 }
@@ -3558,7 +3582,7 @@ async function scanCardStatement(file) {
 - "วงเงินคงเหลือ" (Available Credit) — ระวัง: บางแอปเขียนแค่ "คงเหลือ" สั้นๆ ใกล้กับ "ยอดที่ใช้" โดยไม่มีคำว่า "วงเงิน" นำหน้า ให้ถือว่าเป็นค่านี้ (available credit) เสมอ ไม่ใช่ creditLimit
 - "วงเงินบัตร" (Credit Limit) — ใส่ค่านี้เฉพาะเมื่อภาพระบุชัดเจนว่าเป็น "วงเงินบัตร"/"Credit Limit"/"วงเงินทั้งหมด" เท่านั้น ถ้าเจอแค่คำว่า "คงเหลือ" เฉยๆ ห้ามเอามาใส่ตรงนี้ ให้ตอบ null แทน
 ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amountDue": ตัวเลขไม่มีคอมมาหรือnull, "dueDate": "YYYY-MM-DD หรือ null", "currentBalance": ตัวเลขหรือnull, "availableCredit": ตัวเลขหรือnull, "creditLimit": ตัวเลขหรือnull}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 async function scanCashBalance(file) {
@@ -3567,7 +3591,7 @@ async function scanCashBalance(file) {
 1. ถ้าเห็นช่อง "Line Available" (วงเงินคงเหลือที่ใช้ซื้อได้) ให้ใช้ค่านี้เป็นหลัก — สำหรับพอร์ตหุ้นแบบมาร์จิ้น เลขนี้คือเงินสด/วงเงินที่ใช้ได้จริง
 2. ถ้าไม่มีช่อง "Line Available" ในภาพ ให้ใช้ช่อง "Cash Balance" หรือ "เงินสดคงเหลือ" หรือ "เงินสดในบัญชี" แทน
 ห้ามอ่านค่าอื่นเช่น Market Value, Amount, ยอดพอร์ตรวม เด็ดขาด ถ้าไม่เจอทั้ง 2 แบบข้างต้นชัดเจนในภาพ ให้ตอบ value เป็น null ห้ามเดา ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"value": ตัวเลขไม่มีคอมมาหรือnull, "currency": "THB หรือ USD", "source": "line_available หรือ cash_balance"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, 'image/jpeg', false, true);
   const parsed = safeParseJson(text);
   return { value: parsed.value !== null && parsed.value !== undefined ? Number(parsed.value) : null, currency: parsed.currency === 'USD' ? 'USD' : 'THB', source: parsed.source || '' };
 }
@@ -3579,7 +3603,7 @@ async function scanDimeCashBalances(file) {
 2. USD — ป้ายกำกับ "Dime! USD"
 3. USD — ป้ายกำกับ "Dime! FCD"
 อ่านยอดคงเหลือของแต่ละบัญชีแยกกัน และถ้ามีตัวเลขกำกับด้วย "≈ ... THB" ใต้ยอด USD ให้อ่านค่านั้นมาด้วย (เป็นค่าประมาณเทียบเป็นบาท ใช้คำนวณอัตราแลกเปลี่ยนได้) ถ้าบัญชีไหนไม่ปรากฏในภาพให้ใส่ null ห้ามเดา ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"thbBalance":ตัวเลขหรือnull,"usdBalance":ตัวเลขหรือnull,"usdEquivalentThb":ตัวเลขหรือnull,"fcdBalance":ตัวเลขหรือnull,"fcdEquivalentThb":ตัวเลขหรือnull}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, 'image/jpeg', false, true);
   return safeParseJson(text);
 }
 
@@ -3593,14 +3617,14 @@ async function scanBuyTransaction(file) {
 กรณีที่ 2 — รายการซื้อหุ้นจากตลาดหลักทรัพย์ (ภาพอาจมีหลายรายการ/หลายสัญลักษณ์ปนกัน มีสถานะกำกับแต่ละแถว): ให้เลือกเฉพาะรายการฝั่งซื้อ (Buy/B) ที่ execute สำเร็จแล้วเท่านั้น (เช่น Match, Filled, Completed, สำเร็จ) ห้ามนับรายการที่สถานะยังเป็น Open/Pending/รอดำเนินการ (คือคำสั่ง limit order ที่ยังไม่จับคู่ ไม่ใช่การซื้อที่เกิดขึ้นจริง) ถ้ามีหลายรายการที่ผ่านเงื่อนไข ให้เลือกรายการที่ดูเด่นหรือล่าสุดที่สุด
 
 อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"symbol": "สัญลักษณ์ย่อของรายการที่เลือก หรือ null ถ้าไม่เห็น", "amount": จำนวนเงินที่จ่ายจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ได้รับเป็นตัวเลข หรือ null ถ้ายังไม่ทราบ (กองทุนรอ NAV), "price": ราคาต่อหน่วยที่ซื้อได้จริงเป็นตัวเลข หรือ null ถ้ายังไม่ทราบ, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 
 async function scanSellTransaction(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพยืนยันรายการขายหุ้นหรือกองทุนจากแอปการลงทุน ภาพอาจมีหลายรายการหรือหลายสัญลักษณ์ปนกัน — ให้เลือกเฉพาะรายการฝั่งขาย (Sell/S) ที่มีสถานะสำเร็จแล้วเท่านั้น (เช่น Match, Filled, Completed, สำเร็จ) ห้ามนับรายการที่สถานะยังเป็น Open/Pending/รอดำเนินการ ถ้ามีหลายรายการที่ผ่านเงื่อนไข ให้เลือกรายการที่ดูเด่นหรือล่าสุดที่สุด อ่านข้อมูลแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"symbol": "สัญลักษณ์ย่อของรายการที่เลือก หรือ null ถ้าไม่เห็น", "amount": จำนวนเงินที่ได้รับจริงเป็นตัวเลขไม่มีคอมมา, "shares": จำนวนหน่วยหรือหุ้นที่ขายเป็นตัวเลข, "price": ราคาต่อหน่วยที่ขายได้จริงเป็นตัวเลข, "date": วันที่ทำรายการรูปแบบ YYYY-MM-DD}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 
@@ -3612,7 +3636,7 @@ async function scanYieldTechHistory(file, symbols) {
 1) ตารางประวัติหลายรายการปนกัน — อ่านทุกแถวที่เป็น "ขาย (YIELDTECH)" เท่านั้น (ไม่เอารายการซื้อ/ขายปกติ)
 2) หน้าจอ "ยืนยันคำสั่งขาย" รายการเดียว (เช่นจากแอป Dime! ที่ผู้ใช้ขายหน่วยลงทุนด้วยตัวเองเพื่อถอนเงินแบบไม่กินทุน เพราะแพลตฟอร์มนี้ไม่มีฟังก์ชันตัดอัตโนมัติ) — ให้อ่านเป็น 1 รายการ โดยเอามูลค่าเงินที่ขาย (บาท), วันที่คำสั่งมีผล/วันที่ขาย (ถ้าเป็นปี พ.ศ. ให้แปลงเป็น ค.ศ. โดยลบ 543), และชื่อกองทุน/สัญลักษณ์ที่ขาย${symbolHint}
 ตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"symbol":"ชื่อกองทุน/หุ้น","amount":จำนวนเงินที่ตัด(ตัวเลขบวกไม่มีคอมมา ไม่ต้องใส่เครื่องหมายลบ),"date":"YYYY-MM-DD"}]`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 // อ่านรูปประวัติคำสั่งซื้อ-ขาย ที่อาจมีหลายกองทุนปนกันในภาพเดียว แยกซื้อ/ขายแต่ละแถวให้อัตโนมัติ (ไม่เอารายการ YieldTech)
@@ -3623,7 +3647,7 @@ async function scanBuySellHistory(file, symbols) {
 ถ้าภาพมีจำนวนหน่วย/ราคาต่อหน่วยระบุไว้ ให้อ่านมาด้วย ถ้าไม่มีให้เว้นว่าง (null) ห้ามเดา
 สำคัญ: ถ้าภาพไม่มีวันที่กำกับไว้ชัดเจนต่อแต่ละแถว (เช่น หน้าจอสรุปที่ไม่ได้แยกวันที่ต่อรายการ) ให้ใส่ "date" เป็น null ห้ามเดาวันที่เอง เพราะจะทำให้ระบบตรวจจับรายการซ้ำทำงานผิดพลาด
 ตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"symbol":"ชื่อกองทุน/หุ้น","type":"buy หรือ sell","amount":จำนวนเงินเป็นตัวเลขบวกไม่มีคอมมา,"shares":จำนวนหน่วยถ้ามีระบุไม่งั้นเป็น null,"price":ราคาต่อหน่วยถ้ามีระบุไม่งั้นเป็น null,"date":"YYYY-MM-DD หรือ null ถ้าไม่มีวันที่ต่อแถวชัดเจน"}]`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 // อ่านกรมธรรม์ประกันจากรูปได้หลายหน้า/หลายรูป — เนื่องจาก askServer ส่งได้ทีละรูป จะสแกนทีละรูปแล้วรวมผลลัพธ์เข้าด้วยกัน
@@ -3643,7 +3667,7 @@ async function scanInsurancePolicyPage(file) {
 - เอาเฉพาะรายการที่สำคัญที่สุดไม่เกิน 8 รายการต่อสัญญาต่อภาพ (ถ้าตารางมีมากกว่านั้น เลือกเฉพาะรายการที่มีตัวเลขชัดเจน ข้ามรายการรองที่ซ้ำซ้อนกัน) เพื่อให้คำตอบไม่ยาวเกินไป
 ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น ห้ามมีคำอธิบายก่อน/หลัง JSON ห้ามขึ้นบรรทัดใหม่โดยไม่จำเป็น ตอบให้กระชับที่สุด รูปแบบ:
 {"company":"","policyNumber":"","planName":"","insuredName":"","startDate":"YYYY-MM-DD หรือ null","endDate":"YYYY-MM-DD หรือ null","premiumAmount":ตัวเลขหรือnull,"premiumFrequency":"year หรือ month หรือ null","riders":[{"name":"ชื่อสัญญาหลักหรือสัญญาเพิ่มเติม หรือ null ถ้าไม่ปรากฏในภาพนี้","type":"life หรือ health หรือ critical หรือ accident หรือ daily_cash หรือ car หรือ other","sumInsured":ตัวเลขหรือnull,"deathBenefit":ตัวเลขหรือnull,"premiumAmount":ตัวเลขหรือnull,"taxDeductible":"yes หรือ no หรือ partial หรือ null","ipdLimit":ตัวเลขหรือnull,"opdLimit":ตัวเลขหรือnull,"roomLimit":ตัวเลขหรือnull,"doctorLimit":ตัวเลขหรือnull,"icuLimit":ตัวเลขหรือnull,"surgeryLimit":ตัวเลขหรือnull,"erLimit":ตัวเลขหรือnull,"ambulanceLimit":ตัวเลขหรือnull,"cancerLimit":ตัวเลขหรือnull,"dialysisLimit":ตัวเลขหรือnull,"mriCtLimit":ตัวเลขหรือnull,"deductible":ตัวเลขหรือnull,"copaymentPct":ตัวเลขหรือnull,"dailyCashAmount":ตัวเลขหรือnull,"deathAccidentBenefit":ตัวเลขหรือnull,"disabilityBenefit":ตัวเลขหรือnull,"cashBackAmount":ตัวเลขหรือnull,"surrenderValue":ตัวเลขหรือnull,"maturityBenefit":ตัวเลขหรือnull,"coveredDiseases":"ข้อความหรือnull","diagnosisCondition":"ข้อความหรือnull","payoutType":"single หรือ multiple หรือ null","continuesAfterClaim":"yes หรือ no หรือ null","vehiclePlate":"ข้อความหรือnull","insuranceClass":"1 หรือ 2+ หรือ 3+ หรือ 2 หรือ 3 หรือ null","carDeductible":ตัวเลขหรือnull,"theftFireCoverage":"yes หรือ no หรือ null","thirdPartyCoverage":ตัวเลขหรือnull,"compulsoryInsurance":"ข้อความหรือnull","garageType":"center หรือ garage หรือ null","emergencyHotline":"ข้อความหรือnull","notes":"ข้อความสรุปเงื่อนไขสำคัญ หรือ ตามที่จ่ายจริง","benefitItems":[{"label":"ชื่อรายการผลประโยชน์","value":"จำนวนเงิน/เงื่อนไข เช่น 6,000 ต่อวัน","maxCount":"จำนวนสูงสุด เช่น 15 วัน หรือ null"}]}]}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 function mergeBenefitItems(existing, incoming) {
@@ -3792,7 +3816,7 @@ async function scanReceiptItems(file, cardNames) {
   const cardHint = (cardNames && cardNames.length > 0) ? `\nถ้าภาพนี้เป็นสลิปรูดบัตรเครดิต/สลิปยืนยันการชำระ ลองดูว่ามีชื่อธนาคาร/บัตรตรงหรือใกล้เคียงกับรายชื่อนี้ไหม: ${cardNames.join(', ')} — ถ้ามีให้ระบุกลับมาด้วย ถ้าไม่มี/ไม่แน่ใจให้ตอบค่าว่าง` : '';
   const prompt = `นี่คือภาพใบเสร็จรับเงินหรือสลิปการชำระเงิน อ่านรายการสินค้า/บริการทั้งหมดพร้อมราคา ถ้าอ่านราคารวมทั้งบิลได้แต่แยกรายการไม่ได้ ให้ส่งเป็นรายการเดียวชื่อ "รวมบิล"${cardHint}
 ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"items": [{"item":"ชื่อรายการ","amount":ราคาเป็นตัวเลขไม่มีคอมมา}], "cardName": "ชื่อธนาคาร/บัตรที่ใช้จ่ายถ้าระบุในภาพ ไม่งั้นค่าว่าง"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, 'image/jpeg', false, true);
   return safeParseJson(text);
 }
 
@@ -3802,14 +3826,14 @@ async function scanPetExpenseReceipt(file, categories) {
 - ถ้าเป็นใบเสร็จ: อ่านยอดรวมที่จ่ายจริง, วันที่บนใบเสร็จ, และเลือกหมวดหมู่ที่ใกล้เคียงที่สุดจากรายการ: ${categories.join(', ')}
 - ถ้าเป็นสลิปโอนเงิน: อ่านยอดโอน, วันที่โอน, ชื่อผู้รับโอน (ถ้ามี) — สลิปโอนมักไม่มีหมวดหมู่ชัดเจน ถ้าเดาหมวดหมู่ไม่ได้ให้ตอบ "อื่นๆ"
 ถ้าไม่มีวันที่ให้ใช้วันนี้ ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"amount": ยอดเงินเป็นตัวเลขไม่มีคอมมา, "category": "หมวดที่เลือกจากรายการ หรือ อื่นๆ ถ้าเดาไม่ได้", "date": "YYYY-MM-DD", "note": "รายละเอียดสั้นๆ เช่นชื่อร้าน/ผู้รับโอน/รายการ", "sourceType": "receipt หรือ transfer_slip"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, 'image/jpeg', false, true);
   return safeParseJson(text);
 }
 
 async function scanWeightScale(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพหน้าจอตาชั่งน้ำหนักสัตว์เลี้ยง อ่านตัวเลขน้ำหนักที่แสดง (หน่วยกิโลกรัม) แล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"weight": ตัวเลขน้ำหนักเป็นกิโลกรัม}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, 'image/jpeg', false, true);
   return safeParseJson(text);
 }
 
@@ -3819,7 +3843,7 @@ async function scanMedicationLabel(file) {
   const prompt = `นี่คือภาพฉลากยา/ซองยา/ใบสั่งยาสำหรับสัตว์เลี้ยง ความละเอียดของภาพอาจแตกต่างกันมาก (โรงพยาบาลใหญ่มักพิมพ์ครบทุกอย่าง ส่วนคลินิกเล็กอาจมีแค่บางส่วนหรือเขียนมือ) อ่านเท่าที่มีในภาพจริงเท่านั้น ฟิลด์ไหนไม่มีข้อมูลในภาพหรืออ่านไม่ออกให้ตอบเป็นค่าว่าง "" ห้ามเดามั่ว ไม่ต้องอ่านราคา (ไม่มีในฉลากยาแน่นอน)
 ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ:
 {"name": "ชื่อยา", "strength": "ความแรง/ขนาด เช่น 10mg", "dose": "จำนวนที่ได้รับ เช่น 7 เม็ด", "usage": "วิธีใช้/ปริมาณต่อครั้ง เช่น 1/4 แคปซูล", "timing": "ความถี่/เวลาที่ให้ เช่น วันละ 2 เวลา เช้า-เย็น พร้อมอาหาร", "hospital": "ชื่อโรงพยาบาล/คลินิก", "doctor": "ชื่อสัตวแพทย์ผู้สั่ง", "startDate": "YYYY-MM-DD ถ้ามีวันที่ระบุ", "note": "หมายเหตุอื่นๆที่สำคัญ เช่น สรรพคุณยา หรือคำเตือนพิเศษ"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, 'image/jpeg', false, true);
   return safeParseJson(text);
 }
 
@@ -3829,7 +3853,7 @@ async function scanAppointmentSlip(file) {
   const prompt = `นี่คือภาพใบนัดหมายสัตวแพทย์สำหรับสัตว์เลี้ยง ความละเอียดอาจแตกต่างกัน (บางที่พิมพ์ครบ บางที่เขียนมือสั้นๆ) อ่านเท่าที่มีในภาพจริงเท่านั้น ฟิลด์ไหนไม่มี/อ่านไม่ออกให้ตอบค่าว่าง "" ห้ามเดามั่ว
 ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ:
 {"date": "YYYY-MM-DD วันนัด", "time": "HH:MM เวลานัด ถ้ามี", "hospital": "ชื่อโรงพยาบาล/คลินิก", "doctor": "ชื่อสัตวแพทย์", "purpose": "วัตถุประสงค์การนัด เช่น ฉีดวัคซีน, ตรวจติดตามอาการ", "note": "รายละเอียด/คำแนะนำอื่นๆที่ระบุในใบนัด"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg', false, true);
+  const text = await askServer(prompt, base64, 'image/jpeg', false, true);
   return safeParseJson(text);
 }
 
@@ -3841,7 +3865,7 @@ async function scanMedicalResult(file, kind) {
   const prompt = `นี่คือภาพ${kindLabel}ของสัตว์เลี้ยง ความละเอียดอาจแตกต่างกันมาก อ่านเท่าที่มีในภาพจริงเท่านั้น ห้ามเดามั่ว ${optionsHint}
 สำคัญ: ถ้าในภาพเป็นภาษาอังกฤษ (เช่น รายงานผล X-ray/Ultrasound ที่หมอเขียนเป็นศัพท์แพทย์ภาษาอังกฤษ) ให้ "แปลเป็นภาษาไทย" ในช่อง note ด้วย ห้ามคัดลอกข้อความภาษาอังกฤษมาใส่ตรงๆ แปลให้เป็นภาษาไทยที่เจ้าของสัตว์อ่านเข้าใจง่าย แต่ยังคงศัพท์ทางการแพทย์ที่จำเป็น (เช่น ชื่ออวัยวะ) ไว้ได้ถ้าจำเป็น
 ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"type": "ประเภท/อวัยวะที่ตรวจ ใกล้เคียงจากรายการที่ให้ไว้ หรือค่าว่างถ้าไม่แน่ใจ", "date": "YYYY-MM-DD ถ้ามีวันที่ระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ/ค่าที่ได้/ลักษณะที่พบสั้นๆ เป็นภาษาไทย"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 
@@ -3854,7 +3878,7 @@ async function scanBloodTestReport(file) {
 ประเภทหมวดที่ใกล้เคียงจากรายการนี้ถ้ามี: ${BLOOD_TEST_TYPES.join(', ')} — ถ้าหมวดที่เจอไม่ตรงกับรายการนี้เลย (เช่น "Chemistry" หรือ "Special Test") ให้ตอบชื่อหมวดตามที่เห็นในภาพได้เลย ไม่ต้องฝืนเลือกจากรายการ
 นอกจากนี้ให้ตั้ง "label" สั้นๆ (ไม่เกิน 6-7 คำ) แยกให้ชัดว่าหมวดนี้คือเรื่องอะไรโดยเฉพาะ เช่น "Cortisol ก่อนกระตุ้น (Pre-ACTH)", "⚠️ ค่าผิดปกติ: WBC, MCV ต่ำ", "Lab Panel: BASO#/IPF%/PP" — ใช้แยกแยะเวลามีผลตรวจหลายใบวันเดียวกันที่ล้วนเป็นหมวดเดียวกัน (เช่น CBC ซ้ำหลายรอบในวันเดียว) ถ้ามีค่าผิดปกติให้ label นั้นขึ้นต้นด้วย "⚠️" เสมอ
 ตอบเป็น JSON array เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ: [{"type": "ชื่อหมวด", "date": "YYYY-MM-DD ถ้ามีวันที่ส่งตรวจระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ", "label": "ป้ายสั้นแยกแยะ"}]`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   const parsed = safeParseJson(text);
   return Array.isArray(parsed) ? parsed : [parsed];
 }
@@ -3873,14 +3897,14 @@ async function parseExpenseText(transcript, categories, cardNames) {
 async function scanPortfolioTable(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพหน้าจอแอปการลงทุนที่แสดงรายการสินทรัพย์หลายตัว (อาจเป็นตารางหุ้นไทยแบบมีคอลัมน์ Avail Vol/Avg/Market หรือเป็นรายการแบบ Dime! ที่โชว์มูลค่ารวมกับราคาต่อหน่วยและ % เปลี่ยนแปลง) อ่านทุกแถวที่เห็น แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น สำหรับแต่ละแถวใส่ข้อมูลเท่าที่เห็นจริงในภาพ ถ้าไม่เห็นให้ใส่ null รูปแบบ: [{"symbol":"สัญลักษณ์ย่อ","currency":"THB หรือ USD","shares":จำนวนหน่วยถ้าเห็นตรงๆมิฉะนั้น null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยถ้าเห็นมิฉะนั้น null,"currentPrice":ราคาต่อหน่วยปัจจุบันถ้าเห็นมิฉะนั้น null,"value":มูลค่ารวมของแถวนี้ถ้าเห็นมิฉะนั้น null}]`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 
 async function scanHoldingDetail(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพหน้ารายละเอียดของหุ้นหรือกองทุนเพียงตัวเดียว (อาจแสดงจำนวนหน่วย/หุ้นที่ถือ, ต้นทุนเฉลี่ยหรือ NAV ต้นทุนต่อหน่วย, ราคาปัจจุบันหรือ NAV ปัจจุบันต่อหน่วย) อ่านค่าที่เห็นจริงแล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น ถ้าไม่เห็นค่าใดให้ใส่ null รูปแบบ: {"shares": จำนวนหน่วยหรือหุ้นเป็นตัวเลขหรือ null, "avgCost": ต้นทุนเฉลี่ยหรือNAVต้นทุนต่อหน่วยเป็นตัวเลขหรือ null, "currentPrice": ราคาปัจจุบันหรือNAVปัจจุบันต่อหน่วยเป็นตัวเลขหรือ null, "currency": "THB หรือ USD"}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 
@@ -3902,7 +3926,7 @@ async function scanPortfolioImageUniversal(file) {
   ถ้า type=summary: {"symbol":"สัญลักษณ์","shares":จำนวนหน่วยถ้าเห็นตรงๆมิฉะนั้น null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยถ้าเห็นมิฉะนั้น null,"currentPrice":ราคาต่อหน่วยปัจจุบันถ้าเห็นมิฉะนั้น null,"marketValue":มูลค่ารวมของแถวนี้ถ้าเห็นมิฉะนั้น null}
   ถ้า type=detail: {"symbol":"สัญลักษณ์ถ้าเห็นมิฉะนั้น null","shares":จำนวนหน่วยหรือหุ้นเป็นตัวเลขหรือ null,"avgCost":ต้นทุนเฉลี่ยต่อหน่วยเป็นตัวเลขหรือ null,"currentPrice":ราคาปัจจุบันต่อหน่วยเป็นตัวเลขหรือ null}
 ]}`;
-  const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+  const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
 
@@ -4029,7 +4053,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
     try {
       const base64 = await readFileAsBase64(file);
       const prompt = `นี่คือภาพหน้าจอแอปการลงทุน อ่านค่ามูลค่าสินทรัพย์/พอร์ตที่แสดงในภาพ แล้วตอบกลับเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: [{"name":"ชื่อสินทรัพย์","value":ตัวเลขไม่มีคอมมา,"currency":"THB หรือ USD"}]`;
-      const text = await askServer(prompt, base64, file.type || 'image/jpeg');
+      const text = await askServer(prompt, base64, 'image/jpeg');
       setExtracted(safeParseJson(text));
     } catch (e) { setScanError('อ่านภาพไม่สำเร็จ: ' + e.message); } finally { setScanning(false); if (fileRef.current) fileRef.current.value = ''; }
   }
