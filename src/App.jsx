@@ -1302,9 +1302,9 @@ export default function App() {
         amount: Math.abs(Number(entry.amount || 0)), amountColor: BAD, tab: 'savings',
       }));
     } else {
-      sendLineFlex(`เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}) ฿${fmt(entry.amount)}`, buildFlexCard({
+      sendLineFlex(`เงินเข้า${accName ? ' ' + accName : ''} (${srcLabel}${entry.sourceSymbol ? ' · ' + entry.sourceSymbol : ''}) ฿${fmt(entry.amount)}`, buildFlexCard({
         title: `💰 เงินเข้า${accName ? ' ' + accName : ''}`,
-        rows: [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'แหล่งที่มา', value: srcLabel }, { label: 'ปลายทาง', value: accName || '-' }],
+        rows: [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'แหล่งที่มา', value: srcLabel }, ...(entry.sourceSymbol ? [{ label: 'จากกองทุน/หุ้น', value: entry.sourceSymbol }] : []), { label: 'ปลายทาง', value: accName || '-' }],
         amount: Number(entry.amount || 0), amountColor: GOOD, tab: 'savings',
       }));
     }
@@ -1492,7 +1492,7 @@ export default function App() {
         const addedToCash = !e.reinvestAccountId;
         if (addedToCash) cashToAdd += Number(e.amount || 0);
         yieldTechHistory = [{ id: uid(), date: e.date, amount: Number(e.amount), reinvestAccountId: e.reinvestAccountId || undefined, estimatedShares: estimatedShares || undefined, sellId, contributionId, addedToCash: addedToCash || undefined }, ...yieldTechHistory];
-        contributionsToAdd.push({ id: contributionId, date: e.date, amount: Number(e.amount), source: 'yieldtech', accountId: destAccountId });
+        contributionsToAdd.push({ id: contributionId, date: e.date, amount: Number(e.amount), source: 'yieldtech', accountId: destAccountId, sourceSymbol: h.symbol || h.name || undefined });
       });
       return { ...h, shares, sells, yieldTechHistory };
     });
@@ -1504,14 +1504,15 @@ export default function App() {
     updateAccount(accountId, accPatch);
     contributionsToAdd.forEach((c) => addContribution(c, false)); // เขียนเงียบๆ ทีละรายการ กันสแปม LINE แล้วส่งสรุปรวม 2 ใบ (แดง+เขียว) ด้านล่างแทน
     const grandTotal = entries.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const batchSymbols = [...new Set(contributionsToAdd.map((c) => c.sourceSymbol).filter(Boolean))].join(', ');
     if (grandTotal > 0) sendLineFlex(`ตัด YieldTech ${acc.name} ฿${fmt(grandTotal)}`, buildFlexCard({
       title: `💵 ตัด YieldTech ${acc.name}`,
-      rows: [{ label: 'จำนวนรายการ', value: `${entries.length} รายการ` }],
+      rows: [{ label: 'จำนวนรายการ', value: `${entries.length} รายการ` }, ...(batchSymbols ? [{ label: 'จากกองทุน/หุ้น', value: batchSymbols }] : [])],
       amount: grandTotal, amountColor: BAD, tab: 'accounts',
     }));
     if (cashToAdd > 0) sendLineFlex(`เงินเข้า ${acc.name} (YieldTech) ฿${fmt(cashToAdd)}`, buildFlexCard({
       title: `💰 เงินเข้า ${acc.name}`,
-      rows: [{ label: 'แหล่งที่มา', value: 'YieldTech' }, { label: 'ปลายทาง', value: acc.name }],
+      rows: [{ label: 'แหล่งที่มา', value: 'YieldTech' }, ...(batchSymbols ? [{ label: 'จากกองทุน/หุ้น', value: batchSymbols }] : []), { label: 'ปลายทาง', value: acc.name }],
       amount: cashToAdd, amountColor: GOOD, tab: 'savings',
     }));
   }
@@ -1603,7 +1604,7 @@ export default function App() {
       rows: [{ label: 'บัญชี', value: acc.name }, { label: 'วันที่', value: formatDateDMY(date) }],
       amount: Number(amount || 0), amountColor: BAD, tab: 'accounts',
     }));
-    addContribution({ id: contributionId, date, amount: Number(amount), source: 'yieldtech', accountId: destAccountId });
+    addContribution({ id: contributionId, date, amount: Number(amount), source: 'yieldtech', accountId: destAccountId, sourceSymbol: h.symbol || h.name || undefined });
   }
   // ลบรายการถอน YieldTech — คืนจำนวนหุ้นที่เคยหักไป (ถ้ามี), ลบรายการขาย/เงินเข้าที่ผูกกันไว้, และหักเงินสดที่เคยบวกเข้าบัญชีออกด้วย
   function removeYieldTechHistory(accountId, holdingId, ytId) {
@@ -1674,8 +1675,8 @@ export default function App() {
     const nextHoldings = acc.holdings.map((x) => (x.id === holdingId ? { ...x, shares, sells, yieldTechHistory: (x.yieldTechHistory || []).map((r) => (r.id === ytId ? { ...r, date: nextDate, amount: nextAmount, estimatedShares: newEstimatedShares || undefined, sellId, reinvestAccountId: nextReinvestAccountId, contributionId, addedToCash: addedToCash || undefined } : r)) } : x) );
     accPatch.holdings = nextHoldings;
     updateAccount(accountId, accPatch);
-    if (hadContribution) updateContribution(contributionId, { date: nextDate, amount: nextAmount, accountId: destAccountId });
-    else addContribution({ id: contributionId, date: nextDate, amount: nextAmount, source: 'yieldtech', accountId: destAccountId }, false); // รายการเก่าที่ไม่เคยมีเงินเข้าผูกไว้ — สร้างให้ใหม่แบบเงียบๆ ไม่ต้องแจ้ง LINE ซ้ำ
+    if (hadContribution) updateContribution(contributionId, { date: nextDate, amount: nextAmount, accountId: destAccountId, sourceSymbol: h.symbol || h.name || undefined });
+    else addContribution({ id: contributionId, date: nextDate, amount: nextAmount, source: 'yieldtech', accountId: destAccountId, sourceSymbol: h.symbol || h.name || undefined }, false); // รายการเก่าที่ไม่เคยมีเงินเข้าผูกไว้ — สร้างให้ใหม่แบบเงียบๆ ไม่ต้องแจ้ง LINE ซ้ำ
   }
   function updateBuy(accountId, holdingId, buyId, patch) {
     const acc = accounts.find((a) => a.id === accountId);
@@ -2531,7 +2532,7 @@ export default function App() {
         <AccountsTab accounts={accounts} onUpdate={updateAccount} onAdd={addAccount} onRemove={removeAccount} costBasisByAccount={costBasisByAccount}
           onAddHolding={addHolding} onUpdateHolding={updateHolding} onRemoveHolding={removeHolding} onAddDividend={addDividend}
           onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
-          onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} onRemoveYieldTechHistory={removeYieldTechHistory} onUpdateYieldTechHistory={updateYieldTechHistory}
+          onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} onRemoveYieldTechHistory={removeYieldTechHistory} onUpdateYieldTechHistory={updateYieldTechHistory} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination}
           onAddGoldLot={addGoldLot} onUpdateGoldLot={updateGoldLot} onRemoveGoldLot={removeGoldLot} onSellGoldLot={sellGoldLot} onUnsellGoldLot={unsellGoldLot} onSetGoldPrice={setGoldPrice} onRefreshGoldPrice={refreshGoldPrice} goldShopList={goldShopList} onAddGoldShop={addGoldShop} />
       )}
       {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
@@ -2646,7 +2647,7 @@ function SwipeToDeleteRow({ children, onDelete, confirmMessage }) {
 // Popup แก้ไขรายการทั่วไป (ฟีเจอร์ O) — ใช้ร่วมกันทุก Tab ที่มีปุ่มลบ ยกเว้นตัวหุ้น/บัญชีทั้งก้อน
 // fields: [{ key, label, type: 'text'|'number'|'date'|'time'|'select'|'textarea', options }]
 // เลือกบัญชีปลายทางจากลิสต์จริง หรือพิมพ์เองได้ (เช่น "ตู้เซฟ", "ฝากเด็กร้านขายยา") เผื่อเก็บเงินไว้ก่อนยังไม่ได้ฝากเข้าบัญชีลงทุนจริง
-function AccountPickerWithCustom({ options, value, onChange, customList, onAddCustom }) {
+function AccountPickerWithCustom({ options, value, onChange, customList, onAddCustom, emptyLabel }) {
   const isKnownAccount = options.some((o) => (o.value !== undefined ? o.value : o) === value);
   const isKnownCustom = (customList || []).includes(value);
   const [typingNew, setTypingNew] = useState(!!value && !isKnownAccount && !isKnownCustom);
@@ -2657,7 +2658,7 @@ function AccountPickerWithCustom({ options, value, onChange, customList, onAddCu
         value={selectValue}
         onChange={(e) => { if (e.target.value === '__custom__') { setTypingNew(true); onChange(''); } else { setTypingNew(false); onChange(e.target.value); } }}
         style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1">
-        <option value="">— เลือกบัญชีปลายทาง —</option>
+        <option value="">{emptyLabel || '— เลือกบัญชีปลายทาง —'}</option>
         {options.map((o) => <option key={o.value !== undefined ? o.value : o} value={o.value !== undefined ? o.value : o}>{o.label || o}</option>)}
         {(customList || []).length > 0 && <option disabled>── จุดเก็บเงินที่เคยบันทึกไว้ ──</option>}
         {(customList || []).map((c) => <option key={c} value={c}>📍 {c}</option>)}
@@ -2692,7 +2693,7 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
                 {(f.options || []).map((o) => <option key={o.value !== undefined ? o.value : o} value={o.value !== undefined ? o.value : o}>{o.label || o}</option>)}
               </select>
             ) : f.type === 'select-custom' ? (
-              <AccountPickerWithCustom options={f.options || []} value={values[f.key] || ''} onChange={(v) => setField(f.key, v)} customList={f.customList} onAddCustom={f.onAddCustom} />
+              <AccountPickerWithCustom options={f.options || []} value={values[f.key] || ''} onChange={(v) => setField(f.key, v)} customList={f.customList} onAddCustom={f.onAddCustom} emptyLabel={f.emptyLabel} />
             ) : f.type === 'memo' ? (
               <MemoTextField list={f.list} value={values[f.key] || ''} onChange={(v) => setField(f.key, v)} onAddToList={f.onAddToList} placeholder={f.placeholder} className="rounded-lg px-3 py-2 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} />
             ) : f.type === 'textarea' ? (
@@ -3961,7 +3962,7 @@ function mergePortfolioScans(results) {
   return { bySymbol, orderRows };
 }
 
-function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice, onRefreshGoldPrice, goldShopList, onAddGoldShop }) {
+function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory, customDestinationList, onAddCustomDestination, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice, onRefreshGoldPrice, goldShopList, onAddGoldShop }) {
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -4289,7 +4290,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
             key === 'gold'
               ? <GoldAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddGoldLot={onAddGoldLot} onUpdateGoldLot={onUpdateGoldLot} onRemoveGoldLot={onRemoveGoldLot} onSellGoldLot={onSellGoldLot} onUnsellGoldLot={onUnsellGoldLot} onSetGoldPrice={onSetGoldPrice} onRefreshGoldPrice={onRefreshGoldPrice} goldShopList={goldShopList} onAddGoldShop={onAddGoldShop} />
               : HOLDING_CATEGORIES.includes(key)
-              ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onRemoveBuy={onRemoveBuy} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onAddContribution={onAddContribution} onRecordYieldTech={onRecordYieldTech} onRecordYieldTechBatch={onRecordYieldTechBatch} onRecordBuySellBatch={onRecordBuySellBatch} onRemoveYieldTechHistory={onRemoveYieldTechHistory} onUpdateYieldTechHistory={onUpdateYieldTechHistory} />
+              ? <StockAccountCard key={a.id} account={a} onUpdate={onUpdate} onRemove={onRemove} onAddHolding={onAddHolding} onUpdateHolding={onUpdateHolding} onRemoveHolding={onRemoveHolding} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} finnhubKey={finnhubKey} categoryColor={meta.color} onScanValue={scanSingleValue} allAccounts={accounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onRemoveBuy={onRemoveBuy} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onAddContribution={onAddContribution} onRecordYieldTech={onRecordYieldTech} onRecordYieldTechBatch={onRecordYieldTechBatch} onRecordBuySellBatch={onRecordBuySellBatch} onRemoveYieldTechHistory={onRemoveYieldTechHistory} onUpdateYieldTechHistory={onUpdateYieldTechHistory} customDestinationList={customDestinationList} onAddCustomDestination={onAddCustomDestination} />
               : <SimpleAccountCard key={a.id} account={a} basis={costBasisByAccount[a.id] || 0} onUpdate={onUpdate} onRemove={onRemove} onScanValue={scanSingleValue} />
           ))}
           {(!grouped[key] || grouped[key].length === 0) && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีบัญชีในหมวดนี้</p>}
@@ -4712,7 +4713,7 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
   );
 }
 
-function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory }) {
+function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory, customDestinationList, onAddCustomDestination }) {
   const [expanded, setExpanded] = useState(true);
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
@@ -5000,10 +5001,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
                     <option value="">— ไม่จับคู่ (ข้ามรายการนี้) —</option>
                     {holdings.map((h) => <option key={h.id} value={h.id}>{h.symbol}</option>)}
                   </select>
-                  <select value={row.reinvestAccountId} onChange={(e) => updateYtDraftRow(idx, { reinvestAccountId: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }}>
-                    <option value="">— เก็บไว้เฉยๆ / ยังไม่ระบุ —</option>
-                    {(allAccounts || []).map((acc) => <option key={acc.id} value={acc.id}>นำไปลงทุนต่อที่: {acc.name}</option>)}
-                  </select>
+                  <AccountPickerWithCustom emptyLabel="— เก็บไว้เฉยๆ / ยังไม่ระบุ —" options={(allAccounts || []).map((acc) => ({ value: acc.id, label: `นำไปลงทุนต่อที่: ${acc.name}` }))} value={row.reinvestAccountId} onChange={(v) => updateYtDraftRow(idx, { reinvestAccountId: v })} customList={customDestinationList} onAddCustom={onAddCustomDestination} />
                 </div>
               ))}
               <div className="flex gap-2 mt-1">
@@ -5228,14 +5226,14 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
                 <p style={{ color: INK }} className="text-base font-bold">{h.symbol}</p>
                 <button onClick={() => setSelectedHoldingId(null)}><X size={20} color={INK} /></button>
               </div>
-              <HoldingRow accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={(accId, hId) => { onRemoveHolding(accId, hId); setSelectedHoldingId(null); }} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={true} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onRemoveBuy={onRemoveBuy} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onRecordYieldTech={onRecordYieldTech} onRemoveYieldTechHistory={onRemoveYieldTechHistory} onUpdateYieldTechHistory={onUpdateYieldTechHistory} isMutualFund={a.category === 'mutual_fund'} />
+              <HoldingRow accountId={a.id} holding={h} onUpdate={onUpdateHolding} onRemove={(accId, hId) => { onRemoveHolding(accId, hId); setSelectedHoldingId(null); }} onAddDividend={onAddDividend} onRemoveDividend={onRemoveDividend} onUpdateDividend={onUpdateDividend} onRefreshPrice={onRefreshPrice} canRefresh={true} finnhubKey={finnhubKey} allAccounts={allAccounts} onSellHolding={onSellHolding} onRemoveSell={onRemoveSell} onRemoveBuy={onRemoveBuy} onUpdateSell={onUpdateSell} onUpdateBuy={onUpdateBuy} onRecordYieldTech={onRecordYieldTech} onRemoveYieldTechHistory={onRemoveYieldTechHistory} onUpdateYieldTechHistory={onUpdateYieldTechHistory} customDestinationList={customDestinationList} onAddCustomDestination={onAddCustomDestination} isMutualFund={a.category === 'mutual_fund'} />
             </div>
           </div>
         );
       })()}
     </Card>
   );
-    }function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onRecordYieldTech, onRemoveYieldTechHistory, onUpdateYieldTechHistory, isMutualFund }) {
+    }function HoldingRow({ accountId, holding: h, onUpdate, onRemove, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, canRefresh, finnhubKey, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onRecordYieldTech, onRemoveYieldTechHistory, onUpdateYieldTechHistory, customDestinationList, onAddCustomDestination, isMutualFund }) {
   // FX ล่าสุดที่ใช้จริงจากการซื้อหุ้น USD ตัวไหนก็ได้ในพอร์ต (เอาไว้ตั้งค่าเริ่มต้นให้หุ้น/กองทุน USD ที่ยังไม่มีประวัติซื้อของตัวเอง แทนเลข 36 ที่ล้าสมัยและอาจต่างจาก FX จริงมาก)
   const latestGlobalFx = useMemo(() => {
     let best = null;
@@ -5462,10 +5460,8 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
               <p className="text-[11px] mb-2" style={{ color: WARN }}>เดือนนี้ถึงวันตัดแล้ว (วันที่ {h.yieldTechDay}) — บันทึกยอดที่ได้รับจริง</p>
               <NumInput value={yieldConfirmAmount} onChange={setYieldConfirmAmount} placeholder="ยอดรับจริง (บาท)" className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0' }} />
               <input value={yieldConfirmShares} onChange={(e) => setYieldConfirmShares(e.target.value)} placeholder="จำนวนหน่วยที่ถูกหัก (ถ้าทราบ — ไม่ทราบเว้นว่างไว้ ระบบจะประมาณให้)" className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0' }} />
-              <select value={yieldConfirmDest} onChange={(e) => setYieldConfirmDest(e.target.value)} className="text-xs w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
-                <option value="">— เก็บไว้เฉยๆ / ยังไม่ระบุ —</option>
-                {(allAccounts || []).map((acc) => <option key={acc.id} value={acc.id}>นำไปลงทุนต่อที่: {acc.name}</option>)}
-              </select>
+              <p className="text-[10px] mt-1" style={{ color: SLATE }}>เอาเงินนี้ไปไว้ที่ไหน</p>
+              <AccountPickerWithCustom emptyLabel="— เก็บเป็นเงินสดในบัญชีนี้ / ยังไม่ระบุ —" options={(allAccounts || []).map((acc) => ({ value: acc.id, label: `นำไปลงทุนต่อที่: ${acc.name}` }))} value={yieldConfirmDest} onChange={setYieldConfirmDest} customList={customDestinationList} onAddCustom={onAddCustomDestination} />
               <button onClick={confirmYieldTechThis} style={{ background: INK }} className="text-white text-xs rounded px-3 py-1.5 w-full">ยืนยันบันทึก</button>
             </div>
           )}
@@ -5474,7 +5470,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           )}
           {showYieldHistory && (h.yieldTechHistory || []).map((x) => (
             <div key={x.id} className="flex justify-between text-[11px] mt-1">
-              <span>{x.date}{x.reinvestAccountId && ` · ลงทุนต่อที่ ${((allAccounts || []).find((acc) => acc.id === x.reinvestAccountId) || {}).name || '-'}`}{x.addedToCash && ' · เข้าเงินสดในบัญชี'}{x.estimatedShares ? ` · ~${fmt2(x.estimatedShares)} หน่วย` : ''}</span>
+              <span>{x.date}{x.reinvestAccountId && ` · ไปที่ ${((allAccounts || []).find((acc) => acc.id === x.reinvestAccountId) || {}).name || x.reinvestAccountId}`}{x.addedToCash && ' · เข้าเงินสดในบัญชี'}{x.estimatedShares ? ` · ~${fmt2(x.estimatedShares)} หน่วย` : ''}</span>
               <span className="flex items-center gap-2">฿{fmt(x.amount)} <EditButton onClick={() => setEditingYieldTech(x)} /><button onClick={() => confirmDelete('ลบรายการถอน YieldTech นี้? ข้อมูลจะหายถาวร (จำนวนหุ้น/เงินสด/เงินเข้าที่ผูกกันไว้จะถูกคืนกลับให้อัตโนมัติ)', () => onRemoveYieldTechHistory(accountId, h.id, x.id))}><Trash2 size={11} color={BAD} /></button></span>
             </div>
           ))}
@@ -5486,15 +5482,15 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           fields={[
             { key: 'date', label: 'วันที่ตัด', type: 'date' },
             { key: 'amount', label: 'ยอดที่ได้รับจริง (บาท)', type: 'number' },
-            { key: 'reinvestAccountId', label: 'เอาเงินนี้ไปไว้ที่ไหน', type: 'select', options: [{ value: '', label: 'เก็บเป็นเงินสดในบัญชีนี้ (ไม่ลงทุนต่อ)' }, ...(allAccounts || []).map((acc) => ({ value: acc.id, label: `ลงทุนต่อที่: ${acc.name}` }))] },
+            { key: 'reinvestAccountId', label: 'เอาเงินนี้ไปไว้ที่ไหน', type: 'select-custom', emptyLabel: 'เก็บเป็นเงินสดในบัญชีนี้ (ไม่ลงทุนต่อ)', options: (allAccounts || []).map((acc) => ({ value: acc.id, label: `ลงทุนต่อที่: ${acc.name}` })), customList: customDestinationList, onAddCustom: onAddCustomDestination },
           ]}
           onSave={(v) => {
             const changed = [];
             if (Number(editingYieldTech.amount || 0) !== Number(v.amount || 0)) changed.push({ label: 'ยอด', value: `฿${fmt(editingYieldTech.amount)} → ฿${fmt(v.amount)}` });
             if (editingYieldTech.date !== v.date) changed.push({ label: 'วันที่', value: `${formatDateDMY(editingYieldTech.date)} → ${formatDateDMY(v.date)}` });
             if ((editingYieldTech.reinvestAccountId || '') !== (v.reinvestAccountId || '')) {
-              const oldLabel = editingYieldTech.reinvestAccountId ? ((allAccounts || []).find((acc) => acc.id === editingYieldTech.reinvestAccountId) || {}).name || '-' : 'เงินสดในบัญชีนี้';
-              const newLabel = v.reinvestAccountId ? ((allAccounts || []).find((acc) => acc.id === v.reinvestAccountId) || {}).name || '-' : 'เงินสดในบัญชีนี้';
+              const oldLabel = editingYieldTech.reinvestAccountId ? ((allAccounts || []).find((acc) => acc.id === editingYieldTech.reinvestAccountId) || {}).name || editingYieldTech.reinvestAccountId : 'เงินสดในบัญชีนี้';
+              const newLabel = v.reinvestAccountId ? ((allAccounts || []).find((acc) => acc.id === v.reinvestAccountId) || {}).name || v.reinvestAccountId : 'เงินสดในบัญชีนี้';
               changed.push({ label: 'ปลายทาง', value: `${oldLabel} → ${newLabel}` });
             }
             const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
