@@ -129,6 +129,9 @@ const SOURCES = [
   { id: 'other', label: 'อื่นๆ' },
 ];
 // แหล่งที่มาที่ถือเป็น "ปันผล" — ใช้ทำพื้นหลังสีเขียวอ่อนแยกจากเงินเข้าปกติในรายการล่าสุด
+const CATEGORY_ICON_HINTS = [['อาหาร', '🍜'], ['ลูกน้อง', '🐶'], ['สุนัข', '🐶'], ['หมา', '🐶'], ['รถ', '🚗'], ['น้ำมัน', '⛽'], ['บ้าน', '🏠'], ['ร้านยา', '💊'], ['เดินทาง', '🚕'], ['ช้อป', '🛍️'], ['สุขภาพ', '🩺'], ['เรียน', '📚'], ['ท่องเที่ยว', '✈️']];
+const categoryIcon = (cat) => { const hit = CATEGORY_ICON_HINTS.find(([k]) => (cat || '').includes(k)); return hit ? hit[1] : '🧾'; };
+const CATEGORY_BAR_COLORS = ['#B3392F', '#B8874B', '#2E5EA8', '#1C7C8C', '#6B4FB3', '#7A5230', '#1F8A54'];
 const SOURCE_ICON = { pharmacy: '💰', thai_div: '📈', us_div: '📈', coop_div: '📈', coop_interest: '🏦', rental: '🏠', insurance: '🛡️', wealthx: '💵', yieldtech: '💵', personal_withdraw: '💸', other: '🪙' };
 // สีประจำแต่ละแหล่งที่มา: [สีขอบ/ป้าย, พื้นไอคอน, พื้นการ์ด] — ให้แยกประเภทเงินเข้าได้ทันทีด้วยสายตา
 const SOURCE_TONE = {
@@ -6630,9 +6633,45 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
     return Object.entries(map).map(([cat, value]) => ({ cat, value, pct: periodExpenseTotal ? (value / periodExpenseTotal) * 100 : 0 })).sort((a, b) => b.value - a.value);
   }, [periodExpenses, periodExpenseTotal]);
 
+  const expHero = useMemo(() => {
+    const ym = thisMonth();
+    const d = new Date(); const prevD = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    const prevYm = `${prevD.getFullYear()}-${String(prevD.getMonth() + 1).padStart(2, '0')}`;
+    const todayS = new Date().toISOString().slice(0, 10);
+    let cash = 0, card = 0, prev = 0, todayAll = 0;
+    combinedExpenses.forEach((e) => {
+      const a = Number(e.amount || 0);
+      if (monthKey(e.date) === ym) { if (e._kind === 'card') card += a; else cash += a; }
+      if (monthKey(e.date) === prevYm) prev += a;
+      if (e.date === todayS) todayAll += a;
+    });
+    const total = cash + card;
+    return { cash, card, total, todayAll, deltaPct: prev > 0 ? Math.round(((total - prev) / prev) * 100) : null };
+  }, [combinedExpenses]);
+
   return (
     <div className="px-5 pt-5">
-      <div className="flex gap-2 mb-4">
+      <div style={{ background: 'linear-gradient(160deg,#1C1A14,#2E2A1E)', borderRadius: 20, padding: '16px 16px 16px', color: '#F6F3EC' }} className="mb-3">
+        <p className="text-[12px]" style={{ color: '#B8AF9C' }}>รายจ่ายเดือนนี้ · {THAI_MONTH_SHORT[new Date().getMonth()]} {new Date().getFullYear() + 543}</p>
+        <p style={{ fontSize: 30, fontWeight: 700, margin: '2px 0 6px' }}>฿{fmt(expHero.total)}</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {expHero.deltaPct !== null && <span className="text-[11px] font-bold rounded-full px-2.5 py-1" style={{ background: expHero.deltaPct <= 0 ? 'rgba(79,203,138,.18)' : 'rgba(240,138,128,.18)', color: expHero.deltaPct <= 0 ? '#6EE0A5' : '#F08A80' }}>{expHero.deltaPct <= 0 ? '▼' : '▲'} {Math.abs(expHero.deltaPct)}% จากเดือนก่อน</span>}
+          <span className="text-[11px] font-bold rounded-full px-2.5 py-1" style={{ background: 'rgba(255,255,255,.1)' }}>วันนี้ ฿{fmt(expHero.todayAll)}</span>
+        </div>
+        <div className="flex gap-2 mt-3">
+          {[{ v: expHero.cash, l: '💵 เงินสด' }, { v: expHero.card, l: '💳 บัตรเครดิต' }].map((x) => (
+            <div key={x.l} style={{ flex: 1, background: 'rgba(255,255,255,.07)', borderRadius: 12, padding: '8px 10px' }}>
+              <b style={{ display: 'block', fontSize: 15 }}>฿{fmt(x.v)}</b><span style={{ fontSize: 10.5, color: '#B8AF9C' }}>{x.l}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex p-1 rounded-full mb-4" style={{ background: PAPER_DIM }}>
+        {[['cash', '📅 ปฏิทิน & เงินสด'], ['cards', '💳 บัตรเครดิต']].map(([k, l]) => (
+          <button key={k} onClick={() => setMainSection(k)} className="flex-1 text-[13px] rounded-full py-2" style={{ background: mainSection === k ? INK : 'transparent', color: mainSection === k ? 'white' : SLATE, fontWeight: mainSection === k ? 700 : 400 }}>{l}</button>
+        ))}
+      </div>
+      <div className="hidden">
         <button onClick={() => setMainSection('cash')} style={{ background: mainSection === 'cash' ? INK : PAPER_DIM, color: mainSection === 'cash' ? 'white' : INK }} className="rounded-full px-4 py-2 text-xs font-medium">📅 ปฏิทิน &amp; รายจ่ายเงินสด</button>
         <button onClick={() => setMainSection('cards')} style={{ background: mainSection === 'cards' ? INK : PAPER_DIM, color: mainSection === 'cards' ? 'white' : INK }} className="rounded-full px-4 py-2 text-xs font-medium">💳 บัตรเครดิต</button>
       </div>
@@ -6652,15 +6691,15 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         <input value={listSearch} onChange={(e) => setListSearch(e.target.value)} placeholder="ค้นหารายจ่าย (โน้ต/หมวดหมู่)..." style={{ border: '1px solid #E7EAF0' }} className="rounded-lg pl-9 pr-3 py-2.5 text-sm w-full" />
       </div>
       <Card>
-        <p className="text-xs mb-1" style={{ color: SLATE }}>รายจ่ายวันนี้</p>
-        <p className="text-2xl mb-3">฿{fmt(todayTotal)}</p>
-        <label className="text-xs" style={{ color: SLATE }}>จำนวนเงิน</label>
-        <NumInput value={amount} onChange={setAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
-        <label className="text-xs" style={{ color: SLATE }}>หมวดหมู่</label>
+        <p className="text-xs font-bold mb-2" style={{ color: SLATE }}>➕ บันทึกรายจ่าย</p>
+        <NumInput value={amount} onChange={setAmount} placeholder="0" style={{ border: 'none', borderBottom: `2px solid ${BRASS}`, fontSize: 28, fontWeight: 700, background: 'transparent' }} className="w-full pb-1.5 mb-3 outline-none" />
+        <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>หมวดหมู่</p>
         {!showNewCat ? (
-          <div className="flex gap-2 mt-1 mb-3">
-            <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm flex-1">{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
-            <button onClick={() => setShowNewCat(true)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 text-xs" >+ หมวดใหม่</button>
+          <div className="flex gap-1.5 flex-wrap mb-3">
+            {categories.map((c) => (
+              <button key={c} onClick={() => setCategory(c)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${category === c ? INK : BORDER}`, background: category === c ? INK : 'white', color: category === c ? 'white' : INK, fontWeight: category === c ? 700 : 400 }}>{categoryIcon(c)} {c}</button>
+            ))}
+            <button onClick={() => setShowNewCat(true)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px dashed ${BORDER}`, color: SLATE }}>+ หมวดใหม่</button>
           </div>
         ) : (
           <div className="flex gap-2 mt-1 mb-3">
@@ -6670,12 +6709,13 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         )}
         <label className="text-xs" style={{ color: SLATE }}>โน้ต (ไม่บังคับ)</label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ค่าข้าวเที่ยง" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
-        <label className="text-xs" style={{ color: SLATE }}>จ่ายด้วย</label>
-        <select value={payWithCardId} onChange={(e) => setPayWithCardId(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">
-          <option value="">💵 เงินสด</option>
-          {(creditCards || []).map((c) => <option key={c.id} value={c.id}>💳 {c.bankName} {c.cardName}</option>)}
-        </select>
-        <button onClick={submitManual} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm mb-2">บันทึกรายจ่าย</button>
+        <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>จ่ายด้วย</p>
+        <div className="flex gap-1.5 flex-wrap mb-3">
+          {[{ id: '', label: '💵 เงินสด' }, ...(creditCards || []).map((c) => ({ id: c.id, label: `💳 ${c.bankName || ''} ${c.cardName || ''}`.trim() }))].map((o) => (
+            <button key={o.id || 'cash'} onClick={() => setPayWithCardId(o.id)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${payWithCardId === o.id ? INK : BORDER}`, background: payWithCardId === o.id ? INK : 'white', color: payWithCardId === o.id ? 'white' : INK, fontWeight: payWithCardId === o.id ? 700 : 400 }}>{o.label}</button>
+          ))}
+        </div>
+        <button onClick={submitManual} style={{ background: BAD }} className="w-full text-white font-bold rounded-xl py-3 text-sm mb-2">บันทึกรายจ่าย{amount ? ` ฿${fmt(amount)}` : ''}</button>
 
         {voiceDraft ? (
           <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
@@ -6745,10 +6785,10 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
         {selPeriod2 && (
           <>
             <p className="text-xl mb-3">รวม ฿{fmt(periodExpenseTotal)}</p>
-            {byCategory.map((c) => (
-              <div key={c.cat} className="mb-2">
-                <div className="flex justify-between text-sm mb-1"><span>{c.cat}</span><span>฿{fmt(c.value)} ({c.pct.toFixed(0)}%)</span></div>
-                <div style={{ background: PAPER_DIM }} className="h-2 rounded-full overflow-hidden"><div style={{ width: `${c.pct}%`, background: BAD }} className="h-full rounded-full" /></div>
+            {byCategory.map((c, ci) => (
+              <div key={c.cat} className="mb-2.5">
+                <div className="flex justify-between text-sm mb-1"><span>{categoryIcon(c.cat)} {c.cat}</span><b>฿{fmt(c.value)} · {c.pct.toFixed(0)}%</b></div>
+                <div style={{ background: PAPER_DIM }} className="h-2 rounded-full overflow-hidden"><div style={{ width: `${c.pct}%`, background: CATEGORY_BAR_COLORS[ci % CATEGORY_BAR_COLORS.length] }} className="h-full rounded-full" /></div>
               </div>
             ))}
           </>
@@ -6793,7 +6833,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
           <>
             {/* รายการวันนี้ — โชว์แยกเป็นรายการเลยไม่ต้องกดเปิด เพราะเป็นรายการที่เพิ่งเกิดขึ้น อยากเห็นรายละเอียดทันที */}
             {todayItems.map((e) => (
-              <Card key={`${e._kind}_${e.id}`} style={e._kind === 'card' ? { background: '#EFF6FF', border: '1px solid #BFDBFE' } : undefined}>
+              <Card key={`${e._kind}_${e.id}`} style={{ background: e._kind === 'card' ? '#F3F8FF' : 'white', border: `1px solid ${BORDER}`, borderLeft: `6px solid ${e._kind === 'card' ? '#2E5EA8' : BAD}` }}>
                 <div className="flex justify-between items-center">
                   <div><p className="text-sm">{e._kind === 'card' && <span style={{ color: '#2563EB' }}>💳 {e._cardLabel} · </span>}{e.category}{e.note ? ` · ${e.note}` : ''}{e.source === 'line' && <span className="ml-1" style={{ color: '#06C755' }}>📱</span>}</p><p className="text-xs" style={{ color: SLATE }}>วันนี้ · {formatDateDMY(e.date)}</p></div>
                   <div className="flex items-center gap-3"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExpense(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => removeCombinedItem(e))}><Trash2 size={14} color={BAD} /></button></div>
@@ -6803,7 +6843,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
             {rows.map((r) => {
               const hasCard = r.items.some((e) => e._kind === 'card');
               return (
-                <Card key={r.key} style={hasCard ? { borderLeft: '3px solid #2563EB' } : undefined}>
+                <Card key={r.key} style={{ borderLeft: `6px solid ${hasCard ? '#2E5EA8' : BAD}`, border: `1px solid ${BORDER}`, borderLeftWidth: 6, borderLeftColor: hasCard ? '#2E5EA8' : BAD, padding: '12px 14px', marginBottom: 8 }}>
                   <button onClick={() => setGroupPopup(r)} className="w-full flex justify-between items-center">
                     <div className="text-left"><p className="text-sm">{r.type === 'day' ? formatDateDMY(r.key) : r.key}{hasCard && <span className="ml-1.5" style={{ color: '#2563EB' }}>💳</span>}</p><p className="text-xs" style={{ color: SLATE }}>{r.items.length} รายการ{r.type === 'month' ? ' (เดือนที่ผ่านมา)' : ''}</p></div>
                     <div className="flex items-center gap-2"><span className="text-sm font-semibold">฿{fmt(r.total)}</span><ChevronRight size={15} color={SLATE} /></div>
