@@ -4080,6 +4080,14 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
   const [newCats, setNewCats] = useState({});
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState('accounts'); // 'accounts' | 'allbuys'
+  const [catFilter, setCatFilter] = useState('all');
+  const accountStats = useMemo(() => {
+    const byCat = {};
+    let total = 0;
+    accounts.forEach((a) => { const v = accountValueTHB(a); total += v; byCat[a.category] = (byCat[a.category] || 0) + v; });
+    const rows = Object.entries(byCat).filter(([, v]) => v > 0).map(([k, v]) => ({ key: k, value: v, label: (CATEGORY_META[k] || {}).label || k, color: (CATEGORY_META[k] || {}).color || '#6B7280' })).sort((x, y) => y.value - x.value);
+    return { total, rows };
+  }, [accounts]);
   const [editingAllBuy, setEditingAllBuy] = useState(null); // { accountId, holdingId, ...buy }
   const [buyMonthPopup, setBuyMonthPopup] = useState(null); // month string
   const allBuys = useMemo(() => {
@@ -4379,9 +4387,25 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
           </div>
         )}
       </Card>
+      <div style={{ background: 'linear-gradient(160deg,#1C1A14,#2E2A1E)', borderRadius: 20, padding: '16px 16px 18px', color: '#F6F3EC' }} className="mb-3">
+        <p className="text-[12px]" style={{ color: '#B8AF9C' }}>มูลค่าทรัพย์สินรวม · {accounts.length} บัญชี</p>
+        <p style={{ fontSize: 30, fontWeight: 700, margin: '2px 0 10px' }}>฿{fmt(accountStats.total)}</p>
+        <div className="flex" style={{ height: 10, borderRadius: 9, overflow: 'hidden', gap: 2 }}>
+          {accountStats.rows.map((r) => <i key={r.key} style={{ display: 'block', height: '100%', width: `${(r.value / Math.max(1, accountStats.total)) * 100}%`, background: r.color }} />)}
+        </div>
+        <div className="flex flex-wrap mt-2" style={{ gap: '4px 12px' }}>
+          {accountStats.rows.slice(0, 5).map((r) => <span key={r.key} style={{ fontSize: 11, color: '#B8AF9C' }}><b style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 99, background: r.color, marginRight: 4 }} />{r.label.replace(/\s*\(.*\)/, '')} {Math.round((r.value / Math.max(1, accountStats.total)) * 100)}%</span>)}
+        </div>
+      </div>
+      <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
+        {[['all', 'ทั้งหมด', INK], ...Object.entries(CATEGORY_META).filter(([k]) => (grouped[k] || []).length > 0).map(([k, m]) => [k, m.label.replace(/\s*\(.*\)/, ''), m.color])].map(([k, l, col]) => (
+          <button key={k} onClick={() => setCatFilter(k)} className="text-xs rounded-full px-3 py-1.5 whitespace-nowrap" style={{ border: `1px solid ${catFilter === k ? col : BORDER}`, background: catFilter === k ? col : 'white', color: catFilter === k ? 'white' : INK, fontWeight: catFilter === k ? 700 : 400 }}>{l}</button>
+        ))}
+      </div>
       {Object.entries(CATEGORY_META).map(([key, meta]) => {
         const catAccounts = (grouped[key] || []).filter(matchesSearch);
         if (searchLower && catAccounts.length === 0) return null;
+        if (catFilter !== 'all' && catFilter !== key) return null;
         return (
         <div key={key} className="mb-5">
           <div className="flex justify-between items-center mb-2">
@@ -4579,6 +4603,9 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
   const [txAmount, setTxAmount] = useState(0);
   const [txDate, setTxDate] = useState(new Date().toISOString().slice(0, 10));
   const [showTxHistory, setShowTxHistory] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
+  const [txMode, setTxMode] = useState(null); // 'deposit' | 'withdraw' | null
+  const toneColor = (CATEGORY_META[a.category] || {}).color || SLATE;
   const estimatedAnnualInterest = showInterest ? Number(a.value || 0) * Number(a.interestRate || 0) / 100 : 0;
   function recordInterest() {
     if (!interestAmount) return;
@@ -4601,31 +4628,44 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
     setTxAmount(0);
   }
   return (
-    <Card>
+    <Card style={{ borderLeft: `6px solid ${toneColor}` }}>
+      <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1" style={{ background: `${toneColor}22`, color: toneColor }}>{((CATEGORY_META[a.category] || {}).label || 'บัญชี').replace(/\s*\(.*\)/, '')}</span>
       <div className="flex justify-between items-center gap-2"><input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} />{a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}<button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(a.id))}><Trash2 size={16} color={BAD} /></button></div>
       <div className="flex items-center mt-2 mb-2"><span className="text-sm mr-1">฿</span><NumInput value={a.value} onChange={(v) => onUpdate(a.id, { value: v })} className="text-lg font-semibold flex-1 outline-none" style={{ border: 'none' }} /></div>
       {basis > 0 && <p className="text-xs mb-2" style={{ color: gain >= 0 ? GOOD : BAD }}>ต้นทุนสะสม ฿{fmt(basis)} · {gain >= 0 ? '+' : ''}฿{fmt(gain)}</p>}
       {onScanValue && <ScanValueButton onScanValue={onScanValue} onApply={(v) => onUpdate(a.id, { value: v })} />}
+      {showInterest && a.interestRate > 0 && <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold rounded-lg px-2.5 py-1.5 mb-1" style={{ background: '#DDF3E6', color: GOOD }}>💰 ประมาณการต่อปี ~฿{fmt(estimatedAnnualInterest)} ({a.interestRate}%)</span>}
       {isCooperative && (
-        <div style={{ borderTop: '1px solid #E7EAF0', background: PAPER_DIM, borderRadius: 10 }} className="mt-3 pt-3 px-2 pb-2">
-          <p className="text-[10px] mb-1" style={{ color: SLATE }}>💰 ฝาก-ถอนเงิน</p>
-          <div className="flex gap-2 mb-2">
-            <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
-            <NumInput value={txAmount} onChange={setTxAmount} placeholder="จำนวนเงิน" className="text-xs rounded px-2 py-1.5 flex-1" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+        <div className="flex gap-2 mt-3">
+          <button onClick={() => setTxMode('deposit')} style={{ background: GOOD }} className="flex-1 text-white text-[13px] font-bold rounded-xl py-2.5">＋ ฝาก</button>
+          <button onClick={() => setTxMode('withdraw')} style={{ background: BAD }} className="flex-1 text-white text-[13px] font-bold rounded-xl py-2.5">－ ถอน</button>
+          {showInterest && <button onClick={() => setShowDetail(true)} style={{ background: PAPER_DIM, color: INK }} className="flex-1 text-[13px] font-bold rounded-xl py-2.5">{isCooperative ? 'ปันผล' : 'ดอกเบี้ย'}</button>}
+        </div>
+      )}
+      {txMode && (
+        <div onClick={() => setTxMode(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: PAPER, width: '100%', borderRadius: '18px 18px 0 0', padding: 18 }}>
+            <div className="flex justify-between items-center mb-3"><p className="text-sm font-semibold">{txMode === 'deposit' ? '💰 ฝากเข้า' : '💸 ถอนจาก'} {a.name}</p><button onClick={() => setTxMode(null)}><X size={18} color={SLATE} /></button></div>
+            <label className="text-xs" style={{ color: SLATE }}>วันที่</label>
+            <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+            <label className="text-xs" style={{ color: SLATE }}>จำนวนเงิน (บาท)</label>
+            <NumInput value={txAmount} onChange={setTxAmount} placeholder="จำนวนเงิน" className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+            <button onClick={() => { if (!txAmount) return; if (txMode === 'deposit') recordDeposit(); else recordWithdraw(); setTxMode(null); }} disabled={!txAmount} style={{ background: txMode === 'deposit' ? GOOD : BAD, opacity: txAmount ? 1 : 0.5 }} className="w-full text-white font-bold rounded-xl py-3 text-sm">{txMode === 'deposit' ? 'ยืนยันฝากเงิน' : 'ยืนยันถอนเงิน'}</button>
           </div>
-          <div className="flex gap-2 mb-1">
-            <button onClick={recordDeposit} style={{ background: GOOD }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ฝากเงิน</button>
-            <button onClick={recordWithdraw} style={{ background: BAD }} className="text-white text-xs rounded px-3 py-1.5 flex-1">ถอนเงิน</button>
-          </div>
-          {(a.cashFlowHistory || []).length > 0 && (
-            <button onClick={() => setShowTxHistory(!showTxHistory)} className="text-[11px]" style={{ color: BRASS }}>{showTxHistory ? 'ซ่อนประวัติ' : `ดูประวัติฝาก-ถอน (${(a.cashFlowHistory || []).length})`}</button>
-          )}
+        </div>
+      )}
+      {isCooperative && (a.cashFlowHistory || []).length > 0 && (
+        <div className="mt-2">
+          <button onClick={() => setShowTxHistory(!showTxHistory)} className="text-[11px]" style={{ color: BRASS }}>{showTxHistory ? 'ซ่อนประวัติฝาก-ถอน' : `ดูประวัติฝาก-ถอน (${(a.cashFlowHistory || []).length})`}</button>
           {showTxHistory && (a.cashFlowHistory || []).map((h) => (
             <div key={h.id} className="flex justify-between text-xs mt-1"><span>{h.date} · {h.type === 'deposit' ? 'ฝาก' : 'ถอน'}</span><span style={{ color: h.type === 'deposit' ? GOOD : BAD }}>{h.type === 'deposit' ? '+' : '-'}฿{fmt(h.amount)}</span></div>
           ))}
         </div>
       )}
       {showInterest && (
+        <button onClick={() => setShowDetail(!showDetail)} className="w-full flex justify-between text-xs font-semibold mt-3" style={{ color: BRASS }}><span>รายละเอียด / ตั้งค่า{isCooperative ? 'ปันผล' : 'ดอกเบี้ย'}</span><span>{showDetail ? '▴' : '▾'}</span></button>
+      )}
+      {showInterest && showDetail && (
         <div style={{ borderTop: '1px solid #E7EAF0' }} className="mt-3 pt-3">
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div><label className="text-[10px]" style={{ color: SLATE }}>ดอกเบี้ยต่อปี (%)</label><NumInput value={a.interestRate} onChange={(v) => onUpdate(a.id, { interestRate: v })} className="text-sm w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
@@ -5083,7 +5123,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const today_ = new Date();
 
   return (
-    <Card style={{ borderTop: `3px solid ${categoryColor}` }}>
+    <Card style={{ borderLeft: `6px solid ${categoryColor}` }}>
       <div className="flex items-center gap-2.5 mb-1">
         <div style={{ background: `${categoryColor}1F`, color: categoryColor, flexShrink: 0 }} className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold">{(a.name || '?').trim().slice(0, 2).toUpperCase()}</div>
         <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-bold" style={{ border: 'none' }} />
