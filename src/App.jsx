@@ -130,6 +130,20 @@ const SOURCES = [
 ];
 // แหล่งที่มาที่ถือเป็น "ปันผล" — ใช้ทำพื้นหลังสีเขียวอ่อนแยกจากเงินเข้าปกติในรายการล่าสุด
 const SOURCE_ICON = { pharmacy: '💰', thai_div: '📈', us_div: '📈', coop_div: '📈', coop_interest: '🏦', rental: '🏠', insurance: '🛡️', wealthx: '💵', yieldtech: '💵', personal_withdraw: '💸', other: '🪙' };
+// สีประจำแต่ละแหล่งที่มา: [สีขอบ/ป้าย, พื้นไอคอน, พื้นการ์ด] — ให้แยกประเภทเงินเข้าได้ทันทีด้วยสายตา
+const SOURCE_TONE = {
+  pharmacy: ['#1F8A54', '#DDF3E6', '#FFFFFF'],
+  thai_div: ['#B8874B', '#F6E8CF', '#FFFAF0'],
+  us_div: ['#2E5EA8', '#DCE8F8', '#F5F9FE'],
+  coop_div: ['#7A5230', '#EBDCCB', '#FBF6F0'],
+  coop_interest: ['#7A5230', '#EBDCCB', '#FBF6F0'],
+  rental: ['#1C7C8C', '#D6EEF2', '#F3FAFB'],
+  insurance: ['#C0574D', '#F8DDD9', '#FEF7F6'],
+  wealthx: ['#6B4FB3', '#E6DFF6', '#F9F7FD'],
+  yieldtech: ['#6B4FB3', '#E6DFF6', '#F9F7FD'],
+  personal_withdraw: ['#B3392F', '#F6D6D2', '#FBEAEA'],
+  other: ['#6B6757', '#E4E1D8', '#FFFFFF'],
+};
 const SOURCE_BAR_COLORS = ['#1F8A54', '#B8874B', '#2E5266', '#7A5230', '#6B7A8F', '#8E6BBF'];
 const THAI_MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const DIVIDEND_SOURCES = ['coop_div', 'thai_div', 'us_div', 'yieldtech'];
@@ -6042,7 +6056,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
         {bySourceThisPeriod.map((r, i) => (
           <button key={r.src} onClick={() => { setListFilter(r.src); }} className="w-full text-left block my-2.5">
             <div className="flex justify-between text-sm"><span>{SOURCE_ICON[r.src] || '•'} {r.label}</span><b style={{ color: r.total < 0 ? BAD : undefined }}>{r.total < 0 ? '-' : ''}฿{fmt(Math.abs(r.total))}</b></div>
-            <div style={{ height: 7, borderRadius: 9, background: PAPER_DIM, marginTop: 5, overflow: 'hidden' }}><i style={{ display: 'block', height: '100%', borderRadius: 9, width: `${Math.max(3, (Math.abs(r.total) / Math.max(1, ...bySourceThisPeriod.map((x) => Math.abs(x.total)))) * 100)}%`, background: r.total < 0 ? BAD : SOURCE_BAR_COLORS[i % SOURCE_BAR_COLORS.length] }} /></div>
+            <div style={{ height: 7, borderRadius: 9, background: PAPER_DIM, marginTop: 5, overflow: 'hidden' }}><i style={{ display: 'block', height: '100%', borderRadius: 9, width: `${Math.max(3, (Math.abs(r.total) / Math.max(1, ...bySourceThisPeriod.map((x) => Math.abs(x.total)))) * 100)}%`, background: r.total < 0 ? BAD : (SOURCE_TONE[r.src] || SOURCE_TONE.other)[0] }} /></div>
           </button>
         ))}
         {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span style={{ color: periodGrandTotal < 0 ? BAD : undefined }}>฿{fmt(periodGrandTotal)}</span></div>}
@@ -6095,15 +6109,17 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           const destLabel = acc?.name || c.accountId || 'ไม่ทราบบัญชี';
           const isWithdraw = c.source === 'personal_withdraw';
           const isDividend = DIVIDEND_SOURCES.includes(c.source);
+          const tone = SOURCE_TONE[c.source] || SOURCE_TONE.other;
           const showDay = c.date !== lastDate; lastDate = c.date;
           const dayLabel = c.date === todayStr() ? `วันนี้ ${formatDateDMY(c.date)}` : c.date === yesterdayStr() ? `เมื่อวาน ${formatDateDMY(c.date)}` : formatDateDMY(c.date);
           return (
             <React.Fragment key={c.id}>
               {showDay && <p className="text-[11px] font-bold mt-4 mb-1.5" style={{ color: SLATE }}>{dayLabel}</p>}
-              <div className="flex items-start gap-3 mb-2" style={{ background: isWithdraw ? BG_WITHDRAW : 'white', border: `1px solid ${BORDER}`, borderRadius: 14, padding: '11px 12px' }}>
-                <div style={{ width: 38, height: 38, borderRadius: 12, display: 'grid', placeItems: 'center', fontSize: 18, flexShrink: 0, background: isWithdraw ? '#F6D6D2' : isDividend ? BG_DIVIDEND : '#DDF3E6' }}>{SOURCE_ICON[c.source] || '💰'}</div>
+              <div className="flex items-start gap-3 mb-2" style={{ background: tone[2], border: `1px solid ${BORDER}`, borderLeft: `6px solid ${tone[0]}`, borderRadius: 14, padding: '11px 12px' }}>
+                <div style={{ width: 38, height: 38, borderRadius: 12, display: 'grid', placeItems: 'center', fontSize: 18, flexShrink: 0, background: tone[1] }}>{SOURCE_ICON[c.source] || '💰'}</div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13.5px] font-semibold">{src?.label || c.source} → {destLabel}</p>
+                  <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1" style={{ background: tone[1], color: tone[0] }}>{src?.label || c.source}</span>
+                  <p className="text-[13.5px] font-semibold">→ {destLabel}</p>
                   <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}{c.sourceSymbol ? ` · จาก ${c.sourceSymbol}` : ''}</p>
                   {isWithdraw && c.note && <p className="text-[11px]" style={{ color: SLATE }}>{c.note}</p>}
                   {syncMsg[c.id] ? (
