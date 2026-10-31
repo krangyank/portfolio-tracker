@@ -129,6 +129,9 @@ const SOURCES = [
   { id: 'other', label: 'อื่นๆ' },
 ];
 // แหล่งที่มาที่ถือเป็น "ปันผล" — ใช้ทำพื้นหลังสีเขียวอ่อนแยกจากเงินเข้าปกติในรายการล่าสุด
+const SOURCE_ICON = { pharmacy: '💰', thai_div: '📈', us_div: '📈', coop_div: '📈', coop_interest: '🏦', rental: '🏠', insurance: '🛡️', wealthx: '💵', yieldtech: '💵', personal_withdraw: '💸', other: '🪙' };
+const SOURCE_BAR_COLORS = ['#1F8A54', '#B8874B', '#2E5266', '#7A5230', '#6B7A8F', '#8E6BBF'];
+const THAI_MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const DIVIDEND_SOURCES = ['coop_div', 'thai_div', 'us_div', 'yieldtech'];
 const BG_WITHDRAW = '#FBEAEA';
 const BG_DIVIDEND = '#E9F5EE';
@@ -5859,6 +5862,39 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
   const [wdDate, setWdDate] = useState(new Date().toISOString().slice(0, 10));
   const [wdCategory, setWdCategory] = useState((expenseCategories && expenseCategories[0]) || 'อื่นๆ');
   const [wdNote, setWdNote] = useState('');
+  const [dateMode, setDateMode] = useState('today'); // today | yesterday | custom
+  const [showMoreSources, setShowMoreSources] = useState(false);
+  const [showMoreDest, setShowMoreDest] = useState(false);
+  const [listFilter, setListFilter] = useState('all');
+  const [listSearch, setListSearch] = useState('');
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const yesterdayStr = () => new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  function pickDateMode(mode) { setDateMode(mode); if (mode === 'today') setDate(todayStr()); else if (mode === 'yesterday') setDate(yesterdayStr()); }
+  const topSources = useMemo(() => {
+    const cnt = {};
+    contributions.forEach((c) => { if (c.source !== 'personal_withdraw') cnt[c.source] = (cnt[c.source] || 0) + 1; });
+    const ids = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).filter((id) => SOURCES.some((x) => x.id === id));
+    ['pharmacy', 'thai_div', 'rental', 'other'].forEach((id) => { if (!ids.includes(id)) ids.push(id); });
+    return ids.slice(0, 4);
+  }, [contributions]);
+  const topDests = useMemo(() => {
+    const cnt = {};
+    contributions.forEach((c) => { if (c.source !== 'personal_withdraw' && c.accountId) cnt[c.accountId] = (cnt[c.accountId] || 0) + 1; });
+    return Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).slice(0, 4);
+  }, [contributions]);
+  const destName = (id) => (accounts.find((a) => a.id === id) || {}).name || id;
+  const heroStats = useMemo(() => {
+    const now = new Date();
+    const months = [];
+    for (let i = 5; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: THAI_MONTH_SHORT[d.getMonth()], total: 0 }); }
+    contributions.forEach((c) => { const m = months.find((x) => c.date.startsWith(x.key)); if (m) m.total += Number(c.amount || 0); });
+    const ym = months[5].key;
+    let pharmacy = 0, other = 0, withdraw = 0;
+    contributions.filter((c) => c.date.startsWith(ym)).forEach((c) => { const a = Number(c.amount || 0); if (c.source === 'personal_withdraw') withdraw += a; else if (c.source === 'pharmacy') pharmacy += a; else other += a; });
+    const prev = months[4].total;
+    const deltaPct = prev > 0 ? Math.round(((months[5].total - prev) / prev) * 100) : null;
+    return { months, pharmacy, other, withdraw, deltaPct, maxTotal: Math.max(1, ...months.map((m) => Math.abs(m.total))) };
+  }, [contributions]);
   const destAccount = accounts.find((a) => a.id === accountId);
   const isDime = destAccount && destAccount.category === 'dime';
   function submit() { if (!accountId) return; onAdd({ date, amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined }); setUsdAmount(0); }
@@ -5911,19 +5947,55 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
 
   return (
     <div className="px-5 pt-5">
+      <div style={{ background: 'linear-gradient(160deg,#1C1A14,#2E2A1E)', borderRadius: 20, padding: '18px 16px', color: '#F6F3EC' }} className="mb-3.5">
+        <p className="text-[12px]" style={{ color: '#B8AF9C' }}>เงินเข้าเดือนนี้ · {THAI_MONTH_SHORT[new Date().getMonth()]} {new Date().getFullYear() + 543}</p>
+        <p style={{ fontSize: 32, fontWeight: 700, margin: '2px 0 6px' }}>฿{fmt(thisMonthTotal)}</p>
+        {heroStats.deltaPct !== null && <span className="text-[11px] font-bold rounded-full px-2.5 py-1" style={{ background: heroStats.deltaPct >= 0 ? 'rgba(79,203,138,.18)' : 'rgba(240,138,128,.18)', color: heroStats.deltaPct >= 0 ? '#6EE0A5' : '#F08A80' }}>{heroStats.deltaPct >= 0 ? '▲' : '▼'} {Math.abs(heroStats.deltaPct)}% จากเดือนก่อน</span>}
+        <div className="flex gap-2 mt-3.5">
+          {[{ v: heroStats.pharmacy, l: 'เงินเก็บร้านยา' }, { v: heroStats.other, l: 'ผลตอบแทน/อื่นๆ' }, { v: heroStats.withdraw, l: 'ถอนใช้ส่วนตัว', neg: true }].map((x) => (
+            <div key={x.l} style={{ flex: 1, background: 'rgba(255,255,255,.07)', borderRadius: 12, padding: '8px 9px' }}>
+              <b style={{ display: 'block', fontSize: 14, color: x.neg && x.v < 0 ? '#F08A80' : undefined }}>{x.v < 0 ? '-' : ''}฿{fmt(Math.abs(x.v))}</b>
+              <span style={{ fontSize: 10, color: '#B8AF9C' }}>{x.l}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-end gap-2 mt-4" style={{ height: 64 }}>
+          {heroStats.months.map((m, i) => (
+            <div key={m.key} className="flex-1 flex flex-col items-center justify-end gap-1" style={{ height: '100%' }}>
+              <i style={{ display: 'block', width: '100%', height: `${Math.max(6, (Math.abs(m.total) / heroStats.maxTotal) * 100 * 0.78)}%`, borderRadius: '6px 6px 2px 2px', background: i === 5 ? '#6EE0A5' : 'rgba(255,255,255,.22)' }} />
+              <span style={{ fontSize: 10, color: i === 5 ? '#fff' : '#B8AF9C', fontWeight: i === 5 ? 700 : 400 }}>{m.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
       <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>เงินเข้าเดือนนี้รวม</p><p className="text-2xl mb-3">฿{fmt(thisMonthTotal)}</p>
-        <label className="text-xs" style={{ color: SLATE }}>วันที่</label>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
-        <label className="text-xs" style={{ color: SLATE }}>จำนวนเงิน (บาท)</label>
-        <NumInput value={amount} onChange={setAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
-        <label className="text-xs" style={{ color: SLATE }}>มาจากแหล่งไหน</label>
-        <select value={source} onChange={(e) => setSource(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3">{SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
-        <label className="text-xs" style={{ color: SLATE }}>ลงทุนเข้าบัญชีไหน</label>
-        <AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} customList={customDestinationList} onAddCustom={onAddCustomDestination} />
-        <div className="mb-3" />
-        {isDime && <><label className="text-xs" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" /></>}
-        <button onClick={submit} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกเงินเข้า</button>
+        <p className="text-xs font-bold mb-2" style={{ color: SLATE }}>➕ บันทึกเงินเข้า</p>
+        <NumInput value={amount} onChange={setAmount} style={{ border: 'none', borderBottom: `2px solid ${BRASS}`, fontSize: 28, fontWeight: 700, background: 'transparent' }} className="w-full pb-1.5 mb-3 outline-none" />
+        <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>วันที่</p>
+        <div className="flex gap-1.5 flex-wrap mb-1">
+          {[['today', 'วันนี้'], ['yesterday', 'เมื่อวาน'], ['custom', 'เลือกวัน…']].map(([k, l]) => (
+            <button key={k} onClick={() => pickDateMode(k)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${dateMode === k ? INK : BORDER}`, background: dateMode === k ? INK : 'white', color: dateMode === k ? 'white' : INK, fontWeight: dateMode === k ? 700 : 400 }}>{l}</button>
+          ))}
+        </div>
+        {dateMode === 'custom' && <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />}
+        <p className="text-[11px] mt-3 mb-1.5" style={{ color: SLATE }}>มาจากแหล่งไหน</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {Array.from(new Set([...topSources, source])).map((id) => (
+            <button key={id} onClick={() => setSource(id)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${source === id ? INK : BORDER}`, background: source === id ? INK : 'white', color: source === id ? 'white' : INK, fontWeight: source === id ? 700 : 400 }}>{SOURCE_ICON[id] || '•'} {(SOURCES.find((x) => x.id === id) || {}).label || id}</button>
+          ))}
+          <button onClick={() => setShowMoreSources(!showMoreSources)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px dashed ${BORDER}`, color: SLATE }}>+ อื่นๆ</button>
+        </div>
+        {showMoreSources && <select value={source} onChange={(e) => { setSource(e.target.value); setShowMoreSources(false); }} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-2">{SOURCES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>}
+        <p className="text-[11px] mt-3 mb-1.5" style={{ color: SLATE }}>ลงที่ไหน</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {Array.from(new Set([...topDests, ...(accountId ? [accountId] : [])])).map((id) => (
+            <button key={id} onClick={() => setAccountId(id)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${accountId === id ? INK : BORDER}`, background: accountId === id ? INK : 'white', color: accountId === id ? 'white' : INK, fontWeight: accountId === id ? 700 : 400 }}>{destName(id)}</button>
+          ))}
+          <button onClick={() => setShowMoreDest(!showMoreDest)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px dashed ${BORDER}`, color: SLATE }}>+ ที่อื่น / ปลายทางใหม่</button>
+        </div>
+        {showMoreDest && <AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} customList={customDestinationList} onAddCustom={onAddCustomDestination} />}
+        {isDime && <><label className="text-xs block mt-3" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" /></>}
+        <button onClick={submit} disabled={!accountId || !amount} style={{ background: GOOD, opacity: (!accountId || !amount) ? 0.5 : 1 }} className="w-full text-white font-bold rounded-xl py-3 text-sm mt-4">บันทึกเงินเข้า ฿{fmt(amount)}</button>
       </Card>
       <Card>
         <button onClick={() => setShowWithdraw(!showWithdraw)} className="w-full flex justify-between items-center text-sm font-semibold" style={{ color: INK }}>
@@ -5967,8 +6039,11 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
         {summaryPeriods.length > 0 ? (
           <select value={summaryPeriod} onChange={(e) => setSummaryPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }}>{summaryPeriods.map((p) => <option key={p} value={p}>{p}</option>)}</select>
         ) : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
-        {bySourceThisPeriod.map((r) => (
-          <div key={r.src} className="flex justify-between text-sm mb-1.5"><span>{r.label}</span><span style={{ color: r.total < 0 ? BAD : undefined }}>฿{fmt(r.total)}</span></div>
+        {bySourceThisPeriod.map((r, i) => (
+          <button key={r.src} onClick={() => { setListFilter(r.src); }} className="w-full text-left block my-2.5">
+            <div className="flex justify-between text-sm"><span>{SOURCE_ICON[r.src] || '•'} {r.label}</span><b style={{ color: r.total < 0 ? BAD : undefined }}>{r.total < 0 ? '-' : ''}฿{fmt(Math.abs(r.total))}</b></div>
+            <div style={{ height: 7, borderRadius: 9, background: PAPER_DIM, marginTop: 5, overflow: 'hidden' }}><i style={{ display: 'block', height: '100%', borderRadius: 9, width: `${Math.max(3, (Math.abs(r.total) / Math.max(1, ...bySourceThisPeriod.map((x) => Math.abs(x.total)))) * 100)}%`, background: r.total < 0 ? BAD : SOURCE_BAR_COLORS[i % SOURCE_BAR_COLORS.length] }} /></div>
+          </button>
         ))}
         {summaryPeriod && <div className="flex justify-between text-sm font-semibold mt-2 pt-2" style={{ borderTop: '1px solid #E7EAF0' }}><span>รวมทั้งหมด</span><span style={{ color: periodGrandTotal < 0 ? BAD : undefined }}>฿{fmt(periodGrandTotal)}</span></div>}
       </Card>
@@ -5978,8 +6053,9 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
         {byDestinationThisPeriod.map((r) => {
           const items = contributions.filter((c) => summaryKeyFn(c.date) === summaryPeriod && ((accounts.find((a) => a.id === c.accountId)?.name || c.accountId || 'ไม่ทราบปลายทาง') === r.dest));
           return (
-            <button key={r.dest} onClick={() => setDestPopup({ label: `${r.dest} · ${summaryPeriod}`, items })} className="w-full flex justify-between text-sm mb-1.5 text-left">
-              <span>{r.dest}</span><span style={{ color: r.total < 0 ? BAD : undefined }}>฿{fmt(r.total)}</span>
+            <button key={r.dest} onClick={() => setDestPopup({ label: `${r.dest} · ${summaryPeriod}`, items })} className="w-full text-left block my-2.5">
+              <div className="flex justify-between text-sm"><span>{r.dest}</span><b style={{ color: r.total < 0 ? BAD : undefined }}>{r.total < 0 ? '-' : ''}฿{fmt(Math.abs(r.total))}</b></div>
+              <div style={{ height: 7, borderRadius: 9, background: PAPER_DIM, marginTop: 5, overflow: 'hidden' }}><i style={{ display: 'block', height: '100%', borderRadius: 9, width: `${Math.max(3, (Math.abs(r.total) / Math.max(1, ...byDestinationThisPeriod.map((x) => Math.abs(x.total)))) * 100)}%`, background: r.total < 0 ? BAD : '#2E5266' }} /></div>
             </button>
           );
         })}
@@ -5996,38 +6072,64 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           </div>
         </div>
       )}
-      <p className="text-xs mb-2" style={{ color: SLATE }}>รายการล่าสุด (เดือนนี้)</p>
-      {groupedList.thisMonthItems.length === 0 && <p className="text-xs mb-3" style={{ color: SLATE }}>ยังไม่มีรายการเดือนนี้</p>}
-      {groupedList.thisMonthItems.map((c) => {
-        const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((s) => s.id === c.source);
-        const destLabel = acc?.name || c.accountId || 'ไม่ทราบบัญชี';
-        const isWithdraw = c.source === 'personal_withdraw';
-        const isDividend = DIVIDEND_SOURCES.includes(c.source);
-        return (
-          <Card key={c.id} style={isWithdraw ? { background: BG_WITHDRAW } : isDividend ? { background: BG_DIVIDEND } : undefined}>
-            <div className="flex justify-between items-center">
-              <div><p className="text-sm">{isWithdraw ? '💸' : '💰'} {src?.label || c.source} → {destLabel}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}</p>{isWithdraw && c.note && <p className="text-xs" style={{ color: SLATE }}>{c.note}</p>}</div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm" style={{ color: isWithdraw ? BAD : GOOD }}>{isWithdraw ? '-' : '+'}฿{fmt(Math.abs(c.amount))}</span>
-                {googleConnected && (
-                  <button onClick={async () => {
-                    setSyncingId(c.id);
-                    const r = await onAddToCalendar(`เก็บเงิน ${src?.label || c.source} → ${destLabel}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0], c.calendarEventId, '10');
-                    setSyncMsg((prev) => ({ ...prev, [c.id]: r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}` }));
-                    if (r.ok) onUpdate(c.id, { calendarSynced: true, calendarEventId: r.eventId });
-                    setSyncingId(null);
-                  }}>{syncingId === c.id ? <Loader2 size={14} className="animate-spin" color={BRASS} /> : <Calendar size={14} color={BRASS} />}</button>
-                )}
-                <EditButton onClick={() => setEditing(c)} />
-                <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(c.id))}><Trash2 size={14} color={BAD} /></button>
+      <div className="flex gap-2 mb-2 mt-1">
+        <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
+          <Search size={14} color={SLATE} />
+          <input value={listSearch} onChange={(e) => setListSearch(e.target.value)} placeholder="ค้นหารายการ…" className="text-sm flex-1 outline-none bg-transparent" />
+          {listSearch && <button onClick={() => setListSearch('')}><X size={14} color={SLATE} /></button>}
+        </div>
+      </div>
+      <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
+        {[['all', 'ทั้งหมด'], ...Array.from(new Set(groupedList.thisMonthItems.map((c) => c.source))).map((id) => [id, `${SOURCE_ICON[id] || '•'} ${(SOURCES.find((x) => x.id === id) || {}).label || id}`])].map(([k, l]) => (
+          <button key={k} onClick={() => setListFilter(k)} className="text-xs rounded-full px-3 py-1.5 whitespace-nowrap" style={{ border: `1px solid ${listFilter === k ? INK : BORDER}`, background: listFilter === k ? INK : 'white', color: listFilter === k ? 'white' : INK, fontWeight: listFilter === k ? 700 : 400 }}>{l}</button>
+        ))}
+      </div>
+      {(() => {
+        const q = listSearch.trim().toLowerCase();
+        const shown = groupedList.thisMonthItems.filter((c) => (listFilter === 'all' || c.source === listFilter) && (!q || `${(SOURCES.find((x) => x.id === c.source) || {}).label || c.source} ${destName(c.accountId)} ${c.note || ''} ${c.amount}`.toLowerCase().includes(q)));
+        if (groupedList.thisMonthItems.length === 0) return <p className="text-xs mb-3" style={{ color: SLATE }}>ยังไม่มีรายการเดือนนี้</p>;
+        if (shown.length === 0) return <p className="text-xs mb-3" style={{ color: SLATE }}>ไม่พบรายการที่ตรงกับตัวกรอง</p>;
+        let lastDate = '';
+        return shown.map((c) => {
+          const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((x) => x.id === c.source);
+          const destLabel = acc?.name || c.accountId || 'ไม่ทราบบัญชี';
+          const isWithdraw = c.source === 'personal_withdraw';
+          const isDividend = DIVIDEND_SOURCES.includes(c.source);
+          const showDay = c.date !== lastDate; lastDate = c.date;
+          const dayLabel = c.date === todayStr() ? `วันนี้ ${formatDateDMY(c.date)}` : c.date === yesterdayStr() ? `เมื่อวาน ${formatDateDMY(c.date)}` : formatDateDMY(c.date);
+          return (
+            <React.Fragment key={c.id}>
+              {showDay && <p className="text-[11px] font-bold mt-4 mb-1.5" style={{ color: SLATE }}>{dayLabel}</p>}
+              <div className="flex items-start gap-3 mb-2" style={{ background: isWithdraw ? BG_WITHDRAW : 'white', border: `1px solid ${BORDER}`, borderRadius: 14, padding: '11px 12px' }}>
+                <div style={{ width: 38, height: 38, borderRadius: 12, display: 'grid', placeItems: 'center', fontSize: 18, flexShrink: 0, background: isWithdraw ? '#F6D6D2' : isDividend ? BG_DIVIDEND : '#DDF3E6' }}>{SOURCE_ICON[c.source] || '💰'}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13.5px] font-semibold">{src?.label || c.source} → {destLabel}</p>
+                  <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}{c.sourceSymbol ? ` · จาก ${c.sourceSymbol}` : ''}</p>
+                  {isWithdraw && c.note && <p className="text-[11px]" style={{ color: SLATE }}>{c.note}</p>}
+                  {syncMsg[c.id] ? (
+                    <p className="text-[11px] mt-1" style={{ color: syncMsg[c.id].includes('สำเร็จ') ? GOOD : BAD }}>{syncMsg[c.id]}</p>
+                  ) : (c.calendarSynced && <span className="inline-block text-[10px] rounded-full px-2 mt-1" style={{ background: '#DDF3E6', color: GOOD }}>✓ ลงปฏิทินแล้ว</span>)}
+                  <div className="flex gap-1.5 mt-2 flex-wrap items-center">
+                    {!isWithdraw && <button onClick={() => onAdd({ date: todayStr(), amount: c.amount, source: c.source, accountId: c.accountId, usdAmount: c.usdAmount, ...(c.sourceSymbol ? { sourceSymbol: c.sourceSymbol } : {}) })} className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-2.5 py-1.5" style={{ background: '#DDF3E6', color: GOOD }}><RefreshCw size={12} /> ทำซ้ำวันนี้</button>}
+                    <button onClick={() => setEditing(c)} className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-3 py-1.5" style={{ background: INK, color: 'white' }}>✎ แก้ไข</button>
+                    {googleConnected && (
+                      <button className="inline-flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: PAPER_DIM }} onClick={async () => {
+                        setSyncingId(c.id);
+                        const r = await onAddToCalendar(`เก็บเงิน ${src?.label || c.source} → ${destLabel}`, `จำนวน ฿${fmt(c.amount)}`, c.date, [0], c.calendarEventId, '10');
+                        setSyncMsg((prev) => ({ ...prev, [c.id]: r.ok ? 'เพิ่มลงปฏิทินสำเร็จ ✓' : `ไม่สำเร็จ: ${r.message}` }));
+                        if (r.ok) onUpdate(c.id, { calendarSynced: true, calendarEventId: r.eventId });
+                        setSyncingId(null);
+                      }}>{syncingId === c.id ? <Loader2 size={14} className="animate-spin" color={BRASS} /> : <Calendar size={14} color={BRASS} />}</button>
+                    )}
+                    <button aria-label="ลบ" onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(c.id))} className="inline-flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: 'rgba(179,57,47,.1)', border: '1px solid rgba(179,57,47,.35)' }}><Trash2 size={14} color={BAD} /></button>
+                  </div>
+                </div>
+                <span className="text-sm font-bold" style={{ color: isWithdraw ? BAD : GOOD, flexShrink: 0 }}>{isWithdraw ? '-' : '+'}฿{fmt(Math.abs(c.amount))}</span>
               </div>
-            </div>
-            {syncMsg[c.id] ? (
-              <p className="text-[11px] mt-1" style={{ color: syncMsg[c.id].includes('สำเร็จ') ? GOOD : BAD }}>{syncMsg[c.id]}</p>
-            ) : (c.calendarSynced && <p className="text-[11px] mt-1" style={{ color: GOOD }}>เพิ่มลงปฏิทินไว้แล้ว ✓ (แก้ไขข้อมูลแล้วกดใหม่ได้ถ้าอยากอัปเดต)</p>)}
-          </Card>
-        );
-      })}
+            </React.Fragment>
+          );
+        });
+      })()}
       {groupedList.monthGroups.length > 0 && (
         <>
           <p className="text-xs mb-2 mt-4" style={{ color: SLATE }}>ประวัติเดือนก่อนๆ (แตะเพื่อดูรายเดือน)</p>
