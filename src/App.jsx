@@ -204,6 +204,7 @@ const EMPTY_STATE = {
   departmentList: ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'],
   doctorDepartments: {},
   customDestinationList: [],
+  lineRecipients: [],
   cardPaymentNotes: [],
   openToLastTab: false,
   lastUsedTab: 'dashboard',
@@ -279,6 +280,10 @@ let currentNotifyUser = '';
 let lineNotifyEnabled = true;
 // ตั้งค่าจาก Tracker (useEffect) ให้ชี้มาที่ฟังก์ชันจริงที่เก็บข้อความเข้าคิว "แชร์ค้างไว้" ในหน้าแอป — ไว้ใช้ตอนยิง LINE อัตโนมัติไม่สำเร็จ (เช่นโควต้ารายเดือนเต็ม) จะได้กดแชร์เองทีหลังได้ ไม่ต้องพึ่ง Messaging API
 let onQueueLineShare = () => {};
+// รายชื่อผู้รับ LINE เพิ่มเติม (กลุ่ม/คนอื่นนอกจากกลุ่มหลัก) — ตั้งค่าจาก Tracker ให้ป๊อบอัพ "ส่ง LINE" ใช้ได้ทุกหน้า
+let lineRecipientsList = [];
+let saveLineRecipientFn = () => {};
+let removeLineRecipientFn = () => {};
 // เช็ค response.ok ด้วยเสมอ (เดิมเช็คแค่ fetch ล้มเหลวจากปัญหาเน็ต ซึ่ง fetch() ไม่ throw ถ้า API ตอบกลับมาเป็น error code เช่น 400/500 — พลาดจุดนี้ไปทำให้ส่ง LINE ไม่สำเร็จแบบเงียบๆ ไม่มี error ให้เห็นเลยที่ไหน)
 // error ที่จับได้ทั้งหมดจะเข้า DEBUG_LOG_BUFFER อัตโนมัติ (ผ่าน console.error ที่ patch ไว้แล้ว) เปิดดูได้จากปุ่ม 🐞 ในแอป — และข้อความที่ส่งไม่สำเร็จจะเข้าคิว "แชร์ค้างไว้" ให้แชร์มือได้ด้วย
 async function checkLineNotifyResponse(res, label, fallbackText) {
@@ -1257,6 +1262,11 @@ export default function App() {
     onQueueLineShare = (text) => {
       persist({ ...state, pendingLineShares: [...(state?.pendingLineShares || []), { id: uid(), text, at: new Date().toISOString() }] });
     };
+  }, [state]);
+  useEffect(() => {
+    lineRecipientsList = (state && state.lineRecipients) || [];
+    saveLineRecipientFn = (r) => persist({ ...state, lineRecipients: [...((state && state.lineRecipients) || []), r] });
+    removeLineRecipientFn = (id) => persist({ ...state, lineRecipients: ((state && state.lineRecipients) || []).filter((x) => x.id !== id) });
   }, [state]);
 
   const dailyPriceRefreshTriggered = useRef(false);
@@ -3023,6 +3033,88 @@ async function shareTextToLine(text, onDone) {
     console.error('shareTextToLine failed', e);
     return false;
   }
+}
+// แถบปุ่ม "ส่ง LINE" + ป๊อบอัพเลือกข้อมูล/ปลายทาง ใช้ร่วมกันหลายหน้า
+function LineSendBar({ label, sub, onClick, busy }) {
+  return (
+    <div style={{ background: '#06C755', borderRadius: 13 }} className="flex items-center gap-2.5 px-3 py-2.5 mb-4">
+      <button onClick={onClick} disabled={busy} className="flex items-center gap-2 flex-1" style={{ opacity: busy ? 0.7 : 1 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 4.36 3.6 8.01 8.44 8.7.33.07.78.22.89.5.1.26.07.66.03.92l-.14.87c-.04.26-.2 1.01.88.55 1.08-.46 5.84-3.44 7.97-5.89C21.6 14.1 22 12.5 22 10.8 22 5.94 17.52 2 12 2z"/></svg>
+        <span className="text-[13px] font-bold text-white">{label}</span>
+      </button>
+      {sub && <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.85)', flexShrink: 0 }}>{sub}</span>}
+    </div>
+  );
+}
+// options: [{ key, label, defaultOn }] — ค่าที่ติ๊กจะส่งต่อให้ getText(opts) / onSendOA(to, opts)
+// groupTo: LINE Group ID ของกลุ่มหลัก (undefined = กลุ่มค่าเริ่มต้นของระบบ); allowOA=false ซ่อนตัวเลือกส่งผ่าน OA
+function LineSendSheet({ title, options, groupTo, groupLabel, getText, onSendOA, onClose, onSent }) {
+  const [opts, setOpts] = useState(() => Object.fromEntries((options || []).map((o) => [o.key, !!o.defaultOn])));
+  const [dest, setDest] = useState('group');
+  const [list, setList] = useState(lineRecipientsList);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newTo, setNewTo] = useState('');
+  const [sending, setSending] = useState(false);
+  function addRecipient() {
+    if (!newName.trim() || !newTo.trim()) return;
+    const r = { id: uid(), name: newName.trim(), to: newTo.trim() };
+    saveLineRecipientFn(r);
+    setList([...list, r]); setDest(r.id); setAdding(false); setNewName(''); setNewTo('');
+  }
+  async function doSend() {
+    setSending(true);
+    try {
+      if (dest === 'share') {
+        const ok = await shareTextToLine(getText(opts), () => {});
+        if (!ok) { setSending(false); return; }
+      } else {
+        const rec = list.find((r) => r.id === dest);
+        onSendOA(dest === 'group' ? groupTo : (rec && rec.to), opts);
+      }
+      if (onSent) onSent();
+      onClose();
+    } finally { setSending(false); }
+  }
+  const radio = (id, label, sub, extra) => (
+    <label key={id} className="flex items-start gap-2 py-2" style={{ borderTop: `1px solid ${BORDER}` }}>
+      <input type="radio" checked={dest === id} onChange={() => setDest(id)} style={{ marginTop: 3 }} />
+      <span className="flex-1"><span className="text-sm block">{label}</span>{sub && <span className="text-[11px] block" style={{ color: SLATE }}>{sub}</span>}</span>
+      {extra}
+    </label>
+  );
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: PAPER, width: '100%', maxHeight: '85vh', overflowY: 'auto', borderRadius: '18px 18px 0 0', padding: 18 }}>
+        <div className="flex justify-between items-center mb-3">
+          <p className="text-sm font-semibold">{title}</p>
+          <button onClick={onClose}><X size={18} color={SLATE} /></button>
+        </div>
+        {(options || []).length > 0 && (
+          <div className="mb-3">
+            <p className="text-[11px] mb-1" style={{ color: SLATE }}>เลือกข้อมูลที่จะส่ง</p>
+            {options.map((o) => (
+              <label key={o.key} className="flex items-center gap-2 py-1.5 text-sm">
+                <input type="checkbox" checked={!!opts[o.key]} onChange={(e) => setOpts({ ...opts, [o.key]: e.target.checked })} /> {o.label}
+              </label>
+            ))}
+          </div>
+        )}
+        <p className="text-[11px] mb-1" style={{ color: SLATE }}>ส่งไปที่</p>
+        {radio('group', groupLabel || 'กลุ่มครอบครัว (OA — การ์ดสวย)', 'นับโควต้า LINE OA')}
+        {list.map((r) => radio(r.id, r.name, 'ผ่าน OA — นับโควต้า', <button onClick={(e) => { e.preventDefault(); confirmDelete(`ลบผู้รับ "${r.name}" ออกจากรายการ?`, () => { removeLineRecipientFn(r.id); setList(list.filter((x) => x.id !== r.id)); if (dest === r.id) setDest('group'); }); }}><Trash2 size={13} color={BAD} /></button>))}
+        {radio('share', 'เลือกแชทเองใน LINE (คนอื่น/กลุ่มอื่น)', 'ข้อความธรรมดา ไม่กินโควต้า')}
+        {adding ? (
+          <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mt-1">
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="ชื่อผู้รับ เช่น หมอ, ญาติ" className="rounded-lg px-3 py-1.5 text-sm w-full mb-1.5" style={{ border: '1px solid #E7EAF0' }} />
+            <input value={newTo} onChange={(e) => setNewTo(e.target.value)} placeholder="LINE Group ID / User ID (ขึ้นต้น C... หรือ U...)" className="rounded-lg px-3 py-1.5 text-sm w-full mb-1.5" style={{ border: '1px solid #E7EAF0' }} />
+            <div className="flex gap-2"><button onClick={addRecipient} style={{ background: INK }} className="text-white text-xs rounded-lg px-3 py-1.5">บันทึกผู้รับ</button><button onClick={() => setAdding(false)} className="text-xs" style={{ color: SLATE }}>ยกเลิก</button></div>
+          </div>
+        ) : <button onClick={() => setAdding(true)} className="text-xs mt-1" style={{ color: BRASS }}>+ เพิ่มผู้รับ LINE (ผ่าน OA)</button>}
+        <button onClick={doSend} disabled={sending} style={{ background: '#06C755', opacity: sending ? 0.7 : 1 }} className="w-full text-white text-sm font-bold rounded-lg py-3 mt-4">{sending ? 'กำลังส่ง...' : dest === 'share' ? 'เปิดหน้าเลือกแชท LINE' : 'ส่งเลย'}</button>
+      </div>
+    </div>
+  );
 }
 // ปุ่มลอย "แชร์ค้างไว้" — โผล่ทุกหน้าในแอปเมื่อมีข้อความที่ยิง LINE อัตโนมัติไม่สำเร็จ (เช่นโควต้ารายเดือนเต็ม) ให้กดแชร์เองผ่านแอป LINE ตรงๆ แทนได้
 function PendingLineSharesFab({ items, onShareOne, onShareAll, onDismiss, onClearAll }) {
@@ -9525,6 +9617,7 @@ function DogWeightSection({ dog, onAddWeight, onRemoveWeight, onUpdateWeight, ho
 function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemoveMedication, medicationList, onAddMedicationPreset, onUploadRecordPhoto, doctorList, onAddDoctor, hospitalList, onAddHospital }) {
   const [form, setForm] = useState({ name: '', strength: '', form: '', dose: '', usage: '', timing: '', startDate: new Date().toISOString().slice(0, 10), startReason: '', hospital: '', doctor: '' });
   const [editingMed, setEditingMed] = useState(null);
+  const [showMedLine, setShowMedLine] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState('');
   const labelFileRef = useRef(null);
   const labelGalleryRef = useRef(null);
@@ -9673,7 +9766,22 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
                 </div>
               </div>
             ))}
+            <LineSendBar label={`ส่งรายการยาที่ใช้อยู่ (${activeMeds.length} ตัว)`} sub="สรุปไว้ให้หมอ/คนดูแล" onClick={() => setShowMedLine(true)} />
           </>
+        );
+      })()}
+      {showMedLine && (() => {
+        const medLine = (m, withDoc) => `${m.name}${m.strength ? ' ' + m.strength : ''} — ${[m.dose, m.usage, m.timing].filter(Boolean).join(' · ')} (เริ่ม ${formatDateDMY(m.startDate)}${m.stopDate ? ' · หยุด ' + formatDateDMY(m.stopDate) : ''})${withDoc && (m.doctor || m.hospital) ? ' · ' + [m.hospital, m.doctor].filter(Boolean).join(' ') : ''}`;
+        const pick = (o) => meds.filter((m) => !m.stopDate || o.stopped);
+        const getText = (o) => `💊 ยาที่${dog.name}ใช้อยู่ตอนนี้\n` + pick(o).map((m, i) => `${i + 1}. ${medLine(m, o.doctor)}`).join('\n') + `\nอัปเดต ${formatDateDMY(new Date().toISOString().slice(0, 10))}`;
+        return (
+          <LineSendSheet title={`ส่งรายการยาของ${dog.name}`} groupTo={dog.lineGroupId} onClose={() => setShowMedLine(false)}
+            options={[{ key: 'doctor', label: 'แสดงชื่อหมอ/โรงพยาบาลที่สั่ง', defaultOn: true }, { key: 'stopped', label: 'รวมยาที่หยุดแล้ว', defaultOn: false }]}
+            getText={getText}
+            onSendOA={(to, o) => {
+              const list = pick(o);
+              sendLineFlex(`ยาที่${dog.name}ใช้อยู่ ${list.length} ตัว`, buildFlexCard({ title: `💊 ยาที่${dog.name}ใช้อยู่ตอนนี้`, headerColor: GOOD, rows: list.map((m) => ({ label: `${m.name}${m.strength ? ' ' + m.strength : ''}`, value: [m.dose, m.usage, m.timing].filter(Boolean).join(' · ') + (m.stopDate ? ` (หยุด ${formatDateDMY(m.stopDate)})` : '') + (o.doctor && m.doctor ? ` · ${m.doctor}` : '') })), note: `อัปเดต ${formatDateDMY(new Date().toISOString().slice(0, 10))}`, tab: 'pets' }), to);
+            }} />
         );
       })()}
       {editingMed && (
@@ -10928,6 +11036,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
   const [lightboxUrl, setLightboxUrl] = useState(null);
   const [shareStatus, setShareStatus] = useState(null); // { loading, message, failedPhotoUrls }
   const [lineSending, setLineSending] = useState(false);
+  const [showVisitLine, setShowVisitLine] = useState(false);
   const [lineSentAt, setLineSentAt] = useState(visit.lastLineNotifyAt || null);
   const [stoppingMedId, setStoppingMedId] = useState(null);
   const [stopDate, setStopDate] = useState(visit.date);
@@ -11487,25 +11596,17 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
         )}
       </Card>
 
-      <div style={{ background: '#06C755', borderRadius: 13 }} className="flex items-center gap-2.5 px-3 py-2.5 mb-4">
-        <button onClick={async () => {
-          setLineSending(true);
-          try {
-            const fullText = buildVetVisitShareText(dog, visit);
-            const imageUrls = (visit.photos || []).map((ph) => ph.url).filter(Boolean);
-            sendLineNotify(`🏥 บันทึกไปหาหมอ\n${fullText}`, dog.lineGroupId, imageUrls);
-            const now = new Date().toISOString();
-            onUpdateVetVisit(dog.id, visit.id, { lastLineNotifyAt: now });
-            setLineSentAt(now);
-          } finally { setLineSending(false); }
-        }} disabled={lineSending} className="flex items-center gap-2 flex-1" style={{ opacity: lineSending ? 0.7 : 1 }}>
-          {lineSending ? <Loader2 size={15} className="animate-spin" color="white" /> : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 4.36 3.6 8.01 8.44 8.7.33.07.78.22.89.5.1.26.07.66.03.92l-.14.87c-.04.26-.2 1.01.88.55 1.08-.46 5.84-3.44 7.97-5.89C21.6 14.1 22 12.5 22 10.8 22 5.94 17.52 2 12 2z"/></svg>
-          )}
-          <span className="text-[13px] font-bold text-white">{lineSending ? 'กำลังส่ง...' : 'ส่งสรุปเข้า LINE ตอนนี้'}</span>
-        </button>
-        <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.85)', flexShrink: 0 }}>{lineSentAt ? `ส่งล่าสุด ${lineSentAt.slice(11, 16)} น.` : 'ยังไม่เคยส่ง'}</span>
-      </div>
+      <LineSendBar label="ส่งสรุปเข้า LINE ตอนนี้" busy={lineSending} sub={lineSentAt ? `ส่งล่าสุด ${lineSentAt.slice(11, 16)} น.` : 'ยังไม่เคยส่ง'} onClick={() => setShowVisitLine(true)} />
+      {showVisitLine && (
+        <LineSendSheet title="ส่งสรุปการไปหาหมอ" groupTo={dog.lineGroupId} onClose={() => setShowVisitLine(false)}
+          options={[{ key: 'photos', label: 'แนบรูปของการนัดนี้ (เฉพาะส่งผ่าน OA)', defaultOn: true }]}
+          getText={() => `🏥 บันทึกไปหาหมอ\n${buildVetVisitShareText(dog, visit)}`}
+          onSendOA={(to, o) => {
+            const imageUrls = o.photos ? (visit.photos || []).map((ph) => ph.url).filter(Boolean) : [];
+            sendLineNotify(`🏥 บันทึกไปหาหมอ\n${buildVetVisitShareText(dog, visit)}`, to, imageUrls);
+          }}
+          onSent={() => { const now = new Date().toISOString(); onUpdateVetVisit(dog.id, visit.id, { lastLineNotifyAt: now }); setLineSentAt(now); }} />
+      )}
 
       <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
     </div>
