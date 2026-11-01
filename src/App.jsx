@@ -86,7 +86,7 @@ const TAB_MASCOTS = {
   vehicles: { emoji: '🚗', bg: '#FDE6D3' },
   reports: { emoji: '🦉', bg: '#DCE8FE', photo: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=200&fit=crop' },
 };
-const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'ข่าว', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', vehicles: 'รถยนต์', reports: 'รายงาน' };
+const TAB_LABELS = { dashboard: 'ภาพรวม', accounts: 'บัญชี', savings: 'เงินเข้า', income: 'ปันผล', expenses: 'รายจ่าย', pets: 'ลูกๆ', realestate: 'บ้านเช่า', insurance: 'ประกัน', vehicles: 'รถยนต์', reports: 'รายงาน' };
 const VEHICLE_ITEM_LABELS = { tax: '🚙 ภาษีรถยนต์', compulsory: '📄 พ.ร.บ.', insurance: '🛡️ ประกันภัยชั้น 1' };
 // เลขลำดับ + สีประจำแต่ละหมวด ใช้ทำวงกลมเลขนำหน้าการ์ด ให้แยกแต่ละหมวดด้วยตาได้เร็ว (ไล่เลขต่อกับ VEHICLE_MAINTENANCE_TYPES ด้านล่าง)
 const VEHICLE_ITEM_META = { tax: { num: 1, color: '#2E5266' }, compulsory: { num: 2, color: '#3F6152' }, insurance: { num: 3, color: '#7C3AED' } };
@@ -2606,7 +2606,7 @@ export default function App() {
       )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ข่าว', icon: Rss }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'vehicles', label: 'รถยนต์', icon: Car }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ปันผล', icon: Calendar }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'vehicles', label: 'รถยนต์', icon: Car }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
             <t.icon size={17} color={tab === t.id ? '#FFFFFF' : '#94A3B8'} /><span className="text-[8px]" style={{ color: tab === t.id ? '#FFFFFF' : '#94A3B8' }}>{t.label}</span>
           </button>
@@ -6301,7 +6301,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(null); // { done, total }
-  const [view, setView] = useState('news'); // 'news' | 'dividends'
+  const [view, setView] = useState('dividends'); // 'news' | 'dividends' — แท็บนี้โชว์เฉพาะปฏิทินปันผล (ซ่อนข่าวลงทุนไว้ โค้ดยังอยู่)
   const [divLoading, setDivLoading] = useState(false);
   const [divError, setDivError] = useState('');
   const [divProgress, setDivProgress] = useState(null); // { done, total }
@@ -6384,7 +6384,8 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
 
   useEffect(() => {
     // ดึงข่าวใหม่อัตโนมัติทุกครั้งที่เข้าแท็บนี้ ถ้าข่าวที่มีอยู่เก่าเกิน 24 ชม. — แก้บั๊กเดิมที่เช็ค items.length === 0 ด้วย ทำให้พอมีข่าวแคชไว้แล้วครั้งแรก จะไม่มีวันดึงใหม่ให้เองอีกเลย
-    if (isStale && !loading) runFetch();
+    // ปิดดึงข่าวอัตโนมัติแล้ว (ซ่อนข่าวลงทุนออกจากแท็บ — กันเสียค่า AI/ค้นเว็บโดยไม่ได้ใช้)
+    // if (isStale && !loading) runFetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -6393,7 +6394,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
 
   return (
     <div className="px-4 pt-4 pb-24">
-      <div className="flex gap-2 mb-4 p-1 rounded-lg" style={{ background: PAPER_DIM }}>
+      <div className="hidden">
         <button onClick={() => setView('news')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={view === 'news' ? { background: 'white', color: INK } : { color: SLATE }}>📰 ข่าวลงทุน</button>
         <button onClick={() => setView('dividends')} className="flex-1 text-xs rounded-md py-2 font-semibold" style={view === 'dividends' ? { background: 'white', color: INK } : { color: SLATE }}>📅 ปฏิทินปันผล (XD)</button>
       </div>
