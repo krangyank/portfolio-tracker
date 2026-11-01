@@ -78,7 +78,7 @@ function evaluateItem({ id, label, dueDate, reminderDays, todayStr, remindersSen
   if (days.includes(dl)) {
     const dedupKey = `${id}_${dueDate}_${dl}`;
     if (remindersSent[dedupKey]) return null; // แจ้งไปแล้ววันนี้/ก่อนหน้านี้สำหรับรอบนี้พอดี ไม่แจ้งซ้ำ
-    return { shouldNotify: true, dedupKey, line: `🟡 ${label} — อีก ${dl} วันถึงกำหนด (${formatDateDMY(dueDate)})` };
+    return { shouldNotify: true, dedupKey, line: dl === 0 ? `🟠 ${label} — ครบกำหนดวันนี้ (${formatDateDMY(dueDate)})` : `🟡 ${label} — อีก ${dl} วันถึงกำหนด (${formatDateDMY(dueDate)})` };
   }
   return null;
 }
@@ -149,7 +149,7 @@ export default async function handler(req, res) {
         const paid = ((p.payments || {})[ym] || {}).paid;
         if (!paid) {
           const dueDate = `${ym}-${String(p.rentDueDay).padStart(2, '0')}`;
-          const result = evaluateItem({ id: `rent_${p.id}`, label: `ค่าเช่า: ${p.name}`, dueDate, reminderDays: p.rentReminderDays, todayStr, remindersSent: sharedRemindersSent });
+          const result = evaluateItem({ id: `rent_${p.id}`, label: `ค่าเช่า: ${p.name}`, dueDate, reminderDays: Array.from(new Set([...((p.rentReminderDays && p.rentReminderDays.length) ? p.rentReminderDays : [3, 1]), 0])), todayStr, remindersSent: sharedRemindersSent }); // เพิ่ม 0 = เตือนในวันครบกำหนดเลยด้วย (เดิมเตือนแค่ก่อนถึงวัน แล้วเงียบจนเลยกำหนด)
           if (result && result.shouldNotify) { pushLine(result.line); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
         }
       }
