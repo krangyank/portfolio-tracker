@@ -4694,6 +4694,7 @@ function SimpleAccountCard({ account: a, basis, onUpdate, onRemove, onScanValue 
 
 // ทองคำแท่ง — แต่ละ "ล็อต" คือรายการซื้อ 1 ครั้ง (เลือกน้ำหนัก 1/5/10 บาท หรือกำหนดเอง) พร้อมร้าน/วันที่/ต้นทุน แล้วบันทึกขายทีหลังเพื่อคำนวณกำไร/ขาดทุนได้
 function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdateGoldLot, onRemoveGoldLot, onSellGoldLot, onUnsellGoldLot, onSetGoldPrice, onRefreshGoldPrice, goldShopList, onAddGoldShop }) {
+  const [showBuyForm, setShowBuyForm] = useState(false);
   const [weightBaht, setWeightBaht] = useState(1);
   const [customWeight, setCustomWeight] = useState('');
   const [costTotal, setCostTotal] = useState(0);
@@ -4731,18 +4732,22 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
   }
 
   return (
-    <Card>
+    <Card style={{ borderLeft: '6px solid #B8860B' }}>
+      <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1.5" style={{ background: '#B8860B22', color: '#B8860B' }}>ทองคำแท่ง</span>
       <div className="flex justify-between items-center gap-2">
-        <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none" style={{ border: 'none' }} />
+        <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-bold" style={{ border: 'none' }} />
         {a._shared && <span style={{ background: '#7C3AED14', color: '#7C3AED', flexShrink: 0 }} className="text-[10px] font-medium px-2 py-1 rounded-full">🔗 ภรรยา</span>}
         <button onClick={() => confirmDelete('ลบบัญชีนี้? ข้อมูลทองคำแท่งทั้งหมดจะหายถาวร', () => onRemove(a.id))}><Trash2 size={16} color={BAD} /></button>
       </div>
 
-      <div className="mt-2 mb-1"><span className="text-lg font-semibold">฿{fmt(marketValue)}</span></div>
-      <p className="text-xs mb-2" style={{ color: SLATE }}>
-        ถือครอง {fmt2(totalWeight)} บาททอง · ต้นทุน ฿{fmt(totalCost)}
-        {unrealizedGain !== null && <span style={{ color: unrealizedGain >= 0 ? GOOD : BAD }}> · {unrealizedGain >= 0 ? '+' : ''}฿{fmt(unrealizedGain)} (ยังไม่ขาย)</span>}
-      </p>
+      <div style={{ background: 'linear-gradient(135deg, #FBF3E3, #F3E0C0)', borderRadius: 16 }} className="p-3.5 mt-2 mb-2">
+        <p className="text-[10px] font-semibold" style={{ color: '#8A7B4E' }}>มูลค่าตลาด · ถือครอง {fmt2(totalWeight)} บาททอง</p>
+        <p style={{ fontSize: 26, fontWeight: 700 }}>฿{fmt(marketValue)}</p>
+        <div className="flex items-center gap-2 flex-wrap mt-1.5">
+          {unrealizedGain !== null && <span className="text-[12px] font-bold rounded-full px-2.5 py-1" style={{ background: unrealizedGain >= 0 ? '#DDF3E6' : '#FBE3E0', color: unrealizedGain >= 0 ? GOOD : BAD }}>{unrealizedGain >= 0 ? '▲ +' : '▼ '}฿{fmt(unrealizedGain)} (ยังไม่ขาย)</span>}
+          <span className="text-[11px]" style={{ color: '#8A7B4E' }}>ต้นทุน ฿{fmt(totalCost)}</span>
+        </div>
+      </div>
       {soldLots.length > 0 && <p className="text-xs mb-2" style={{ color: realizedGain >= 0 ? GOOD : BAD }}>กำไร/ขาดทุนที่ขายไปแล้วสะสม {realizedGain >= 0 ? '+' : ''}฿{fmt(realizedGain)}</p>}
 
       <div className="mb-3">
@@ -4756,7 +4761,8 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
         {priceError && <p className="text-xs mt-1" style={{ color: BAD }}>{priceError}</p>}
       </div>
 
-      <div style={{ borderTop: '1px solid #E7EAF0', background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-3">
+      <button onClick={() => setShowBuyForm(!showBuyForm)} className="w-full text-[13px] font-bold rounded-xl py-2.5 mb-3 text-white" style={{ background: BRASS }}>{showBuyForm ? '▴ ซ่อนฟอร์มซื้อ' : '＋ เพิ่มรายการซื้อทอง'}</button>
+      <div style={{ borderTop: '1px solid #E7EAF0', background: PAPER_DIM, borderRadius: 10, ...(showBuyForm ? {} : { display: 'none' }) }} className="p-2 mb-3">
         <p className="text-[11px] font-semibold mb-2">🪙 เพิ่มรายการซื้อ</p>
         <p className="text-[10px] mb-1" style={{ color: SLATE }}>น้ำหนักแท่ง</p>
         <div className="flex gap-1.5 mb-2 flex-wrap">
@@ -4867,6 +4873,7 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
 
 function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory, customDestinationList, onAddCustomDestination }) {
   const [expanded, setExpanded] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(false); // เครื่องมือนำเข้า/ซิงค์ด้วย AI พับเก็บไว้ (ถ้ามี draft ค้างอยู่จะโชว์เองเสมอ)
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
   // FX ล่าสุดที่ใช้จริงจากการซื้อหุ้น USD ตัวไหนก็ได้ในพอร์ต (สำรองไว้ตอนแปะรูปประวัติซื้อ-ขายแบบหลายรายการ กรณีจับคู่กองทุนใหม่ที่ยังไม่มีประวัติ FX ของตัวเอง)
@@ -5127,6 +5134,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
 
   return (
     <Card style={{ borderLeft: `6px solid ${categoryColor}` }}>
+      <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1.5" style={{ background: `${categoryColor}22`, color: categoryColor }}>{((CATEGORY_META[a.category] || {}).label || 'พอร์ต').replace(/\s*\(.*\)/, '')} · {holdings.length} ตัว</span>
       <div className="flex items-center gap-2.5 mb-1">
         <div style={{ background: `${categoryColor}1F`, color: categoryColor, flexShrink: 0 }} className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold">{(a.name || '?').trim().slice(0, 2).toUpperCase()}</div>
         <input value={a.name} onChange={(e) => onUpdate(a.id, { name: e.target.value })} className="text-sm flex-1 outline-none font-bold" style={{ border: 'none' }} />
@@ -5136,8 +5144,11 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       {a.category === 'mutual_fund' && (
         <input value={a.platform || ''} onChange={(e) => onUpdate(a.id, { platform: e.target.value })} placeholder="แพลตฟอร์ม/ช่องทาง เช่น Wealth X, ดาม (ไม่บังคับ)" className="text-[11px] w-full outline-none rounded px-2 py-1 mb-1" style={{ border: '1px solid #E7EAF0', color: SLATE }} />
       )}
+      <button onClick={() => setToolsOpen(!toolsOpen)} className="w-full flex justify-between items-center text-[12px] font-semibold rounded-lg px-3 py-2 mb-2" style={{ background: PAPER_DIM, color: categoryColor }}>
+        <span>🤖 เครื่องมือนำเข้า / ซิงค์ด้วย AI{a.category === 'mutual_fund' ? ' · YieldTech' : ''}</span><span>{toolsOpen ? '▴' : '▾'}</span>
+      </button>
       {a.category === 'mutual_fund' && (
-        <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
+        <div style={{ background: PAPER_DIM, ...((toolsOpen || ytDraft || ytScanning) ? {} : { display: 'none' }) }} className="rounded-lg p-2 mb-2">
           <p className="text-[11px] font-semibold mb-1.5" style={{ color: SLATE }}>YieldTech (ถอนแบบไม่กินทุน)</p>
           <p className="text-[10px] mb-2" style={{ color: SLATE }}>ตั้งค่ายอดถอน/วันตัดได้แยกตามกองทุนแต่ละตัว — เปิดหุ้น/กองทุนแต่ละตัวด้านล่างเพื่อตั้งค่า</p>
           <input ref={ytFileRef} type="file" accept="image/*" onChange={handleYieldTechPhoto} className="hidden" />
@@ -5165,7 +5176,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
         </div>
       )}
       {holdings.length > 0 && (
-        <div style={{ background: PAPER_DIM }} className="rounded-lg p-2 mb-2">
+        <div style={{ background: PAPER_DIM, ...((toolsOpen || bsDraft || bsScanning) ? {} : { display: 'none' }) }} className="rounded-lg p-2 mb-2">
           <p className="text-[11px] font-semibold mb-1.5" style={{ color: SLATE }}>แปะรูปประวัติคำสั่งซื้อ-ขาย</p>
           <p className="text-[10px] mb-2" style={{ color: SLATE }}>ถ่ายรูปที่มีหลายกองทุน/หุ้นปนกันได้เลย ระบบแยกซื้อ/ขายและจับคู่ให้อัตโนมัติ</p>
           <input ref={bsFileRef} type="file" accept="image/*" onChange={handleBuySellPhoto} className="hidden" />
@@ -5208,8 +5219,13 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       )}
       <div style={{ background: 'linear-gradient(135deg, #FBF3E3, #F3E0C0)', borderRadius: 16 }} className="p-3.5 mt-1 mb-2">
         <p className="text-[10px] font-semibold mb-0.5" style={{ color: '#8A7B4E' }}>มูลค่าปัจจุบัน</p>
-        <p className="text-xl font-bold">฿{fmt(displayValue)}{cashTHB > 0 && <span className="text-sm font-normal" style={{ color: '#8A7B4E' }}> (รวมเงินสด ≈ ฿{fmt(displayValue + cashTHB)})</span>}</p>
-        {holdings.length > 0 && totalCost > 0 && <p className="text-xs mt-1" style={{ color: totalGain >= 0 ? GOOD : BAD }}>ต้นทุนรวม ฿{fmt(totalCost)} · {totalGain >= 0 ? '+' : ''}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</p>}
+        <p style={{ fontSize: 26, fontWeight: 700 }}>฿{fmt(displayValue)}{cashTHB > 0 && <span className="text-sm font-normal" style={{ color: '#8A7B4E' }}> (รวมเงินสด ≈ ฿{fmt(displayValue + cashTHB)})</span>}</p>
+        {holdings.length > 0 && totalCost > 0 && (
+          <div className="flex items-center gap-2 flex-wrap mt-1.5">
+            <span className="text-[12px] font-bold rounded-full px-2.5 py-1" style={{ background: totalGain >= 0 ? '#DDF3E6' : '#FBE3E0', color: totalGain >= 0 ? GOOD : BAD }}>{totalGain >= 0 ? '▲ +' : '▼ '}฿{fmt(totalGain)} ({totalCost ? ((totalGain / totalCost) * 100).toFixed(1) : 0}%)</span>
+            <span className="text-[11px]" style={{ color: '#8A7B4E' }}>ต้นทุนรวม ฿{fmt(totalCost)}</span>
+          </div>
+        )}
       </div>
       {holdings.length > 0 && a.category !== 'dime' && (
         <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-2">
@@ -5291,7 +5307,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           </div>
         </div>
       ) : (
-        <div className="my-2">
+        <div className="my-2" style={(toolsOpen || portScanning || portError) ? undefined : { display: 'none' }}>
           <input ref={portFileRef} type="file" accept="image/*" onChange={handlePortfolioFile} className="hidden" />
           <button onClick={() => portFileRef.current && portFileRef.current.click()} className="flex items-center gap-1 text-[11px]" style={{ color: categoryColor }}>
             {portScanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} {portScanning ? 'กำลังอ่านตารางพอร์ต...' : 'นำเข้าทั้งพอร์ตจากภาพ (แยกเป็นรายหุ้นให้)'}
@@ -5326,7 +5342,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           </div>
         </div>
       ) : (
-        <div className="my-2">
+        <div className="my-2" style={(toolsOpen || syncScanningMulti || syncErrorMulti) ? undefined : { display: 'none' }}>
           <input ref={syncFilesRef} type="file" accept="image/*" multiple onChange={handleSyncFilesMulti} className="hidden" />
           <button onClick={() => syncFilesRef.current && syncFilesRef.current.click()} className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: categoryColor }}>
             {syncScanningMulti ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} {syncScanningMulti ? 'กำลังอ่านภาพทั้งหมด...' : '📷 ซิงค์พอร์ตจากภาพ (เลือกได้หลายรูป)'}
