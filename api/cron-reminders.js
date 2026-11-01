@@ -68,11 +68,12 @@ async function sendLineText(message, to) {
 
 // เช็ครายการหนึ่งตัว: ถึงกำหนดวันนี้พอดี (ตรงกับหนึ่งใน reminderDays) หรือเลยกำหนดไปแล้ว (แจ้งซ้ำทุกวันจนกว่าจะแก้ไข)
 // คืนค่า { shouldNotify, dedupKey, line } — dedupKey ใช้กันแจ้งซ้ำวันเดียวกันสำหรับรายการที่ยังไม่เลยกำหนด (ส่วนรายการที่เลยกำหนดแล้วไม่กันซ้ำ เพราะอยากให้เตือนต่อเนื่องทุกวันจนกว่าจะจัดการ)
-function evaluateItem({ id, label, dueDate, reminderDays, todayStr, remindersSent }) {
+function evaluateItem({ id, label, dueDate, reminderDays, todayStr, remindersSent, skipOverdue }) {
   const dl = daysUntil(dueDate);
   if (dl === null) return null;
   const days = reminderDays && reminderDays.length ? reminderDays : [3, 1];
   if (dl < 0) {
+    if (skipOverdue) return null; // นัดหมายที่ผ่านวันไปแล้วคือประวัติการไปหาหมอ ไม่ใช่งานค้าง ไม่ต้องเตือนซ้ำทุกวัน
     return { shouldNotify: true, dedupKey: null, line: `🔴 ${label} — เลยกำหนดมาแล้ว ${Math.abs(dl)} วัน (${formatDateDMY(dueDate)})` };
   }
   if (days.includes(dl)) {
@@ -125,7 +126,7 @@ export default async function handler(req, res) {
       (dog.appointments || []).forEach((a) => {
         const result = evaluateItem({
           id: `appt_${a.id}`, label: `${dog.name} — นัดหมาย: ${a.purpose || '-'}${a.hospital ? ' @ ' + a.hospital : ''}`,
-          dueDate: a.date, reminderDays: a.reminderDays, todayStr, remindersSent: sharedRemindersSent,
+          dueDate: a.date, reminderDays: a.reminderDays, todayStr, remindersSent: sharedRemindersSent, skipOverdue: true,
         });
         if (result && result.shouldNotify) { pushLine(result.line, groupId); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
       });
