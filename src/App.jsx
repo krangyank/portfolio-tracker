@@ -5107,7 +5107,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     try {
       const symbols = holdings.map((h) => h.symbol).filter(Boolean);
       const rows = await scanBuySellHistory(file, symbols);
-      if (!rows || rows.length === 0) { setBsScanError('อ่านรายการไม่พบ ลองภาพที่ชัดกว่านี้'); return; }
+      if (!rows || rows.length === 0) { setBsScanError('ไม่พบรายการซื้อ/ขายในภาพนี้ — เมนูนี้อ่านได้เฉพาะ "ประวัติคำสั่งซื้อ-ขาย" ถ้าเป็นภาพพอร์ต (มูลค่า/กำไรขาดทุนของแต่ละกองทุน) ให้ใช้ปุ่ม "📷 ซิงค์พอร์ตจากภาพ" หรือ "นำเข้าทั้งพอร์ตจากภาพ" ในกล่องเครื่องมือด้านล่างแทน'); return; }
       const matched = rows.map((r) => {
         const found = holdings.find((h) => h.symbol && r.symbol && (h.symbol.toUpperCase() === r.symbol.toUpperCase() || h.symbol.toUpperCase().includes(r.symbol.toUpperCase()) || r.symbol.toUpperCase().includes(h.symbol.toUpperCase())));
         const rShares = r.shares ? Number(r.shares) : null;
