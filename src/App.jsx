@@ -1716,6 +1716,15 @@ export default function App() {
   const addExpense = (entry) => persistAppend('expenses', { id: uid(), ...entry });
   const removeExpense = (id) => persist({ ...state, expenses: expenses.filter((e) => e.id !== id) });
   const updateExpense = (id, patch) => persist({ ...state, expenses: expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
+  // ย้ายรายจ่ายระหว่าง "เงินสด" กับ "บัตรเครดิตใบต่างๆ" — ทำในการบันทึกครั้งเดียว (ลบจากที่เดิม+ใส่ที่ใหม่พร้อมกัน) กันข้อมูลทับกันถ้าเรียก persist สองรอบติด
+  const moveExpensePayment = ({ id, fromCardId, toCardId, entry }) => {
+    let nextExpenses = expenses; let nextCards = creditCards;
+    if (fromCardId) nextCards = nextCards.map((c) => (c.id === fromCardId ? { ...c, transactions: (c.transactions || []).filter((t) => t.id !== id) } : c));
+    else nextExpenses = nextExpenses.filter((e) => e.id !== id);
+    if (toCardId) nextCards = nextCards.map((c) => (c.id === toCardId ? { ...c, transactions: [{ id, ...entry }, ...(c.transactions || [])] } : c));
+    else nextExpenses = [{ id, ...entry }, ...nextExpenses];
+    persist({ ...state, expenses: nextExpenses, creditCards: nextCards });
+  };
   const addExpenseCategory = (name) => { if (name && !expenseCategories.includes(name)) persist({ ...state, expenseCategories: [...expenseCategories, name] }); };
 
   // ระบบบัตรเครดิต: เพิ่ม/แก้ไข/ลบบัตร และรายการใช้จ่ายแยกตามบัตร
@@ -1938,7 +1947,7 @@ export default function App() {
     updateProperty(propertyId, { payments: { ...(p.payments || {}), [ymKey]: { ...cur, installments, amount: totalPaid, paid, date: paid ? (cur.date || entry.date) : cur.date } } });
     if (entry.accountId) {
       // addToIncome (ค่าเริ่มต้น true ถ้าไม่ได้ส่งมา กันโค้ดเก่า/จุดเรียกอื่นที่ยังไม่รู้จัก field นี้พัง): false = บันทึกงวดนี้ไว้ในห้องเฉยๆ ไม่ต้องขึ้นซ้ำในหน้า "เงินเข้า" รวม
-      if (entry.addToIncome !== false) addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId });
+      if (entry.addToIncome !== false) addContribution({ date: entry.date, amount: entry.amount, source: 'rental', accountId: entry.accountId, sourceSymbol: p.name, propertyId: p.id });
       const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
       const shortfall = Number(p.rent || 0) - totalPaid;
       const rows = [{ label: 'วันที่', value: formatDateDMY(entry.date) }, { label: 'ฝากเข้าบัญชี', value: accName }];
@@ -1993,7 +2002,7 @@ export default function App() {
     updateProperty(propertyId, { depositReceipts: receipts });
     if (entry.accountId) {
       const dateOnly = (entry.datetime || '').slice(0, 10);
-      if (entry.addToIncome !== false) addContribution({ date: dateOnly, amount: entry.amount, source: 'rental', accountId: entry.accountId });
+      if (entry.addToIncome !== false) addContribution({ date: dateOnly, amount: entry.amount, source: 'rental', accountId: entry.accountId, sourceSymbol: p.name, propertyId: p.id });
       const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
       const totalReceived = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
       const target = Number(p.depositAmount || 0);
@@ -2565,10 +2574,10 @@ export default function App() {
           onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} onRemoveYieldTechHistory={removeYieldTechHistory} onUpdateYieldTechHistory={updateYieldTechHistory} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination}
           onAddGoldLot={addGoldLot} onUpdateGoldLot={updateGoldLot} onRemoveGoldLot={removeGoldLot} onSellGoldLot={sellGoldLot} onUnsellGoldLot={unsellGoldLot} onSetGoldPrice={setGoldPrice} onRefreshGoldPrice={refreshGoldPrice} goldShopList={goldShopList} onAddGoldShop={addGoldShop} />
       )}
-      {tab === 'savings' && <SavingsTab accounts={accounts} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
+      {tab === 'savings' && <SavingsTab accounts={accounts} properties={properties} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
       {tab === 'income' && <NewsTab news={investmentNews} accounts={accounts} onSaved={saveInvestmentNews} dividendCalendar={dividendCalendar} onSavedDividends={saveDividendCalendar} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} />}
       {tab === 'reports' && <ReportsTab contributions={contributions} accounts={accounts} costBasisByAccount={costBasisByAccount} history={history} />}
-      {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onAddCategory={addExpenseCategory}
+      {tab === 'expenses' && <ExpensesTab expenses={expenses} categories={expenseCategories} onAdd={addExpense} onRemove={removeExpense} onUpdate={updateExpense} onMoveExpense={moveExpensePayment} onAddCategory={addExpenseCategory}
           creditCards={creditCards} onAddCreditCard={addCreditCard} onUpdateCreditCard={updateCreditCard} onRemoveCreditCard={removeCreditCard}
           onAddCreditCardTransaction={addCreditCardTransaction} onRemoveCreditCardTransaction={removeCreditCardTransaction} onUpdateCreditCardTransaction={updateCreditCardTransaction} onMatchCreditCard={matchCreditCard}
           onAddCreditCardPayment={addCreditCardPayment} onRemoveCreditCardPayment={removeCreditCardPayment}
@@ -5919,7 +5928,43 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   );
 }
 
-function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, customDestinationList, onAddCustomDestination, onAddToCalendar, googleConnected, expenseCategories, onAddExpense }) {
+// รายการเงินเข้าแบบ "ค่าเช่า" ที่บันทึกไว้ก่อนหน้านี้ไม่มีชื่อบ้านเก็บไว้ — หาย้อนกลับจากงวดค่าเช่า/เงินประกันของแต่ละหลังที่วันที่ ยอด และบัญชีตรงกัน (ถ้าเจอหลังเดียวเท่านั้นถึงจะใช้)
+function findRentPropertyName(c, properties) {
+  if (c.sourceSymbol) return c.sourceSymbol;
+  if (c.source !== 'rental') return '';
+  const hits = [];
+  (properties || []).forEach((p) => {
+    let found = false;
+    Object.values(p.payments || {}).forEach((pay) => (pay.installments || []).forEach((it) => { if (it.date === c.date && Number(it.amount) === Number(c.amount) && (it.accountId || '') === (c.accountId || '')) found = true; }));
+    (p.depositReceipts || []).forEach((r) => { if ((r.datetime || '').slice(0, 10) === c.date && Number(r.amount) === Number(c.amount) && (r.accountId || '') === (c.accountId || '')) found = true; });
+    if (found) hits.push(p.name);
+  });
+  return hits.length === 1 ? hits[0] : '';
+}
+// ปัดการ์ดไปทางซ้ายเพื่อโชว์ปุ่ม "ลบ" สีแดงด้านหลัง (ปุ่มลบเดิมยังอยู่ครบ) — เลื่อนแนวตั้งปกติไม่โดนจับเป็นการปัด
+function SwipeToDelete({ children, onDelete, radius = 14 }) {
+  const MAX = 88;
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const st = useRef({ x: 0, y: 0, base: 0, lock: null });
+  function onStart(e) { const t = e.touches[0]; st.current = { x: t.clientX, y: t.clientY, base: dx, lock: null }; }
+  function onMove(e) {
+    const t = e.touches[0]; const ddx = t.clientX - st.current.x; const ddy = t.clientY - st.current.y;
+    if (st.current.lock === null && (Math.abs(ddx) > 8 || Math.abs(ddy) > 8)) st.current.lock = Math.abs(ddx) > Math.abs(ddy) ? 'h' : 'v';
+    if (st.current.lock !== 'h') return;
+    setDragging(true);
+    setDx(Math.max(-MAX, Math.min(0, st.current.base + ddx)));
+  }
+  function onEnd() { setDragging(false); if (st.current.lock === 'h') setDx(dx < -MAX / 2 ? -MAX : 0); st.current.lock = null; }
+  return (
+    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: radius, marginBottom: 8 }}>
+      <button type="button" aria-label="ลบรายการ" onClick={() => { setDx(0); onDelete(); }} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: MAX, background: BAD, color: 'white', fontWeight: 700, fontSize: 13 }}>🗑 ลบ</button>
+      <div onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd} onTouchCancel={onEnd} style={{ position: 'relative', transform: `translateX(${dx}px)`, transition: dragging ? 'none' : 'transform .2s ease', touchAction: 'pan-y' }}>{children}</div>
+    </div>
+  );
+}
+
+function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUpdate, customDestinationList, onAddCustomDestination, onAddToCalendar, googleConnected, expenseCategories, onAddExpense }) {
   const [amount, setAmount] = useState(10000);
   const [source, setSource] = useState('pharmacy');
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
@@ -6169,17 +6214,20 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
           const isWithdraw = c.source === 'personal_withdraw';
           const isDividend = DIVIDEND_SOURCES.includes(c.source);
           const tone = SOURCE_TONE[c.source] || SOURCE_TONE.other;
+          const rentFrom = c.source === 'rental' ? findRentPropertyName(c, properties) : '';
           const showDay = c.date !== lastDate; lastDate = c.date;
           const dayLabel = c.date === todayStr() ? `วันนี้ ${formatDateDMY(c.date)}` : c.date === yesterdayStr() ? `เมื่อวาน ${formatDateDMY(c.date)}` : formatDateDMY(c.date);
           return (
             <React.Fragment key={c.id}>
               {showDay && <p className="text-[11px] font-bold mt-4 mb-1.5" style={{ color: SLATE }}>{dayLabel}</p>}
-              <div className="flex items-start gap-3 mb-2" style={{ background: tone[2], border: `1px solid ${BORDER}`, borderLeft: `6px solid ${tone[0]}`, borderRadius: 14, padding: '11px 12px' }}>
+              <SwipeToDelete onDelete={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(c.id))}>
+              <div className="flex items-start gap-3" style={{ background: tone[2], border: `1px solid ${BORDER}`, borderLeft: `6px solid ${tone[0]}`, borderRadius: 14, padding: '11px 12px' }}>
                 <div style={{ width: 38, height: 38, borderRadius: 12, display: 'grid', placeItems: 'center', fontSize: 18, flexShrink: 0, background: tone[1] }}>{SOURCE_ICON[c.source] || '💰'}</div>
                 <div className="flex-1 min-w-0">
                   <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1" style={{ background: tone[1], color: tone[0] }}>{src?.label || c.source}</span>
+                  {rentFrom && <p className="text-[12.5px] font-semibold" style={{ color: tone[0] }}>🏠 จาก {rentFrom}</p>}
                   <p className="text-[13.5px] font-semibold">→ {destLabel}</p>
-                  <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}{c.sourceSymbol ? ` · จาก ${c.sourceSymbol}` : ''}</p>
+                  <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}{c.sourceSymbol && c.source !== 'rental' ? ` · จาก ${c.sourceSymbol}` : ''}</p>
                   {isWithdraw && c.note && <p className="text-[11px]" style={{ color: SLATE }}>{c.note}</p>}
                   {syncMsg[c.id] ? (
                     <p className="text-[11px] mt-1" style={{ color: syncMsg[c.id].includes('สำเร็จ') ? GOOD : BAD }}>{syncMsg[c.id]}</p>
@@ -6201,6 +6249,7 @@ function SavingsTab({ accounts, contributions, onAdd, onRemove, onUpdate, custom
                 </div>
                 <span className="text-sm font-bold" style={{ color: isWithdraw ? BAD : GOOD, flexShrink: 0 }}>{isWithdraw ? '-' : '+'}฿{fmt(Math.abs(c.amount))}</span>
               </div>
+              </SwipeToDelete>
             </React.Fragment>
           );
         });
@@ -6520,7 +6569,7 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       ))}
     </div>
   );
-      }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onAddCategory, creditCards, onAddCreditCard, onUpdateCreditCard, onRemoveCreditCard, onAddCreditCardTransaction, onRemoveCreditCardTransaction, onUpdateCreditCardTransaction, onMatchCreditCard, onAddCreditCardPayment, onRemoveCreditCardPayment, cardPaymentNotes, onAddCardPaymentNote, googleConnected, onAddToCalendar }) {
+      }function ExpensesTab({ expenses, categories, onAdd, onRemove, onUpdate, onMoveExpense, onAddCategory, creditCards, onAddCreditCard, onUpdateCreditCard, onRemoveCreditCard, onAddCreditCardTransaction, onRemoveCreditCardTransaction, onUpdateCreditCardTransaction, onMatchCreditCard, onAddCreditCardPayment, onRemoveCreditCardPayment, cardPaymentNotes, onAddCardPaymentNote, googleConnected, onAddToCalendar }) {
   const [mainSection, setMainSection] = useState('cash');
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
@@ -6889,15 +6938,21 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
       )}
       {editingExpense && (
         <EditModal title={editingExpense._kind === 'card' ? `แก้ไขรายการบัตร (${editingExpense._cardLabel})` : 'แก้ไขรายจ่าย'} onClose={() => setEditingExpense(null)}
-          initialValues={{ date: editingExpense.date, amount: editingExpense.amount, category: editingExpense.category, note: editingExpense.note || '' }}
+          initialValues={{ date: editingExpense.date, amount: editingExpense.amount, category: editingExpense.category, note: editingExpense.note || '', payWith: editingExpense._kind === 'card' ? editingExpense._cardId : '' }}
           fields={[
             { key: 'date', label: 'วันที่', type: 'date' },
             { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
             { key: 'category', label: 'หมวดหมู่', type: 'select', options: categories },
             { key: 'note', label: 'โน้ต', type: 'text' },
+            { key: 'payWith', label: 'จ่ายด้วย', type: 'select', options: [{ value: '', label: '💵 เงินสด' }, ...(creditCards || []).map((c) => ({ value: c.id, label: `💳 ${c.bankName || ''} ${c.cardName || ''}`.trim() }))] },
           ]}
           onSave={(v) => {
-            if (editingExpense._kind === 'card') onUpdateCreditCardTransaction(editingExpense._cardId, editingExpense.id, { date: v.date, amount: Number(v.amount) || 0, category: v.category, note: v.note });
+            const fromCardId = editingExpense._kind === 'card' ? editingExpense._cardId : '';
+            const toCardId = v.payWith || '';
+            if (onMoveExpense && fromCardId !== toCardId) {
+              const { _kind, _cardId, _cardLabel, id, ...rest } = editingExpense;
+              onMoveExpense({ id, fromCardId, toCardId, entry: { ...rest, date: v.date, amount: Number(v.amount) || 0, category: v.category, note: v.note } });
+            } else if (editingExpense._kind === 'card') onUpdateCreditCardTransaction(editingExpense._cardId, editingExpense.id, { date: v.date, amount: Number(v.amount) || 0, category: v.category, note: v.note });
             else onUpdate(editingExpense.id, { date: v.date, amount: Number(v.amount) || 0, category: v.category, note: v.note });
             setEditingExpense(null);
           }}
