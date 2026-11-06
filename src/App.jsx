@@ -5431,6 +5431,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const [divReinvest, setDivReinvest] = useState('');
   const [showSells, setShowSells] = useState(false);
   const [showBuys, setShowBuys] = useState(false);
+  const [showBuysLine, setShowBuysLine] = useState(false);
   const [editingBuy, setEditingBuy] = useState(null);
   const [editingSell, setEditingSell] = useState(null);
   const [editingDiv, setEditingDiv] = useState(null);
@@ -5785,6 +5786,37 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           <span className="text-[10px] flex items-center gap-2" style={{ color: SLATE }}>฿{fmt(b.amount)} <EditButton onClick={() => setEditingBuy(b)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveBuy(accountId, h.id, b.id))}><Trash2 size={11} color={BAD} /></button></span>
         </div>
       ))}
+      {showBuys && (h.buys || []).length > 0 && <div className="mt-2"><LineSendBar label="ส่งประวัติการซื้อเข้า LINE" sub={`${(h.buys || []).length} รายการ`} onClick={() => setShowBuysLine(true)} /></div>}
+      {showBuysLine && (() => {
+        const cur = h.currency === 'USD' ? 'US$' : '฿';
+        const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
+        const name = h.symbol || h.name;
+        const byDateDesc = (list) => [...(list || [])].sort((x, y) => String(y.date || '').localeCompare(String(x.date || '')));
+        const pick = (o) => ({ buys: o.recent ? byDateDesc(h.buys).slice(0, 5) : byDateDesc(h.buys), sells: o.sells ? byDateDesc(h.sells) : [] });
+        const buyLine = (b) => `${formatDateDMY(b.date)} · ${cur}${fmt(b.amount)}${Number(b.shares) > 0 ? ` (${Number(Number(b.shares).toFixed(4)).toLocaleString()} หน่วย @ ${b.price})` : ''}`;
+        const sellLine = (x) => `${formatDateDMY(x.date)} · ${cur}${fmt(x.amount)}${Number(x.shares) > 0 ? ` (${Number(Number(x.shares).toFixed(4)).toLocaleString()} หน่วย)` : ''}`;
+        const totalOf = (list) => list.reduce((t, x) => t + Number(x.amount || 0), 0);
+        const getText = (o) => {
+          const { buys, sells } = pick(o);
+          let t = `📋 ประวัติการซื้อ ${name}${accName ? ' (' + accName + ')' : ''}\n` + buys.map((b, i) => `${i + 1}. ${buyLine(b)}`).join('\n') + `\nรวมซื้อ ${buys.length} ครั้ง ${cur}${fmt(totalOf(buys))}`;
+          if (sells.length) t += `\n\n💸 ประวัติการขาย\n` + sells.map((x, i) => `${i + 1}. ${sellLine(x)}`).join('\n') + `\nรวมขาย ${cur}${fmt(totalOf(sells))}`;
+          return t;
+        };
+        return (
+          <LineSendSheet title={`ส่งประวัติการซื้อ ${name}`} onClose={() => setShowBuysLine(false)}
+            options={[{ key: 'recent', label: 'เฉพาะ 5 รายการล่าสุด', defaultOn: false }, { key: 'sells', label: 'รวมประวัติการขาย', defaultOn: false }]}
+            getText={getText}
+            onSendOA={(to, o) => {
+              const { buys, sells } = pick(o);
+              const CAP = 30;
+              const rows = buys.slice(0, CAP).map((b) => ({ label: formatDateDMY(b.date), value: `${cur}${fmt(b.amount)}${Number(b.shares) > 0 ? ` · ${Number(Number(b.shares).toFixed(2)).toLocaleString()} หน่วย` : ''}` }));
+              if (buys.length > CAP) rows.push({ label: '…', value: `และอีก ${buys.length - CAP} รายการ` });
+              rows.push({ label: 'รวมซื้อ', value: `${buys.length} ครั้ง · ${cur}${fmt(totalOf(buys))}` });
+              if (sells.length) { sells.slice(0, 10).forEach((x) => rows.push({ label: `ขาย ${formatDateDMY(x.date)}`, value: `${cur}${fmt(x.amount)}` })); rows.push({ label: 'รวมขาย', value: `${cur}${fmt(totalOf(sells))}` }); }
+              sendLineFlex(`ประวัติการซื้อ ${name} ${buys.length} รายการ`, buildFlexCard({ title: `📋 ประวัติการซื้อ ${name}`, rows, note: accName ? `บัญชี ${accName}` : undefined, tab: 'accounts' }), to);
+            }} />
+        );
+      })()}
       {editingBuy && (
         <EditModal title="แก้ไขรายการซื้อ" onClose={() => setEditingBuy(null)}
           initialValues={{ date: editingBuy.date, shares: editingBuy.shares, price: editingBuy.price, amount: editingBuy.amount }}
