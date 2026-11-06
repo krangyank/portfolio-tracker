@@ -9634,9 +9634,9 @@ const TIMELINE_TYPES = [
 ];
 function buildDogTimelineItems(dog) {
   const items = [];
-  (dog.imaging || []).forEach((r) => items.push({ date: r.date, label: r.type || 'Imaging', done: true, section: 'records', type: 'imaging', subLabel: r.label || '' }));
-  (dog.bloodTests || []).forEach((r) => items.push({ date: r.date, label: `ตรวจเลือด${r.type ? ' — ' + r.type : ''}`, done: true, section: 'records', type: 'blood', subLabel: r.label || '' }));
-  (dog.organExams || []).forEach((r) => items.push({ date: r.date, label: `ตรวจอวัยวะ — ${r.organ || ''}`, done: true, section: 'records', type: 'organ', subLabel: r.label || '' }));
+  (dog.imaging || []).forEach((r) => items.push({ date: r.date, label: r.type || 'Imaging', done: true, section: 'records', type: 'imaging', subLabel: r.label || '', name: r.type || 'Imaging' }));
+  (dog.bloodTests || []).forEach((r) => items.push({ date: r.date, label: `ตรวจเลือด${r.type ? ' — ' + r.type : ''}`, done: true, section: 'records', type: 'blood', subLabel: r.label || '', name: r.type || 'เลือด' }));
+  (dog.organExams || []).forEach((r) => items.push({ date: r.date, label: `ตรวจอวัยวะ — ${r.organ || ''}`, done: true, section: 'records', type: 'organ', subLabel: r.label || '', name: r.organ || 'อวัยวะ' }));
   (dog.appointments || []).forEach((a) => {
     const d = daysUntil(a.date);
     items.push({ date: a.date, label: `นัดหมาย${a.purpose ? ' — ' + a.purpose : ''}`, done: d === null || d < 0, section: 'appt', type: 'appt' });
@@ -9647,101 +9647,201 @@ function buildDogTimelineItems(dog) {
   return items.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// สรุปว่าแต่ละประเภทการตรวจ (ผลเลือด/อวัยวะ/Imaging แยกย่อยตามชนิด) ล่าสุดตรวจไปเมื่อไหร่ — เอาไว้เปิดดูตอนลูกป่วยว่าเช็คอะไรไปล่าสุดตอนไหน
+// ===== สรุปการตรวจล่าสุด (แบบช่องแยกกลุ่ม + สีบอกความสด) =====
+function shortThaiDate(d) {
+  if (!d) return '';
+  const [y, m, dd] = d.split('-').map(Number);
+  return `${dd} ${THAI_MONTH_SHORT[(m || 1) - 1]} ${(y || 0) + 543}`;
+}
+function agoLabel(dateStr) {
+  const days = -daysUntil(dateStr);
+  if (days <= 0) return 'วันนี้';
+  if (days < 30) return `${days} วันก่อน`;
+  const months = Math.floor(days / 30.44);
+  if (months < 12) return `${months} เดือนก่อน`;
+  const yrs = Math.floor(months / 12); const rem = months % 12;
+  return rem ? `${yrs} ปี ${rem} เดือนก่อน` : `${yrs} ปีก่อน`;
+}
+function freshTone(dateStr) {
+  const days = -daysUntil(dateStr);
+  if (days <= 92) return { c: GOOD, bg: '#E1F5E9' };
+  if (days <= 183) return { c: WARN, bg: '#FBF1DD' };
+  return { c: '#8A8579', bg: '#EEECE6' };
+}
 function DogLatestChecksSummary({ dog, setSection }) {
-  const latest = {};
-  (dog.bloodTests || []).forEach((r) => { const k = `🩸 ตรวจเลือด — ${r.type || 'ทั่วไป'}`; if (!latest[k] || latest[k] < r.date) latest[k] = r.date; });
-  (dog.organExams || []).forEach((r) => { const k = `🫁 ตรวจอวัยวะ — ${r.organ || 'ทั่วไป'}`; if (!latest[k] || latest[k] < r.date) latest[k] = r.date; });
-  (dog.imaging || []).forEach((r) => { const k = `🩻 ${r.type || 'Imaging'}`; if (!latest[k] || latest[k] < r.date) latest[k] = r.date; });
-  const rows = Object.entries(latest).sort((a, b) => a[0].localeCompare(b[0]));
-  if (rows.length === 0) return null;
+  const groups = [
+    { icon: '🩸', title: 'ตรวจเลือด', latest: {} },
+    { icon: '🫁', title: 'ตรวจอวัยวะ', latest: {} },
+    { icon: '🩻', title: 'ภาพถ่าย (Imaging)', latest: {} },
+  ];
+  (dog.bloodTests || []).forEach((r) => { const k = r.type || 'ทั่วไป'; if (!groups[0].latest[k] || groups[0].latest[k] < r.date) groups[0].latest[k] = r.date; });
+  (dog.organExams || []).forEach((r) => { const k = r.organ || 'ทั่วไป'; if (!groups[1].latest[k] || groups[1].latest[k] < r.date) groups[1].latest[k] = r.date; });
+  (dog.imaging || []).forEach((r) => { const k = r.type || 'Imaging'; if (!groups[2].latest[k] || groups[2].latest[k] < r.date) groups[2].latest[k] = r.date; });
+  const shown = groups.filter((g) => Object.keys(g.latest).length > 0);
+  if (shown.length === 0) return null;
   return (
     <Card>
-      <p className="text-xs mb-3" style={{ color: SLATE }}>สรุปการตรวจล่าสุดแยกตามประเภท</p>
-      {rows.map(([label, date], i) => (
-        <button key={label} onClick={() => setSection && setSection('records')} className="w-full flex justify-between items-center py-2 text-left" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', background: 'transparent' }}>
-          <span className="text-sm" style={{ color: INK }}>{label}</span>
-          <span className="text-xs" style={{ color: SLATE }}>{formatDateThai(date)}</span>
-        </button>
+      <div className="flex justify-between items-center mb-2">
+        <p className="text-sm font-bold" style={{ color: INK }}>ตรวจล่าสุด แยกตามประเภท</p>
+        <span className="text-[11px]" style={{ color: SLATE }}>แตะเพื่อดูผล ›</span>
+      </div>
+      <div className="flex gap-3 mb-1 text-[10.5px]" style={{ color: SLATE }}>
+        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: GOOD, marginRight: 4 }} />ไม่เกิน 3 เดือน</span>
+        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: WARN, marginRight: 4 }} />3–6 เดือน</span>
+        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#8A8579', marginRight: 4 }} />เกิน 6 เดือน</span>
+      </div>
+      {shown.map((g) => (
+        <div key={g.title}>
+          <p className="text-[11px] font-bold mt-3 mb-1.5 flex items-center gap-1.5" style={{ color: SLATE }}>{g.icon} {g.title}<span style={{ flex: 1, height: 1, background: BORDER }} /></p>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(g.latest).sort((a, b) => b[1].localeCompare(a[1]) || a[0].localeCompare(b[0])).map(([name, date]) => {
+              const t = freshTone(date);
+              return (
+                <button key={name} onClick={() => setSection && setSection('records')} className="text-left relative overflow-hidden" style={{ borderRadius: 14, padding: '10px 11px', border: `1px solid ${BORDER}`, background: '#FBFAF7' }}>
+                  <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: t.c }} />
+                  <p className="text-[12.5px] font-semibold" style={{ color: INK, paddingLeft: 4, lineHeight: 1.25 }}>{name}</p>
+                  <p className="text-[11px] mt-1" style={{ color: SLATE, paddingLeft: 4 }}>{shortThaiDate(date)}</p>
+                  <span className="text-[10.5px] font-bold" style={{ display: 'inline-block', marginTop: 5, marginLeft: 4, borderRadius: 99, padding: '1px 8px', background: t.bg, color: t.c }}>{agoLabel(date)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       ))}
     </Card>
   );
 }
 
+// ===== Timeline ประวัติสุขภาพ: กำลังจะมาถึง (นับถอยหลัง) + ที่ผ่านมา (รวมต่อวัน) + ค้นหา/กรอง =====
+const TL_TAG = {
+  blood: { label: 'เลือด', bg: '#FBE5E3', c: '#A83228' },
+  organ: { label: 'อวัยวะ', bg: '#E1F5E9', c: '#1F8A54' },
+  imaging: { label: 'Imaging', bg: '#E4EAF3', c: '#35547E' },
+  appt: { label: 'นัดหมาย', bg: '#E3EEF9', c: '#2B5C8A' },
+  insurance: { label: 'ประกัน', bg: '#EDE6F7', c: '#5B3E91' },
+};
 function DogHealthTimeline({ dog, setSection }) {
-  const [showAll, setShowAll] = useState(false);
   const [filterType, setFilterType] = useState('all');
+  const [query, setQuery] = useState('');
+  const [expandedDays, setExpandedDays] = useState({});
+  const [pastLimit, setPastLimit] = useState(5);
   const allItems = buildDogTimelineItems(dog);
-  const recent = allItems.slice(-8);
   if (allItems.length === 0) return null;
-
-  function renderList(items) {
-    const groupsByYear = {};
-    items.forEach((it) => { const y = it.date.slice(0, 4); if (!groupsByYear[y]) groupsByYear[y] = []; groupsByYear[y].push(it); });
-    const years = Object.keys(groupsByYear).sort().reverse();
-    return years.map((y) => {
-      // รวมรายการที่วันที่+ชื่อหัวข้อตรงกันเป๊ะๆ ติดกัน (เช่น "ตรวจเลือด — CBC" ซ้ำกันหลายรอบวันเดียว) เป็นแถวเดียว โชว์ป้ายสั้น (subLabel) ของแต่ละอันแทน กันแถวซ้ำยาวเป็นพรืด
-      const raw = [...groupsByYear[y]].reverse();
-      const grouped = [];
-      raw.forEach((it) => {
-        const last = grouped[grouped.length - 1];
-        if (last && last.date === it.date && last.label === it.label && last.type === it.type) last.items.push(it);
-        else grouped.push({ ...it, items: [it] });
-      });
-      return (
-        <div key={y} className="mb-3">
-          <p className="text-[11px] font-bold mb-2" style={{ color: SLATE }}>{y}</p>
-          {grouped.map((g, i) => (
-            <div key={i} className="flex gap-2.5">
-              <div className="flex flex-col items-center" style={{ flexShrink: 0 }}>
-                <div style={{ width: 22, height: 22, borderRadius: '50%', background: g.done ? '#E1F5E9' : '#FBF3E9', color: g.done ? GOOD : BRASS, fontSize: 11 }} className="flex items-center justify-center">{g.done ? '✅' : '⏰'}</div>
-                {i < grouped.length - 1 && <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 14 }} />}
-              </div>
-              <div className="pb-3.5 flex-1 min-w-0">
-                <button onClick={() => g.section && setSection && setSection(g.section)} className="w-full text-left" style={{ background: 'transparent' }}>
-                  <p className="text-[11px]" style={{ color: SLATE }}>{formatDateThai(g.date)}</p>
-                  <p className="text-sm font-semibold" style={{ color: INK }}>{g.label}{g.items.length > 1 && <span style={{ background: '#FBEAE7', color: '#A64B3D' }} className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ml-1.5">×{g.items.length} รายการ</span>}</p>
-                </button>
-                {g.items.length > 1 && (
-                  <div className="mt-1 flex flex-col gap-0.5">
-                    {g.items.filter((x) => x.subLabel).slice(0, 4).map((x, xi) => (
-                      <p key={xi} className="text-[11px]" style={{ color: x.subLabel.startsWith('⚠️') ? BAD : SLATE }}>• {x.subLabel}</p>
-                    ))}
-                    {g.items.filter((x) => x.subLabel).length > 4 && <p className="text-[11px]" style={{ color: SLATE }}>+ อีก {g.items.filter((x) => x.subLabel).length - 4} รายการ</p>}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+  const q = query.trim().toLowerCase();
+  const visible = allItems.filter((it) => (filterType === 'all' || it.type === filterType) && (!q || `${it.label} ${it.subLabel || ''} ${it.name || ''}`.toLowerCase().includes(q)));
+  const upcoming = visible.filter((it) => !it.done).sort((a, b) => a.date.localeCompare(b.date));
+  const pastDays = [];
+  [...visible.filter((it) => it.done)].sort((a, b) => b.date.localeCompare(a.date)).forEach((it) => {
+    const last = pastDays[pastDays.length - 1];
+    if (last && last.date === it.date) last.items.push(it); else pastDays.push({ date: it.date, items: [it] });
+  });
+  const countdown = (d) => {
+    const n = daysUntil(d);
+    if (n <= 0) return { big: 'วันนี้', small: '' };
+    if (n < 60) return { big: String(n), small: 'วัน' };
+    return { big: String(Math.round(n / 30.44)), small: 'เดือน' };
+  };
+  const Tag = ({ type, children }) => { const t = TL_TAG[type] || TL_TAG.appt; return <span className="text-[10px] font-bold" style={{ display: 'inline-block', borderRadius: 99, padding: '1px 7px', marginRight: 4, background: t.bg, color: t.c }}>{children || t.label}</span>; };
+  function renderDay(day) {
+    const [y, m, d] = day.date.split('-').map(Number);
+    const typeCounts = {};
+    day.items.forEach((it) => { typeCounts[it.type] = (typeCounts[it.type] || 0) + 1; });
+    const multi = day.items.length > 1;
+    const open = !!expandedDays[day.date];
+    const warnCount = day.items.filter((it) => (it.subLabel || '').startsWith('⚠️')).length;
+    const single = day.items[0];
+    return (
+      <div key={day.date} className="flex gap-2.5">
+        <div className="flex flex-col items-center" style={{ flexShrink: 0, width: 38 }}>
+          <div style={{ width: 38, textAlign: 'center', borderRadius: 10, background: PAPER_DIM, padding: '3px 0' }}>
+            <b className="block" style={{ fontSize: 15, lineHeight: 1.1, color: INK }}>{d}</b>
+            <span style={{ fontSize: 9, color: SLATE }}>{THAI_MONTH_SHORT[m - 1]} {String(y + 543).slice(2)}</span>
+          </div>
+          <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 10, marginTop: 3 }} />
         </div>
-      );
-    });
-  }
-
-  const filteredAll = filterType === 'all' ? allItems : allItems.filter((it) => it.type === filterType);
-
-  return (
-    <>
-      <Card>
-        <p className="text-xs mb-3" style={{ color: SLATE }}>Timeline ประวัติสุขภาพ</p>
-        {renderList(recent)}
-        <button onClick={() => setShowAll(true)} className="text-xs font-semibold mt-1" style={{ color: BRASS }}>ดูทั้งหมด ({allItems.length} รายการ)</button>
-      </Card>
-      {showAll && (
-        <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
-          <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-3"><p className="text-sm font-semibold">ประวัติสุขภาพทั้งหมด</p><button onClick={() => setShowAll(false)}><X size={20} color={INK} /></button></div>
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-              <button onClick={() => setFilterType('all')} style={{ background: filterType === 'all' ? BRASS : PAPER_DIM, color: filterType === 'all' ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs">ทั้งหมด</button>
-              {TIMELINE_TYPES.map((t) => (
-                <button key={t.key} onClick={() => setFilterType(t.key)} style={{ background: filterType === t.key ? BRASS : PAPER_DIM, color: filterType === t.key ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{t.icon} {t.label}</button>
-              ))}
-            </div>
-            {filteredAll.length === 0 ? <p className="text-xs" style={{ color: SLATE }}>ไม่มีรายการ</p> : renderList(filteredAll)}
+        <div className="flex-1 min-w-0 pb-3">
+          <div style={{ background: '#FBFAF7', border: `1px solid ${BORDER}`, borderLeft: multi ? `4px solid ${GOOD}` : `1px solid ${BORDER}`, borderRadius: 13, padding: '10px 12px' }}>
+            <button onClick={() => (multi ? setExpandedDays({ ...expandedDays, [day.date]: !open }) : (single.section && setSection && setSection(single.section)))} className="w-full text-left" style={{ background: 'transparent' }}>
+              <p className="text-[13px] font-semibold" style={{ color: INK, lineHeight: 1.3 }}>{multi ? `ตรวจหลายรายการวันเดียวกัน · ${day.items.length} รายการ` : single.label}</p>
+              <div className="flex flex-wrap mt-1.5 gap-y-1">
+                {Object.entries(typeCounts).map(([type, n]) => <Tag key={type} type={type}>{`${TL_TAG[type].label}${n > 1 ? ' ×' + n : ''}`}</Tag>)}
+                {warnCount > 0 && <span className="text-[10.5px] font-bold" style={{ borderRadius: 99, padding: '1px 8px', background: '#FDECE9', color: BAD }}>⚠️ ผิดปกติ {warnCount}</span>}
+              </div>
+              {multi && !open && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {day.items.slice(0, 5).map((it, i) => <span key={i} className="text-[10.5px]" style={{ borderRadius: 99, padding: '2px 8px', background: 'white', border: `1px solid ${BORDER}`, color: INK }}>{it.name || it.label}</span>)}
+                  {day.items.length > 5 && <span className="text-[10.5px]" style={{ color: SLATE, padding: '2px 4px' }}>+{day.items.length - 5}</span>}
+                </div>
+              )}
+              {!multi && single.subLabel && <p className="text-[11px] mt-1" style={{ color: single.subLabel.startsWith('⚠️') ? BAD : SLATE }}>{single.subLabel}</p>}
+            </button>
+            {multi && <button onClick={() => setExpandedDays({ ...expandedDays, [day.date]: !open })} className="text-[11.5px] font-bold mt-2" style={{ color: BRASS, background: 'transparent' }}>{open ? 'ซ่อนรายการ ▲' : `ดูทั้ง ${day.items.length} รายการ ▼`}</button>}
+            {multi && open && (
+              <div className="mt-2">
+                {day.items.map((it, i) => (
+                  <button key={i} onClick={() => it.section && setSection && setSection(it.section)} className="w-full text-left flex items-start gap-2 py-1.5" style={{ borderTop: `1px solid ${BORDER}`, background: 'transparent' }}>
+                    <Tag type={it.type} />
+                    <span className="flex-1 min-w-0"><span className="text-[12.5px] block" style={{ color: INK }}>{it.label}</span>{it.subLabel && <span className="text-[11px] block" style={{ color: it.subLabel.startsWith('⚠️') ? BAD : SLATE }}>{it.subLabel}</span>}</span>
+                    <ChevronRight size={14} color={SLATE} style={{ flexShrink: 0, marginTop: 3 }} />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+      </div>
+    );
+  }
+  const counts = { all: allItems.length };
+  TIMELINE_TYPES.forEach((t) => { counts[t.key] = allItems.filter((it) => it.type === t.key).length; });
+  let lastYear = '';
+  return (
+    <Card>
+      <div className="flex justify-between items-center mb-2">
+        <p className="text-sm font-bold" style={{ color: INK }}>ประวัติสุขภาพ</p>
+        <span className="text-[11px]" style={{ color: SLATE }}>{allItems.length} รายการ</span>
+      </div>
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔍 ค้นหา เช่น ตับ, ผิวหนัง, ประกัน…" className="w-full rounded-xl px-3 py-2 text-[13px] mb-2.5 outline-none" style={{ border: `1px solid ${BORDER}`, background: 'white' }} />
+      <div className="flex gap-1.5 overflow-x-auto mb-3 pb-0.5">
+        {[{ key: 'all', label: 'ทั้งหมด', icon: '' }, ...TIMELINE_TYPES].filter((t) => t.key === 'all' || counts[t.key] > 0).map((t) => (
+          <button key={t.key} onClick={() => setFilterType(t.key)} className="text-xs whitespace-nowrap" style={{ flexShrink: 0, borderRadius: 99, padding: '6px 12px', border: `1px solid ${filterType === t.key ? INK : BORDER}`, background: filterType === t.key ? INK : 'white', color: filterType === t.key ? 'white' : INK, fontWeight: filterType === t.key ? 700 : 400 }}>{t.icon ? t.icon + ' ' : ''}{t.label}<span style={{ opacity: 0.7, marginLeft: 3, fontSize: 10.5 }}>{counts[t.key]}</span></button>
+        ))}
+      </div>
+      {visible.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ไม่พบรายการที่ค้นหา</p>}
+      {upcoming.length > 0 && (
+        <>
+          <p className="text-[11px] font-bold mb-2 flex items-center gap-1.5" style={{ color: SLATE }}>⏰ กำลังจะมาถึง · เรียงจากใกล้สุด<span style={{ flex: 1, height: 1, background: BORDER }} /></p>
+          {upcoming.map((it, i) => {
+            const c = countdown(it.date); const soon = daysUntil(it.date) <= 3;
+            return (
+              <button key={i} onClick={() => it.section && setSection && setSection(it.section)} className="w-full text-left flex items-center gap-2.5 mb-2" style={{ borderRadius: 14, padding: '11px 12px', background: soon ? '#FDECE9' : '#FBF3E9', border: `1px solid ${soon ? '#F3C4BC' : '#F0DDB8'}` }}>
+                <span className="text-center" style={{ width: 52, flexShrink: 0, borderRadius: 12, background: 'white', padding: '5px 0', border: '1px solid rgba(0,0,0,.06)' }}>
+                  <b className="block" style={{ fontSize: c.small ? 19 : 14, lineHeight: 1.2, color: soon ? BAD : BRASS }}>{c.big}</b>
+                  {c.small && <span style={{ fontSize: 9.5, color: SLATE }}>{c.small}</span>}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="text-[13.5px] font-semibold block" style={{ color: INK, lineHeight: 1.3 }}>{it.label.replace(/^นัดหมาย — /, '')}</span>
+                  <span className="text-[11px] block mt-0.5" style={{ color: SLATE }}><Tag type={it.type} />{shortThaiDate(it.date)}</span>
+                </span>
+                <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+              </button>
+            );
+          })}
+        </>
       )}
-    </>
+      {pastDays.length > 0 && (
+        <>
+          <p className="text-[11px] font-bold mt-3 mb-1 flex items-center gap-1.5" style={{ color: SLATE }}>✅ ที่ผ่านมา · ล่าสุดก่อน<span style={{ flex: 1, height: 1, background: BORDER }} /></p>
+          {pastDays.slice(0, pastLimit).map((day) => {
+            const y = String(Number(day.date.slice(0, 4)) + 543);
+            const header = y !== lastYear ? <p key={'y' + day.date} className="text-[11px] font-bold mt-2 mb-1.5" style={{ color: SLATE }}>{y}</p> : null;
+            lastYear = y;
+            return <React.Fragment key={day.date}>{header}{renderDay(day)}</React.Fragment>;
+          })}
+          {pastDays.length > pastLimit && <button onClick={() => setPastLimit(pastLimit + 10)} className="w-full text-[12.5px] font-bold rounded-xl py-2.5 mt-1" style={{ background: PAPER_DIM, color: INK }}>ดูย้อนหลังเพิ่ม ({pastDays.length - pastLimit} วันที่เหลือ)</button>}
+        </>
+      )}
+    </Card>
   );
 }
 
