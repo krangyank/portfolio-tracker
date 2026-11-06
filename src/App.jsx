@@ -7539,12 +7539,12 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
       {dog && (
         <>
         <button onClick={() => setSelectedId(null)} className="flex items-center gap-1 text-xs font-semibold mb-3" style={{ color: BRASS }}>‹ ภาพรวมทุกตัว</button>
-        <Card>
+        <div style={{ background: 'linear-gradient(135deg, #FBF3E1 0%, #F3E7CC 100%)', border: `1px solid #EBDDB8`, borderRadius: 20, padding: 16, marginBottom: 12 }}>
           <input ref={photoFileRef} type="file" accept="image/*" onChange={handlePhotoFile} className="hidden" />
           <div className="flex items-center gap-4">
             <button onClick={() => photoFileRef.current && photoFileRef.current.click()} className="relative flex-shrink-0">
               {dog.photoUrl ? (
-                <img src={dog.photoUrl} alt={dog.name} className="w-18 h-18 rounded-full object-cover" style={{ width: 72, height: 72 }} />
+                <img src={dog.photoUrl} alt={dog.name} className="w-18 h-18 rounded-full object-cover" style={{ width: 76, height: 76, border: '3px solid white', boxShadow: '0 2px 8px rgba(0,0,0,.12)' }} />
               ) : (
                 <div style={{ background: PAPER_DIM, color: SLATE }} className="rounded-full flex items-center justify-center" style={{ width: 72, height: 72 }}>
                   {photoUploading ? <Loader2 size={22} className="animate-spin" /> : <Dog size={28} />}
@@ -7555,8 +7555,13 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
               </div>
             </button>
             <div className="flex-1">
-              <p className="text-lg font-bold" style={{ color: INK }}>{dog.name}</p>
+              <p className="text-xl font-bold" style={{ color: INK, lineHeight: 1.2 }}>{dog.name}</p>
               <p className="text-xs" style={{ color: SLATE }}>{dog.breed || 'ยังไม่ระบุพันธุ์'}</p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {dog.birthdate && <span className="text-[11px] font-semibold" style={{ background: 'rgba(255,255,255,.75)', borderRadius: 99, padding: '2px 9px', color: INK }}>🎂 {ageString(dog.birthdate)}</span>}
+                {dog.sex && <span className="text-[11px] font-semibold" style={{ background: 'rgba(255,255,255,.75)', borderRadius: 99, padding: '2px 9px', color: INK }}>{dog.sex}</span>}
+                {(dog.insurance && dog.insurance.endDate && daysUntil(dog.insurance.endDate) >= 0) && <span className="text-[11px] font-semibold" style={{ background: '#EDE6F7', borderRadius: 99, padding: '2px 9px', color: '#5B3E91' }}>🛡️ มีประกัน</span>}
+              </div>
             </div>
             <div className="flex flex-col items-center gap-1 flex-shrink-0" title={dog.lineGroupId ? 'ผูก LINE กลุ่มเฉพาะตัวแล้ว' : 'ยังไม่ผูก LINE กลุ่มเฉพาะตัว'}>
               <div style={{ background: dog.lineGroupId ? '#16A34A14' : PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center">
@@ -7565,16 +7570,16 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
               <span className="text-[9px]" style={{ color: dog.lineGroupId ? GOOD : '#9CA3AF' }}>{dog.lineGroupId ? 'ผูกแล้ว' : 'ยังไม่ผูก'}</span>
             </div>
           </div>
-        </Card>
+        </div>
 
       <div className="grid grid-cols-5 gap-2 mb-4">
         {sections.map((s) => {
           const Icon = s.icon;
           const active = section === s.id;
           return (
-            <button key={s.id} onClick={() => setSection(s.id)} className="flex flex-col items-center gap-1 py-2 rounded-xl" style={{ background: active ? BRASS : PAPER_DIM }}>
-              <Icon size={17} color={active ? 'white' : SLATE} />
-              <span style={{ color: active ? 'white' : SLATE, fontWeight: active ? 600 : 400 }} className="text-[9.5px] leading-tight text-center px-0.5">{s.label}</span>
+            <button key={s.id} onClick={() => setSection(s.id)} className="flex flex-col items-center gap-1 py-2.5 rounded-2xl" style={{ background: active ? INK : 'white', border: `1px solid ${active ? INK : BORDER}`, boxShadow: active ? '0 3px 8px rgba(28,32,41,.25)' : 'none' }}>
+              <Icon size={18} color={active ? '#E9C877' : BRASS} />
+              <span style={{ color: active ? 'white' : INK, fontWeight: active ? 700 : 500 }} className="text-[9.5px] leading-tight text-center px-0.5">{s.label}</span>
             </button>
           );
         })}
@@ -9537,50 +9542,80 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
   const nextFleaDue = ft.lastGivenDate ? (() => { const d = new Date(ft.lastGivenDate); d.setDate(d.getDate() + Number(ft.intervalDays || 84)); return d.toISOString().slice(0, 10); })() : null;
   const insights = computeDogInsights(dog);
 
+  const dueChip = (dateStr, pastLabel) => {
+    const n = daysUntil(dateStr);
+    if (n === null) return null;
+    if (n < 0) return { text: `${pastLabel || 'เลยมา'} ${-n} วัน`, bg: '#FDECE9', c: BAD };
+    if (n === 0) return { text: 'วันนี้', bg: '#FDECE9', c: BAD };
+    if (n <= 7) return { text: `อีก ${n} วัน`, bg: '#FBF1DD', c: WARN };
+    if (n < 60) return { text: `อีก ${n} วัน`, bg: '#EEECE6', c: SLATE };
+    return { text: `อีก ${Math.round(n / 30.44)} เดือน`, bg: '#EEECE6', c: SLATE };
+  };
+  const quickRow = (icon, tint, label, value, chip, sectionId, last) => (
+    <button key={label} onClick={() => setSection && setSection(sectionId)} className="w-full flex items-center gap-3 py-2.5 text-left" style={{ borderBottom: last ? 'none' : `1px solid ${BORDER}`, background: 'transparent' }}>
+      <span style={{ width: 34, height: 34, borderRadius: 11, background: tint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>{icon}</span>
+      <span className="flex-1 min-w-0">
+        <span className="text-[11px] block" style={{ color: SLATE }}>{label}</span>
+        <span className="text-[13.5px] font-semibold block" style={{ color: INK, lineHeight: 1.3 }}>{value}</span>
+      </span>
+      {chip && <span className="text-[10.5px] font-bold flex-shrink-0" style={{ borderRadius: 99, padding: '2px 9px', background: chip.bg, color: chip.c }}>{chip.text}</span>}
+      <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+    </button>
+  );
+  const [showNotes, setShowNotes] = useState(false);
+
   return (
     <div>
-      <Card>
-        <p className="text-lg font-semibold mb-1">{dog.name}{dog.nickname && ` (${dog.nickname})`}</p>
-        <div className="grid grid-cols-2 gap-2">
-          <StatBox label="อายุ" value={ageString(dog.birthdate)} />
-          <WeightStatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} trendValues={recentWeights.length >= 2 ? recentWeights : null} trendColor={weightDelta < 0 ? BAD : weightDelta > 0 ? GOOD : SLATE} onClick={() => setSection('weight')} />
-          <StatBox label="BCS" value={dog.bcs || '-'} />
-          <StatBox label="เพศ/สี" value={`${dog.sex || '-'} / ${dog.color || '-'}`} />
-        </div>
-      </Card>
-      {dog.aiHealthInsight && dog.aiHealthInsight.text && (
+      {insights.length > 0 && (
         <Card>
-          <p className="text-xs font-bold mb-2 flex items-center gap-1.5" style={{ color: BRASS }}>🤖 AI วิเคราะห์สุขภาพ</p>
-          {dog.aiHealthInsight.text.split('\n').filter((line) => line.trim()).map((line, i) => (
-            <p key={i} className="text-sm mb-1" style={{ color: INK }}>{line.replace(/^[•\-*]\s*/, '• ')}</p>
-          ))}
-          <p className="text-[10px] mt-2" style={{ color: SLATE }}>⚠️ เป็นการสรุปเบื้องต้นจากข้อมูลที่บันทึกไว้ ไม่ใช่คำวินิจฉัยทางการแพทย์ ควรปรึกษาสัตวแพทย์เสมอ</p>
+          <p className="text-sm font-bold mb-2" style={{ color: INK }}>🔔 ข้อสังเกต / แจ้งเตือน</p>
+          {insights.map((it, i) => <InsightRow key={i} tone={it.tone} text={it.text} onClick={it.section ? () => setSection && setSection(it.section) : undefined} />)}
         </Card>
       )}
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <StatBox label="อายุ" value={ageString(dog.birthdate)} />
+        <WeightStatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} trendValues={recentWeights.length >= 2 ? recentWeights : null} trendColor={weightDelta < 0 ? BAD : weightDelta > 0 ? GOOD : SLATE} onClick={() => setSection('weight')} />
+        <StatBox label="BCS" value={dog.bcs || '-'} />
+        <StatBox label="เพศ/สี" value={`${dog.sex || '-'} / ${dog.color || '-'}`} />
+      </div>
+      {dog.aiHealthInsight && dog.aiHealthInsight.text && (
+        <div style={{ background: 'linear-gradient(135deg, #F6F1FB 0%, #FBF6EA 100%)', border: '1px solid #E6DCF2', borderRadius: 18, padding: 14, marginBottom: 12 }}>
+          <p className="text-sm font-bold mb-2 flex items-center gap-1.5" style={{ color: '#5B3E91' }}>✨ AI วิเคราะห์สุขภาพ <span className="text-[10px] font-semibold" style={{ background: 'white', borderRadius: 99, padding: '1px 8px', color: SLATE }}>อัปเดตวันนี้</span></p>
+          {dog.aiHealthInsight.text.split('\n').filter((line) => line.trim()).map((line, i) => (
+            <p key={i} className="text-[13px] mb-1.5" style={{ color: INK, lineHeight: 1.5, background: 'rgba(255,255,255,.7)', borderRadius: 11, padding: '8px 10px' }}>{line.replace(/^[•\-*]\s*/, '')}</p>
+          ))}
+          <p className="text-[10px] mt-2" style={{ color: SLATE }}>⚠️ เป็นการสรุปเบื้องต้นจากข้อมูลที่บันทึกไว้ ไม่ใช่คำวินิจฉัยทางการแพทย์ ควรปรึกษาสัตวแพทย์เสมอ</p>
+        </div>
+      )}
       <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>สรุปสำคัญ</p>
-        <p className="text-sm mb-1">โรคประจำตัว: {dog.chronicDiseases || 'ไม่มี'}</p>
-        <p className="text-sm mb-1">แพ้ยา: {dog.drugAllergies || 'ไม่มี'}</p>
-        <p className="text-sm mb-1">ยาที่กำลังกิน: {activeMeds.length > 0 ? activeMeds.map((m) => m.name).join(', ') : 'ไม่มี'}</p>
-        <button onClick={() => setSection && setSection('vetvisits')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">ไปหาหมอล่าสุด: {lastVetVisit ? `${formatDateThai(lastVetVisit.date)} - ${lastVetVisit.reason || '-'}` : 'ยังไม่มีบันทึก'}</span>
-          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+        <p className="text-sm font-bold mb-2.5" style={{ color: INK }}>สรุปสำคัญ</p>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div style={{ background: '#FBFAF7', border: `1px solid ${BORDER}`, borderRadius: 13, padding: '9px 11px' }}><p className="text-[10.5px]" style={{ color: SLATE }}>โรคประจำตัว</p><p className="text-[13px] font-semibold" style={{ color: dog.chronicDiseases ? WARN : INK }}>{dog.chronicDiseases || 'ไม่มี'}</p></div>
+          <div style={{ background: dog.drugAllergies ? '#FDECE9' : '#FBFAF7', border: `1px solid ${dog.drugAllergies ? '#F3C4BC' : BORDER}`, borderRadius: 13, padding: '9px 11px' }}><p className="text-[10.5px]" style={{ color: SLATE }}>แพ้ยา</p><p className="text-[13px] font-semibold" style={{ color: dog.drugAllergies ? BAD : INK }}>{dog.drugAllergies || 'ไม่มี'}</p></div>
+        </div>
+        <button onClick={() => setSection && setSection('meds')} className="w-full text-left mb-1" style={{ background: '#F1F6F2', border: '1px solid #D7E7DB', borderRadius: 13, padding: '9px 11px' }}>
+          <p className="text-[10.5px] mb-1" style={{ color: SLATE }}>💊 ยาที่กำลังกิน {activeMeds.length > 0 ? `(${activeMeds.length} ตัว)` : ''}</p>
+          {activeMeds.length > 0 ? <div className="flex flex-wrap gap-1.5">{activeMeds.map((m) => <span key={m.id || m.name} className="text-[11.5px] font-semibold" style={{ background: 'white', border: '1px solid #D7E7DB', borderRadius: 99, padding: '2px 9px', color: GOOD }}>{m.name}</span>)}</div> : <p className="text-[13px] font-semibold" style={{ color: INK }}>ไม่มี</p>}
         </button>
-        <button onClick={() => setSection && setSection('appt')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">นัดถัดไป: {nextAppt ? `${formatDateThai(nextAppt.date)} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</span>
-          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-        </button>
-        <button onClick={() => setSection && setSection('flea')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue ? formatDateThai(nextFleaDue) : 'ยังไม่ได้ตั้งค่า'}</span>
-          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-        </button>
-        <button onClick={() => setSection && setSection('insurance')} className="flex items-center justify-between w-full text-left" style={{ background: 'transparent' }}>
-          <span className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate ? formatDateThai(dog.insurance.endDate) : 'ไม่มี'}</span>
-          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-        </button>
+        {quickRow('🩺', '#E8F0F8', 'ไปหาหมอล่าสุด', lastVetVisit ? `${formatDateThai(lastVetVisit.date)} · ${lastVetVisit.reason || '-'}` : 'ยังไม่มีบันทึก', lastVetVisit ? { text: agoLabel(lastVetVisit.date), bg: '#EEECE6', c: SLATE } : null, 'vetvisits')}
+        {quickRow('📅', '#FBF1DD', 'นัดถัดไป', nextAppt ? `${formatDateThai(nextAppt.date)} · ${nextAppt.hospital || '-'}` : 'ไม่มี', nextAppt ? dueChip(nextAppt.date) : null, 'appt')}
+        {quickRow('🐛', '#E1F5E9', 'ยาเห็บหมัดครั้งถัดไป', nextFleaDue ? formatDateThai(nextFleaDue) : 'ยังไม่ได้ตั้งค่า', nextFleaDue ? dueChip(nextFleaDue, 'เลยกำหนด') : null, 'flea')}
+        {quickRow('🛡️', '#EDE6F7', 'ประกันหมดอายุ', dog.insurance?.endDate ? formatDateThai(dog.insurance.endDate) : 'ไม่มี', dog.insurance?.endDate ? dueChip(dog.insurance.endDate, 'หมดมา') : null, 'insurance', true)}
       </Card>
       <Card>
-        <p className="text-xs mb-3" style={{ color: SLATE }}>ประวัติการตรวจสุขภาพ</p>
+        <p className="text-sm font-bold mb-2" style={{ color: INK }}>💰 ค่าใช้จ่าย</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatBox label="ปีนี้" value={`฿${fmt(expensesThisYear)}`} />
+          <StatBox label="ตลอดชีวิต" value={`฿${fmt(expensesLifetime)}`} />
+        </div>
+      </Card>
+      <DogLatestChecksSummary dog={dog} setSection={setSection} />
+      <Card>
+        <button onClick={() => setShowNotes(!showNotes)} className="w-full flex items-center justify-between text-left" style={{ background: 'transparent' }}>
+          <span className="text-sm font-bold" style={{ color: INK }}>📝 บันทึกจากผลตรวจล่าสุด</span>
+          <span className="text-[11.5px] font-bold" style={{ color: BRASS }}>{showNotes ? 'ซ่อน ▲' : 'ดูโน้ตหมอ ▼'}</span>
+        </button>
+        {showNotes && <div className="mt-3">
         {(() => {
           const bloodTests = dog.bloodTests || [];
           const organExams = dog.organExams || [];
@@ -9606,19 +9641,8 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
             </button>
           ));
         })()}
+      </div>}
       </Card>
-      <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>ค่าใช้จ่าย</p>
-        <div className="grid grid-cols-2 gap-2">
-          <StatBox label="ปีนี้" value={`฿${fmt(expensesThisYear)}`} />
-          <StatBox label="ตลอดชีวิต" value={`฿${fmt(expensesLifetime)}`} />
-        </div>
-      </Card>
-      <Card>
-        <p className="text-xs mb-3" style={{ color: SLATE }}>ข้อสังเกต/แจ้งเตือน</p>
-        {insights.map((it, i) => <InsightRow key={i} tone={it.tone} text={it.text} onClick={it.section ? () => setSection && setSection(it.section) : undefined} />)}
-      </Card>
-      <DogLatestChecksSummary dog={dog} setSection={setSection} />
       <DogHealthTimeline dog={dog} setSection={setSection} />
     </div>
   );
