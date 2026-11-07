@@ -16,7 +16,7 @@ const DIVIDEND_SOURCES = ['coop_div', 'thai_div', 'us_div', 'yieldtech'];
 const AI_MODEL = 'claude-haiku-4-5-20251001';
 const MANUAL_CACHE_HOURS = 6;
 const STALE_DAYS = 30;
-const AI_MAX_SYMBOLS = 8;
+const AI_MAX_SYMBOLS = 10;
 
 function getDb() {
   if (getApps().length === 0) initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
@@ -44,10 +44,17 @@ function isStale(it, today) {
 }
 
 // ---------- 1) Yahoo Finance ----------
-async function yahooDividends(yahooSymbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=3y&interval=1mo&events=div`;
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PaotungBot/1.0)', Accept: 'application/json' } });
-  if (!r.ok) return null;
+async function yahooDividends(yahooSymbol, dbg) {
+  let r = null;
+  for (const host of ['query1', 'query2']) {
+    const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=3y&interval=1mo&events=div`;
+    try {
+      r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', Accept: 'application/json' } });
+      if (dbg) dbg.push(`${yahooSymbol}@${host}:${r.status}`);
+      if (r.ok) break;
+    } catch (e) { if (dbg) dbg.push(`${yahooSymbol}@${host}:ERR ${e.message}`); r = null; }
+  }
+  if (!r || !r.ok) return null;
   const j = await r.json();
   const result = j && j.chart && j.chart.result && j.chart.result[0];
   if (!result) return null;
@@ -78,11 +85,11 @@ function predictFromHistory(list, today) {
   return { exDate: next, amount: last.amount, kind: 'estimate' };
 }
 
-async function fromYahoo(symbol, today) {
+async function fromYahoo(symbol, today, dbg) {
   const candidates = /^[A-Z0-9&-]+$/.test(symbol) ? [`${symbol}.BK`, symbol] : [symbol];
   for (const c of candidates) {
     try {
-      const d = await yahooDividends(c);
+      const d = await yahooDividends(c, dbg);
       if (!d || d.list.length === 0) continue;
       if (c.endsWith('.BK') && d.currency && d.currency !== 'THB') continue;
       const p = predictFromHistory(d.list, today);
@@ -102,7 +109,7 @@ async function fromAI(symbols, today) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 1500, messages: [{ role: 'user', content: prompt }], tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }] }),
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 1500, messages: [{ role: 'user', content: prompt }], tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] }),
     });
     const data = await r.json();
     const text = (data.content || []).map((c) => c.text || '').join('\n').replace(/```json|```/g, '');
@@ -129,6 +136,8 @@ export default async function handler(req, res) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
+  // ?manual=1&force=1&key=<CRON_SECRET> ใช้ทดสอบ: ข้ามการแคช 6 ชม.
+  const forced = manual && req.query.force === '1' && !!process.env.CRON_SECRET && req.query.key === process.env.CRON_SECRET;
   try {
     const db = getDb();
     const docRef = db.collection(FIRESTORE_PATH[0]).doc(FIRESTORE_PATH[1]).collection(FIRESTORE_PATH[2]).doc(FIRESTORE_PATH[3]);
@@ -142,7 +151,7 @@ export default async function handler(req, res) {
     const today = todayStr();
 
     // ปุ่มรีเฟรชในแอป: ถ้าเพิ่งอัพเดตไม่เกิน 6 ชม. ส่งของเดิมกลับ ไม่ดึงใหม่ (กันกดรัว)
-    if (manual && old.fetchedAt && Date.now() - new Date(old.fetchedAt).getTime() < MANUAL_CACHE_HOURS * 3600000) {
+    if (manual && !forced && old.fetchedAt && Date.now() - new Date(old.fetchedAt).getTime() < MANUAL_CACHE_HOURS * 3600000) {
       res.status(200).json({ ok: true, cached: true, items: old.items || [], fetchedAt: old.fetchedAt });
       return;
     }
@@ -161,15 +170,19 @@ export default async function handler(req, res) {
     if (symbols.length === 0) { res.status(200).json({ ok: true, items: [], message: 'ไม่มีหุ้นที่ถืออยู่' }); return; }
 
     const fresh = [];
+    const debug = [];
     const noYahoo = [];
     for (const s of symbols) {
-      const y = await fromYahoo(s, today);
+      const y = await fromYahoo(s, today, debug);
       if (y.item) fresh.push(y.item);
       else if (!y.found) noYahoo.push(s);
     }
-    const aiTargets = noYahoo.filter((s) => payers.has(s)).slice(0, AI_MAX_SYMBOLS);
+    // Yahoo มักไม่มีวัน XD ที่ "ประกาศล่วงหน้า" ของหุ้น/REIT ไทย → ถามเว็บเสิร์ชสำหรับตัวที่ยังไม่มีรอบ "ประกาศแล้ว"
+    // (เรียกครั้งเดียว/สัปดาห์ด้วย Haiku จึงถูกมาก) เรียงตัวที่เคยจ่ายปันผลก่อน
+    const announced = new Set(fresh.filter((f) => f.kind === 'announced').map((f) => f.symbol));
+    const aiTargets = symbols.filter((s) => !announced.has(s)).sort((a, b) => (payers.has(b) ? 1 : 0) - (payers.has(a) ? 1 : 0)).slice(0, AI_MAX_SYMBOLS);
     const aiItems = await fromAI(aiTargets, today);
-    aiItems.forEach((it) => { if (!fresh.some((f) => f.symbol === it.symbol)) fresh.push(it); });
+    aiItems.forEach((it) => { const i = fresh.findIndex((f) => f.symbol === it.symbol); if (i === -1) fresh.push(it); else if (fresh[i].kind === 'estimate') fresh[i] = it; });
 
     // รวมกับของเดิม: ใช้ของใหม่ก่อน, ของเดิมเก็บไว้เฉพาะที่ยังไม่เก่า และไม่มีรอบใหม่ของตัวเดียวกัน
     const oldItems = (old.items || []).filter((o) => !isStale(o, today));
@@ -188,11 +201,11 @@ export default async function handler(req, res) {
     const notify = fresh.filter((it) => it.kind !== 'estimate' && it.exDate >= today && isNew(it));
     if (notify.length > 0) {
       const lines = notify.map((it) => `• ${it.symbol}: XD ${formatDateDMY(it.exDate)}${it.payDate ? ` · จ่าย ${formatDateDMY(it.payDate)}` : ''}`).join('\n');
-      await sendLineNotify(`📅 พบวัน XD ใหม่ที่ประกาศแล้ว:\n${lines}\n\nเข้าแอป > ข่าว > ปฏิทินปันผล เพื่อตั้งเตือนในปฏิทิน`);
+      await sendLineNotify(`📅 พบวัน XD ใหม่ (เช็คซ้ำกับประกาศทางการก่อนนะ):\n${lines}\n\nเข้าแอป > ข่าว > ปฏิทินปันผล เพื่อตั้งเตือนในปฏิทิน`);
     }
 
     const foundSet = new Set(merged.map((m) => m.symbol));
-    res.status(200).json({ ok: true, cached: false, items: merged, fetchedAt, missing: symbols.filter((s) => !foundSet.has(s)), stats: { symbols: symbols.length, yahoo: fresh.filter((f) => f.kind !== 'ai').length, ai: aiItems.length, notified: notify.length } });
+    res.status(200).json({ ok: true, cached: false, items: merged, fetchedAt, missing: symbols.filter((s) => !foundSet.has(s)), debug, stats: { symbols: symbols.length, yahoo: fresh.filter((f) => f.kind !== 'ai').length, ai: aiItems.length, notified: notify.length } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
