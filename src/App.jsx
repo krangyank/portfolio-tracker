@@ -680,6 +680,8 @@ export default function App() {
   const [state, setState] = useState(null);
   const appliedLastTabRef = useRef(false);
   const stateRef = useRef(null);
+  const [startupAck, setStartupAck] = useState(false);
+  const [startupSkip, setStartupSkip] = useState({});
   const [tab, setTab] = useState(() => {
     if (typeof window === 'undefined') return 'dashboard';
     const path = window.location.pathname;
@@ -1177,6 +1179,77 @@ export default function App() {
     }
     return null;
   }, [tab, dogs, properties, creditCards, contributions, accounts, vehicles]);
+  // ===== ป๊อปอัพแจ้งเตือนสำคัญตอนเปิดแอป — รวมเรื่องด่วนทุกหมวดไว้ในกล่องเดียว ต้องกด "รับทราบ" ก่อนถึงข้ามได้ =====
+  const startupAlerts = useMemo(() => {
+    if (!state || !sharedState) return [];
+    const out = [];
+    const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+    const dayDiff = (y, m, d) => Math.round((new Date(y, m, d) - today0) / 86400000);
+    const dayDiffStr = (str) => { if (!str) return null; const [y, m, d] = String(str).slice(0, 10).split('-').map(Number); if (!y) return null; return dayDiff(y, m - 1, d); };
+    const when = (n) => (n < 0 ? `เลยมา ${-n} วัน` : n === 0 ? 'วันนี้' : n === 1 ? 'พรุ่งนี้' : `อีก ${n} วัน`);
+    const toneOf = (n) => (n <= 0 ? 'bad' : n <= 1 ? 'bad' : 'warn');
+    // นัดหมายของลูกๆ (วันนี้ - 3 วันข้างหน้า)
+    (dogs || []).forEach((d) => (d.appointments || []).forEach((a) => {
+      const n = dayDiffStr(a.date); if (n === null || n < 0 || n > 3) return;
+      out.push({ key: `appt|${d.id}|${a.id || a.date + (a.purpose || '')}`, n, tone: toneOf(n), icon: '🐶', title: `${d.name} มีนัด${a.purpose ? ` "${a.purpose}"` : ''}`, sub: `${when(n)} · ${formatDateThai(a.date)}${a.hospital ? ' · ' + a.hospital : ''}`, tab: 'pets' });
+    }));
+    // ยาเห็บหมัด / ประกันของลูกๆ
+    (dogs || []).forEach((d) => {
+      const ft = d.fleaTick || {};
+      if (ft.lastGivenDate) {
+        const due = new Date(ft.lastGivenDate); due.setDate(due.getDate() + Number(ft.intervalDays || 84));
+        const n = dayDiff(due.getFullYear(), due.getMonth(), due.getDate());
+        if (n <= 3) out.push({ key: `flea|${d.id}|${ft.lastGivenDate}`, n, tone: toneOf(n), icon: '🐛', title: `${d.name} ถึงกำหนดยาเห็บหมัด`, sub: when(n), tab: 'pets' });
+      }
+      if (d.insurance && d.insurance.endDate) {
+        const n = dayDiffStr(d.insurance.endDate);
+        if (n !== null && n >= -30 && n <= 14) out.push({ key: `dins|${d.id}|${d.insurance.endDate}`, n, tone: toneOf(n), icon: '🛡️', title: `ประกันของ ${d.name} ${n < 0 ? 'หมดอายุแล้ว' : 'ใกล้หมดอายุ'}`, sub: when(n), tab: 'pets' });
+      }
+    });
+    // ค่าเช่า / ครบสัญญา
+    const ym = thisMonth();
+    (properties || []).forEach((p) => {
+      if (p.status === 'occupied' && p.rentDueDay) {
+        const pay = (p.payments || {})[ym];
+        if (!(pay && pay.paid)) {
+          const t = new Date(); const n = dayDiff(t.getFullYear(), t.getMonth(), Number(p.rentDueDay));
+          if (n <= 3) out.push({ key: `rent|${p.id}|${ym}`, n, tone: n <= 0 ? 'bad' : toneOf(n), icon: '🏠', title: `${n < 0 ? 'ค้างชำระค่าเช่า' : 'ถึงกำหนดค่าเช่า'} ${p.name}`, sub: `฿${fmt(p.rent)} · ${when(n)}`, tab: 'realestate' });
+        }
+      }
+      if (p.contractEndDate) {
+        const n = dayDiffStr(p.contractEndDate);
+        if (n !== null && n >= 0 && n <= 30) out.push({ key: `contract|${p.id}|${p.contractEndDate}`, n, tone: n <= 7 ? 'bad' : 'warn', icon: '📑', title: `${p.name} ใกล้ครบสัญญาเช่า`, sub: `${when(n)} · ${formatDateThai(p.contractEndDate)}`, tab: 'realestate' });
+      }
+    });
+    // บัตรเครดิตครบกำหนดจ่าย
+    (creditCards || []).forEach((c) => {
+      const t = new Date(); const n = dayDiff(t.getFullYear(), t.getMonth(), Number(c.dueDay || 15));
+      if (n >= 0 && n <= 3) out.push({ key: `card|${c.id || c.cardName}|${ym}`, n, tone: toneOf(n), icon: '💳', title: `บัตร ${c.cardName || c.bankName || ''} ครบกำหนดจ่าย`, sub: when(n), tab: 'expenses' });
+    });
+    // รถ: ภาษี / พ.ร.บ. / ประกัน
+    (vehicles || []).forEach((v) => ['tax', 'compulsory', 'insurance'].forEach((k) => {
+      const it = v[k]; if (!it || !it.expiryDate) return;
+      const n = dayDiffStr(it.expiryDate);
+      if (n !== null && n <= 14) out.push({ key: `veh|${v.id || v.name}|${k}|${it.expiryDate}`, n, tone: n <= 7 ? 'bad' : 'warn', icon: '🚗', title: `${v.name} — ${VEHICLE_ITEM_LABELS[k]} ${n < 0 ? 'หมดอายุแล้ว' : 'ใกล้หมดอายุ'}`, sub: when(n), tab: 'vehicles' });
+    }));
+    const dismissed = (state && state.dismissedAlerts) || {};
+    return out.filter((a) => !dismissed[a.key]).sort((a, b) => a.n - b.n);
+  }, [state, sharedState, dogs, properties, creditCards, vehicles]);
+  const showStartupAlerts = !startupAck && startupAlerts.length > 0;
+  // ปิดป๊อปอัพ — เรื่องที่ติ๊ก "ไม่ต้องเตือนซ้ำ" จะถูกจำไว้ (ผูกกับรอบนั้นๆ เช่นค่าเช่าเดือนนี้/นัดครั้งนั้น พอถึงรอบใหม่จะเตือนใหม่เอง)
+  function closeStartupAlerts() {
+    const keys = Object.keys(startupSkip).filter((k) => startupSkip[k]);
+    if (keys.length > 0 && state) {
+      const nowStr = new Date().toISOString().slice(0, 10);
+      const old = state.dismissedAlerts || {};
+      const kept = {};
+      Object.keys(old).forEach((k) => { if (daysUntil(old[k]) !== null && daysUntil(old[k]) > -120) kept[k] = old[k]; });
+      keys.forEach((k) => { kept[k] = nowStr; });
+      persist({ ...state, dismissedAlerts: kept });
+    }
+    setStartupSkip({});
+    setStartupAck(true);
+  }
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
   const doctorList = state?.doctorList || [];
   const goldShopList = state?.goldShopList || [];
@@ -2467,6 +2540,39 @@ export default function App() {
   return (
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK, fontVariantNumeric: 'tabular-nums' }} className="pb-24">
       <ConfirmDeleteHost />
+      {showStartupAlerts && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,22,28,.62)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
+          <div style={{ background: PAPER, width: '100%', maxWidth: 400, maxHeight: '86vh', borderRadius: 22, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 50px rgba(0,0,0,.35)' }}>
+            <div style={{ background: 'linear-gradient(135deg, #2A2418 0%, #3B3220 100%)', padding: '16px 18px', color: 'white' }}>
+              <p className="text-[11px]" style={{ color: '#E9C877', letterSpacing: 0.4 }}>แจ้งเตือนสำคัญวันนี้</p>
+              <p className="text-lg font-bold" style={{ lineHeight: 1.25 }}>🔔 มี {startupAlerts.length} เรื่องที่ต้องดู</p>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '12px 14px' }}>
+              {startupAlerts.map((a, i) => {
+                const c = a.tone === 'bad' ? { bg: '#FDECE9', bd: '#F3C4BC', fg: BAD } : { bg: '#FBF3E9', bd: '#F0DDB8', fg: WARN };
+                return (
+                  <React.Fragment key={a.key || i}>
+                  <div className="flex items-center gap-3 mb-2" style={{ background: c.bg, border: `1px solid ${c.bd}`, borderRadius: 14, padding: '10px 12px' }}>
+                    <span style={{ width: 38, height: 38, borderRadius: 12, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{a.icon}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="text-[13.5px] font-semibold block" style={{ color: INK, lineHeight: 1.3 }}>{a.title}</span>
+                      <span className="text-[11.5px] font-bold block mt-0.5" style={{ color: c.fg }}>{a.sub}</span>
+                    </span>
+                    <button onClick={() => { setTab(a.tab); closeStartupAlerts(); }} className="text-[11px] font-bold flex-shrink-0" style={{ color: BRASS, background: 'white', border: `1px solid ${BORDER}`, borderRadius: 99, padding: '5px 10px' }}>ดู ›</button>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[11px] mb-2.5" style={{ color: SLATE, marginTop: -2, paddingLeft: 6 }}>
+                    <input type="checkbox" checked={!!startupSkip[a.key]} onChange={(e) => setStartupSkip({ ...startupSkip, [a.key]: e.target.checked })} /> ไม่ต้องเตือนเรื่องนี้ซ้ำ
+                  </label>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+            <div style={{ padding: '4px 14px 14px' }}>
+              <button onClick={closeStartupAlerts} className="w-full text-white text-sm font-bold" style={{ background: INK, borderRadius: 14, padding: '13px 0' }}>รับทราบ</button>
+            </div>
+          </div>
+        </div>
+      )}
       <PendingLineSharesFab
         items={state?.pendingLineShares || []}
         onShareOne={(item) => shareTextToLine(item.text, () => persist({ ...state, pendingLineShares: (state?.pendingLineShares || []).filter((x) => x.id !== item.id) }))}
