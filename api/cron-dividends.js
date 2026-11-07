@@ -16,7 +16,7 @@ const DIVIDEND_SOURCES = ['coop_div', 'thai_div', 'us_div', 'yieldtech'];
 const AI_MODEL = 'claude-haiku-4-5-20251001';
 const MANUAL_CACHE_HOURS = 6;
 const STALE_DAYS = 30;
-const AI_MAX_SYMBOLS = 15;
+const AI_MAX_SYMBOLS = 12;
 
 function getDb() {
   if (getApps().length === 0) initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
@@ -120,26 +120,36 @@ async function fromSET(symbol, today, dbg) {
   } catch (e) { if (dbg) dbg.push(`SET:${symbol}:ERR ${e.message}`); return null; }
 }
 
-// ---------- 2) AI สำรอง ----------
-async function fromAI(symbols, today) {
-  if (symbols.length === 0 || !process.env.ANTHROPIC_API_KEY) return [];
-  const prompt = `วันนี้คือ ${today} ค้นหาวันขึ้นเครื่องหมาย XD และวันจ่ายปันผล "ของรอบที่ยังไม่ถึง" (XD ตั้งแต่ ${today} เป็นต้นไป และประกาศแล้วเท่านั้น) ของหุ้น/กองทุน: ${symbols.join(', ')}
-กฎ: ห้ามเดา ห้ามตอบรอบที่ผ่านมาแล้ว ถ้าไม่พบรอบที่ประกาศล่วงหน้าให้ข้ามตัวนั้น amount = ปันผลต่อหน่วยของรอบนั้นรอบเดียว
-ตอบ JSON เท่านั้น: {"items":[{"symbol":"","exDate":"YYYY-MM-DD","payDate":"YYYY-MM-DD หรือ null","amount":ตัวเลขหรือnull,"source":"แหล่งข้อมูลสั้นๆ"}]}`;
+// ---------- 2) AI สำรอง (ค้นทีละตัว แม่นกว่าส่งเป็นชุด) ----------
+async function aiOne(symbol, today, dbg) {
+  const prompt = `วันนี้คือ ${today} ค้นหา "วันขึ้นเครื่องหมาย XD/XN (ปิดสมุดทะเบียน)" และ "วันจ่ายเงินปันผล/เงินคืน" ของรอบที่จะมาถึง (XD ตั้งแต่ ${today} เป็นต้นไป) ของหุ้น/กองทุน/REIT: ${symbol} (ตลาดหลักทรัพย์ไทย SET ถ้าเป็นชื่อไทย) ใช้แหล่งทางการหรือเว็บข้อมูลปันผล เช่น set.or.th, settrade, ข่าวบริษัท
+กฎ: ห้ามเดา ห้ามตอบรอบที่ผ่านมาแล้ว ถ้ายังไม่ประกาศรอบใหม่ให้ตอบ {"items":[]} amount = ปันผลต่อหน่วยของรอบนั้นรอบเดียว
+ตอบ JSON เท่านั้น: {"items":[{"symbol":"${symbol}","exDate":"YYYY-MM-DD","payDate":"YYYY-MM-DD หรือ null","amount":ตัวเลขหรือnull,"source":"แหล่งข้อมูลสั้นๆ"}]}`;
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 2500, messages: [{ role: 'user', content: prompt }], tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }] }),
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 1200, messages: [{ role: 'user', content: prompt }], tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }] }),
     });
     const data = await r.json();
+    if (!r.ok) { dbg.push(`AI:${symbol}:HTTP ${r.status} ${(data && data.error && data.error.message) || ''}`.slice(0, 160)); return null; }
     const text = (data.content || []).map((c) => c.text || '').join('\n').replace(/```json|```/g, '');
     const m = text.match(/\{[\s\S]*\}/);
     const items = (m ? JSON.parse(m[0]).items : []) || [];
-    return items
-      .filter((it) => it && it.symbol && /^\d{4}-\d{2}-\d{2}$/.test(it.exDate || '') && it.exDate >= today)
-      .map((it) => ({ symbol: String(it.symbol).toUpperCase(), exDate: it.exDate, payDate: /^\d{4}-\d{2}-\d{2}$/.test(it.payDate || '') ? it.payDate : null, amount: it.amount != null ? Number(it.amount) || null : null, kind: 'ai', source: `${it.source || 'AI เว็บเสิร์ช'} (AI — เช็คซ้ำ)` }));
-  } catch { return []; }
+    const it = items.filter((x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x.exDate || '') && x.exDate >= today).sort((x, y) => x.exDate.localeCompare(y.exDate))[0];
+    dbg.push(`AI:${symbol}:${it ? it.exDate : 'none'}`);
+    if (!it) return null;
+    return { symbol, exDate: it.exDate, payDate: /^\d{4}-\d{2}-\d{2}$/.test(it.payDate || '') ? it.payDate : null, amount: it.amount != null ? Number(it.amount) || null : null, kind: 'ai', source: `${it.source || 'AI เว็บเสิร์ช'} (AI — เช็คซ้ำ)` };
+  } catch (e) { dbg.push(`AI:${symbol}:ERR ${e.message}`.slice(0, 160)); return null; }
+}
+
+async function fromAI(symbols, today, dbg) {
+  if (symbols.length === 0 || !process.env.ANTHROPIC_API_KEY) return [];
+  const out = [];
+  let i = 0;
+  const worker = async () => { while (i < symbols.length) { const s = symbols[i++]; const r = await aiOne(s, today, dbg); if (r) out.push(r); } };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  return out;
 }
 
 async function sendLineNotify(message) {
@@ -195,7 +205,7 @@ export default async function handler(req, res) {
     for (const s of symbols) {
       const y = await fromYahoo(s, today, debug);
       let item = y.item;
-      if (y.thai) { const st = await fromSET(s, today, debug); if (st) item = st; }
+      // SET บล็อกเซิร์ฟเวอร์ (403) จึงปิดการดึงจาก SET ไว้ — ฟังก์ชัน fromSET เก็บไว้เผื่ออนาคต
       if (item) fresh.push(item);
       else if (!y.found) noYahoo.push(s);
     }
@@ -204,10 +214,10 @@ export default async function handler(req, res) {
     const announced = new Set(fresh.filter((f) => f.kind === 'announced').map((f) => f.symbol));
     // ลำดับความสำคัญ: เคยจ่ายปันผล +2, ชื่อแบบหุ้น/REIT (ไม่มีขีด เช่น QHBREIT) +1, กองทุนชื่อมีขีด (KT-JEPQ) 0
     const score = (s) => (payers.has(s) ? 2 : 0) + (/^[A-Z0-9&]{2,10}$/.test(s) ? 1 : 0);
-    const soon = toStr(new Date(Date.now() + 60 * dayMs));
+    const soon = toStr(new Date(Date.now() + 30 * dayMs));
     const needsAI = (s) => { const f = fresh.find((x) => x.symbol === s); return !f || (f.kind === 'estimate' && f.exDate <= soon); };
     const aiTargets = symbols.filter((s) => !announced.has(s) && needsAI(s)).sort((a, b) => score(b) - score(a)).slice(0, AI_MAX_SYMBOLS);
-    const aiItems = await fromAI(aiTargets, today);
+    const aiItems = await fromAI(aiTargets, today, debug);
     aiItems.forEach((it) => { const i = fresh.findIndex((f) => f.symbol === it.symbol); if (i === -1) fresh.push(it); else if (fresh[i].kind === 'estimate') fresh[i] = it; });
 
     // รวมกับของเดิม: ใช้ของใหม่ก่อน, ของเดิมเก็บไว้เฉพาะที่ยังไม่เก่า และไม่มีรอบใหม่ของตัวเดียวกัน
