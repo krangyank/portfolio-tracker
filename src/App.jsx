@@ -1191,7 +1191,7 @@ export default function App() {
     // นัดหมายของลูกๆ (วันนี้ - 3 วันข้างหน้า)
     (dogs || []).forEach((d) => (d.appointments || []).forEach((a) => {
       const n = dayDiffStr(a.date); if (n === null || n < 0 || n > 3) return;
-      out.push({ key: `appt|${d.id}|${a.id || a.date + (a.purpose || '')}`, n, tone: toneOf(n), icon: '🐶', title: `${d.name} มีนัด${a.purpose ? ` "${a.purpose}"` : ''}`, sub: `${when(n)} · ${formatDateThai(a.date)}${a.hospital ? ' · ' + a.hospital : ''}`, tab: 'pets' });
+      out.push({ photo: d.photoUrl, key: `appt|${d.id}|${a.id || a.date + (a.purpose || '')}`, n, tone: toneOf(n), icon: '🐶', title: `${d.name} มีนัด${a.purpose ? ` "${a.purpose}"` : ''}`, sub: `${when(n)} · ${formatDateThai(a.date)}${a.hospital ? ' · ' + a.hospital : ''}`, tab: 'pets' });
     }));
     // ยาเห็บหมัด / ประกันของลูกๆ
     (dogs || []).forEach((d) => {
@@ -1199,11 +1199,11 @@ export default function App() {
       if (ft.lastGivenDate) {
         const due = new Date(ft.lastGivenDate); due.setDate(due.getDate() + Number(ft.intervalDays || 84));
         const n = dayDiff(due.getFullYear(), due.getMonth(), due.getDate());
-        if (n <= 3) out.push({ key: `flea|${d.id}|${ft.lastGivenDate}`, n, tone: toneOf(n), icon: '🐛', title: `${d.name} ถึงกำหนดยาเห็บหมัด`, sub: when(n), tab: 'pets' });
+        if (n <= 3) out.push({ photo: d.photoUrl, key: `flea|${d.id}|${ft.lastGivenDate}`, n, tone: toneOf(n), icon: '🐛', title: `${d.name} ถึงกำหนดยาเห็บหมัด`, sub: when(n), tab: 'pets' });
       }
       if (d.insurance && d.insurance.endDate) {
         const n = dayDiffStr(d.insurance.endDate);
-        if (n !== null && n >= -30 && n <= 14) out.push({ key: `dins|${d.id}|${d.insurance.endDate}`, n, tone: toneOf(n), icon: '🛡️', title: `ประกันของ ${d.name} ${n < 0 ? 'หมดอายุแล้ว' : 'ใกล้หมดอายุ'}`, sub: when(n), tab: 'pets' });
+        if (n !== null && n >= -30 && n <= 14) out.push({ photo: d.photoUrl, key: `dins|${d.id}|${d.insurance.endDate}`, n, tone: toneOf(n), icon: '🛡️', title: `ประกันของ ${d.name} ${n < 0 ? 'หมดอายุแล้ว' : 'ใกล้หมดอายุ'}`, sub: when(n), tab: 'pets' });
       }
     });
     // ค่าเช่า / ครบสัญญา
@@ -2553,7 +2553,14 @@ export default function App() {
                 return (
                   <React.Fragment key={a.key || i}>
                   <div className="flex items-center gap-3 mb-2" style={{ background: c.bg, border: `1px solid ${c.bd}`, borderRadius: 14, padding: '10px 12px' }}>
-                    <span style={{ width: 38, height: 38, borderRadius: 12, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{a.icon}</span>
+                    {a.photo ? (
+                      <span style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}>
+                        <img src={a.photo} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,.18)' }} />
+                        <span style={{ position: 'absolute', right: -4, bottom: -4, width: 20, height: 20, borderRadius: '50%', background: 'white', border: `1px solid ${c.bd}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>{a.icon}</span>
+                      </span>
+                    ) : (
+                      <span style={{ width: 38, height: 38, borderRadius: 12, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{a.icon}</span>
+                    )}
                     <span className="flex-1 min-w-0">
                       <span className="text-[13.5px] font-semibold block" style={{ color: INK, lineHeight: 1.3 }}>{a.title}</span>
                       <span className="text-[11.5px] font-bold block mt-0.5" style={{ color: c.fg }}>{a.sub}</span>
