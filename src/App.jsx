@@ -689,7 +689,7 @@ export default function App() {
     if (path.indexOf('/realestate') === 0) return 'realestate';
     if (new URLSearchParams(window.location.search).get('quick') === 'expense') return 'expenses';
     // รองรับลิงก์เปิดแอปตรงไปยังแท็บที่ต้องการ เช่น จากปุ่ม "เปิดในแอป" ในการ์ด LINE Flex Message: ?tab=pets
-    const validTabs = ['dashboard', 'accounts', 'savings', 'income', 'reports', 'expenses', 'pets', 'realestate', 'insurance'];
+    const validTabs = ['dashboard', 'accounts', 'savings', 'reports', 'expenses', 'pets', 'realestate', 'insurance'];
     const tabParam = new URLSearchParams(window.location.search).get('tab');
     if (tabParam && validTabs.includes(tabParam)) return tabParam;
     return 'dashboard';
@@ -1941,8 +1941,8 @@ export default function App() {
     persist({ ...state, investmentNews: { items, fetchedAt: new Date().toISOString() } });
   }
   const dividendCalendar = state?.dividendCalendar || { items: [], fetchedAt: '' };
-  function saveDividendCalendar(items) {
-    persist({ ...state, dividendCalendar: { items, fetchedAt: new Date().toISOString() } });
+  function saveDividendCalendar(items, fetchedAt) {
+    persist({ ...state, dividendCalendar: { items, fetchedAt: fetchedAt || state?.dividendCalendar?.fetchedAt || new Date().toISOString() } });
   }
   function addBloodTestType(name) { if (name && !bloodTestTypeList.includes(name)) persist({ ...state, bloodTestTypeList: [...bloodTestTypeList, name] }); }
   function addOrganType(name) { if (name && !organTypeList.includes(name)) persist({ ...state, organTypeList: [...organTypeList, name] }); }
@@ -2728,7 +2728,7 @@ export default function App() {
       )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ปันผล', icon: Calendar }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'vehicles', label: 'รถยนต์', icon: Car }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'vehicles', label: 'รถยนต์', icon: Car }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
             <t.icon size={17} color={tab === t.id ? '#FFFFFF' : '#94A3B8'} /><span className="text-[8px]" style={{ color: tab === t.id ? '#FFFFFF' : '#94A3B8' }}>{t.label}</span>
           </button>
@@ -6532,6 +6532,10 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
   const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime()) > 24 * 60 * 60 * 1000;
   const divItems = (dividendCalendar && dividendCalendar.items) || [];
   const divFetchedAt = dividendCalendar && dividendCalendar.fetchedAt;
+  const isDivStale = (it) => {
+    const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    return !it.exDate || (it.exDate < cutoff && (!it.payDate || it.payDate < cutoff));
+  };
 
   function collectSymbols() {
     const set = new Set();
@@ -6560,12 +6564,13 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
     }
     setDivLoading(true); setDivError(''); setDivProgress(null);
     try {
-      const held = collectSymbols();
-      const newItems = await fetchDividendCalendar(held, (done, total) => setDivProgress({ done, total }));
-      onSavedDividends(newItems);
-      const foundSymbols = new Set(newItems.map((it) => (it.symbol || '').toUpperCase()));
-      const missing = held.filter((s) => !foundSymbols.has(s));
-      setDivMissing(missing);
+      // ดึงผ่านเซิร์ฟเวอร์ (Yahoo ฟรีก่อน แล้วค่อย AI เฉพาะตัวที่หาไม่เจอ) — ถูกกว่าเดิมมาก
+      const resp = await fetch('/api/cron-dividends?manual=1');
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || `เซิร์ฟเวอร์ตอบ ${resp.status}`);
+      if (!data.cached) onSavedDividends(data.items || [], data.fetchedAt);
+      setDivMissing(data.missing || []);
+      if (data.cached) setDivError('ข้อมูลเพิ่งอัพเดตไม่เกิน 6 ชั่วโมง จึงใช้ข้อมูลเดิม (ระบบดึงใหม่อัตโนมัติทุกวันจันทร์)');
     } catch (e) { setDivError('ดึงข้อมูล XD ไม่สำเร็จ: ' + (e.message || 'ไม่ทราบสาเหตุ')); }
     finally { setDivLoading(false); setDivProgress(null); }
   }
@@ -6574,7 +6579,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
     const pref = getDivPref(item);
     if (!pref.xd && !pref.pay) return;
     setSyncingSymbol(item.symbol);
-    const sourceNote = `แหล่งข้อมูล: ${item.source || '-'} (ข้อมูลจาก AI เว็บเสิร์ช เช็คซ้ำกับประกาศทางการก่อนตัดสินใจ)`;
+    const sourceNote = `แหล่งข้อมูล: ${item.source || '-'} (ถ้าเป็นรอบ 'คาดการณ์' ยังไม่ใช่วันประกาศจริง เช็คกับประกาศทางการก่อนตัดสินใจ)`;
     let rXd = { ok: true, eventId: item.calendarEventId };
     let rPay = { ok: true, eventId: item.calendarEventIdPay };
     if (pref.xd) {
@@ -6622,10 +6627,10 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
             </button>
           </div>
           <div style={{ background: '#FEF3E2', border: '1px solid #FDE0A8', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: WARN }} className="mb-3">
-            ⚠️ ข้อมูลนี้มาจาก AI เว็บเสิร์ช (ไม่ใช่ข้อมูลโครงสร้างทางการ) — เช็คซ้ำกับประกาศของ SET/บริษัท หรือแหล่งข้อมูลทางการก่อนตัดสินใจซื้อ-ขายเสมอ
+            ℹ️ ดึงจาก Yahoo Finance (ฟรี) + AI เฉพาะตัวที่หาไม่เจอ · ป้ายเขียว = ประกาศแล้ว, เหลือง = คาดการณ์จากรอบก่อน (ยังไม่ประกาศ) — เช็คกับประกาศ SET/บริษัทก่อนตัดสินใจเสมอ
           </div>
           {divError && <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: '#991B1B' }} className="mb-3">⚠️ {divError}</div>}
-          {!divLoading && divItems.length === 0 && !divError && <Card><p className="text-xs text-center py-4" style={{ color: SLATE }}>ยังไม่มีข้อมูล กด "รีเฟรช" เพื่อค้นวัน XD ของหุ้นที่ถืออยู่</p></Card>}
+          {!divLoading && divItems.filter((x) => !isDivStale(x)).length === 0 && !divError && <Card><p className="text-xs text-center py-4" style={{ color: SLATE }}>ยังไม่มีรอบ XD ที่กำลังจะถึง กด "รีเฟรช" เพื่อดึงข้อมูลล่าสุด</p></Card>}
           {divMissing.length > 0 && (
             <div style={{ background: PAPER_DIM, borderRadius: 12, padding: '10px 12px' }} className="mb-3">
               <p className="text-[11px]" style={{ color: SLATE }}>🔍 ค้นแล้วแต่ยังไม่พบข้อมูล XD ของ: <span style={{ color: INK, fontWeight: 600 }}>{divMissing.join(', ')}</span></p>
@@ -6633,6 +6638,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
             </div>
           )}
           {divItems.map((it, idx) => {
+            if (isDivStale(it)) return null;
             const pref = getDivPref(it);
             const syncedLabel = [pref.xd && it.calendarEventId ? 'XD ✓' : null, pref.pay && it.calendarEventIdPay ? 'จ่ายเงิน ✓' : null].filter(Boolean).join(' · ');
             // เช็คคร่าวๆ ว่าวัน XD ที่ AI ตอบมาเก่าเกินไปไหม (เกิน 90 วันที่แล้ว) เผื่อ AI หยิบรอบเก่าปีก่อนมาตอบผิด จะได้เตือนให้เช็คซ้ำ
@@ -6640,10 +6646,10 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
             const daysSinceEx = exDateObj ? Math.floor((Date.now() - exDateObj.getTime()) / (1000 * 60 * 60 * 24)) : null;
             const looksStale = daysSinceEx !== null && daysSinceEx > 90;
             return (
-            <SwipeToDeleteRow key={idx} confirmMessage={`ลบ ${it.symbol} ออกจากปฏิทินปันผล? (จะกลับมาอีกถ้ารีเฟรชแล้ว AI เจอข้อมูลนี้อีก)`} onDelete={() => onSavedDividends(divItems.filter((_, i) => i !== idx))}>
+            <SwipeToDeleteRow key={idx} confirmMessage={`ลบ ${it.symbol} ออกจากปฏิทินปันผล? (จะกลับมาอีกถ้ารีเฟรชแล้วเจอข้อมูลนี้อีก)`} onDelete={() => onSavedDividends(divItems.filter((_, i) => i !== idx))}>
             <Card>
               <div className="flex justify-between items-start mb-1">
-                <p className="text-sm font-semibold" style={{ color: INK }}>{it.symbol}</p>
+                <p className="text-sm font-semibold" style={{ color: INK }}>{it.symbol} {it.kind === 'announced' && <span className="text-[9px] font-bold rounded-full px-1.5 py-0.5 ml-1" style={{ background: '#E1F5E9', color: GOOD }}>ประกาศแล้ว</span>}{it.kind === 'estimate' && <span className="text-[9px] font-bold rounded-full px-1.5 py-0.5 ml-1" style={{ background: '#FBF1DD', color: WARN }}>คาดการณ์</span>}{it.kind === 'ai' && <span className="text-[9px] font-bold rounded-full px-1.5 py-0.5 ml-1" style={{ background: '#E4EAF3', color: '#35547E' }}>AI · เช็คซ้ำ</span>}</p>
                 {it.amount && <span style={{ background: PAPER_DIM, color: BRASS }} className="text-[10px] font-semibold rounded-full px-2 py-0.5">฿{it.amount}/หน่วย</span>}
               </div>
               {looksStale && <p className="text-[10px] mb-1 px-2 py-1 rounded" style={{ background: '#FEE2E2', color: '#991B1B' }}>⚠️ วันที่นี้ผ่านมาแล้ว {daysSinceEx} วัน อาจเป็นข้อมูลรอบเก่าที่ AI หยิบผิด เช็คซ้ำก่อนตั้งเตือน</p>}
