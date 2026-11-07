@@ -689,7 +689,7 @@ export default function App() {
     if (path.indexOf('/realestate') === 0) return 'realestate';
     if (new URLSearchParams(window.location.search).get('quick') === 'expense') return 'expenses';
     // รองรับลิงก์เปิดแอปตรงไปยังแท็บที่ต้องการ เช่น จากปุ่ม "เปิดในแอป" ในการ์ด LINE Flex Message: ?tab=pets
-    const validTabs = ['dashboard', 'accounts', 'savings', 'income', 'reports', 'expenses', 'pets', 'realestate', 'insurance'];
+    const validTabs = ['dashboard', 'accounts', 'savings', 'reports', 'expenses', 'pets', 'realestate', 'insurance'];
     const tabParam = new URLSearchParams(window.location.search).get('tab');
     if (tabParam && validTabs.includes(tabParam)) return tabParam;
     return 'dashboard';
@@ -2728,7 +2728,7 @@ export default function App() {
       )}
 
       <div style={{ background: INK, borderTop: `1px solid #FFFFFF1A` }} className="fixed bottom-0 left-0 right-0 flex justify-around py-3 text-white">
-        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'income', label: 'ปันผล', icon: Calendar }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'vehicles', label: 'รถยนต์', icon: Car }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
+        {[{ id: 'dashboard', label: 'ภาพรวม', icon: Wallet }, { id: 'accounts', label: 'บัญชี', icon: Landmark }, { id: 'savings', label: 'เงินเข้า', icon: PiggyBank }, { id: 'expenses', label: 'รายจ่าย', icon: Receipt }, { id: 'pets', label: 'ลูกๆ', icon: Dog }, { id: 'realestate', label: 'บ้านเช่า', icon: Home }, { id: 'insurance', label: 'ประกัน', icon: Shield }, { id: 'vehicles', label: 'รถยนต์', icon: Car }, { id: 'reports', label: 'รายงาน', icon: BarChart3 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 px-1">
             <t.icon size={17} color={tab === t.id ? '#FFFFFF' : '#94A3B8'} /><span className="text-[8px]" style={{ color: tab === t.id ? '#FFFFFF' : '#94A3B8' }}>{t.label}</span>
           </button>
