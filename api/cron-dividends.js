@@ -192,9 +192,11 @@ export default async function handler(req, res) {
     });
     oldItems.forEach((o) => { if (!merged.some((m) => m.symbol === o.symbol)) merged.push(o); });
     merged.sort((a, b) => (a.exDate || '').localeCompare(b.exDate || ''));
+    // Firestore ไม่รับค่า undefined → ตัดทิ้งก่อนบันทึก
+    const clean = JSON.parse(JSON.stringify(merged));
 
     const fetchedAt = new Date().toISOString();
-    await docRef.set({ dividendCalendar: { items: merged, fetchedAt } }, { merge: true });
+    await docRef.set({ dividendCalendar: { items: clean, fetchedAt } }, { merge: true });
 
     // แจ้ง LINE เฉพาะรอบที่ประกาศจริง/AI พบใหม่ (ไม่แจ้งตัวคาดการณ์)
     const isNew = (it) => !(old.items || []).some((o) => o.symbol === it.symbol && o.exDate === it.exDate);
@@ -205,7 +207,7 @@ export default async function handler(req, res) {
     }
 
     const foundSet = new Set(merged.map((m) => m.symbol));
-    res.status(200).json({ ok: true, cached: false, items: merged, fetchedAt, missing: symbols.filter((s) => !foundSet.has(s)), debug, stats: { symbols: symbols.length, yahoo: fresh.filter((f) => f.kind !== 'ai').length, ai: aiItems.length, notified: notify.length } });
+    res.status(200).json({ ok: true, cached: false, items: clean, fetchedAt, missing: symbols.filter((s) => !foundSet.has(s)), debug, stats: { symbols: symbols.length, yahoo: fresh.filter((f) => f.kind !== 'ai').length, ai: aiItems.length, notified: notify.length } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
