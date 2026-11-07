@@ -93,10 +93,31 @@ async function fromYahoo(symbol, today, dbg) {
       if (!d || d.list.length === 0) continue;
       if (c.endsWith('.BK') && d.currency && d.currency !== 'THB') continue;
       const p = predictFromHistory(d.list, today);
-      return { found: true, item: p ? { symbol, exDate: p.exDate, payDate: null, amount: p.amount, kind: p.kind, source: p.kind === 'announced' ? 'Yahoo Finance (ประกาศแล้ว)' : 'Yahoo Finance (คาดการณ์จากประวัติ — ยังไม่ประกาศ)' } : null };
+      return { found: true, thai: c.endsWith('.BK'), item: p ? { symbol, exDate: p.exDate, payDate: null, amount: p.amount, kind: p.kind, source: p.kind === 'announced' ? 'Yahoo Finance (ประกาศแล้ว)' : 'Yahoo Finance (คาดการณ์จากประวัติ — ยังไม่ประกาศ)' } : null };
     } catch { /* ลองตัวถัดไป */ }
   }
-  return { found: false, item: null };
+  return { found: false, thai: false, item: null };
+}
+
+// ---------- 1.5) SET (ตลาดหลักทรัพย์ไทย) — วัน XD ที่ประกาศแล้วของหุ้น/REIT/กองทุนอินฟราไทย ----------
+// ทดลอง: ถ้า SET บล็อกหรือรูปแบบข้อมูลเปลี่ยน จะข้ามเงียบๆ (ดูผลใน debug)
+async function fromSET(symbol, today, dbg) {
+  try {
+    const r = await fetch(`https://www.set.or.th/api/set/stock/${encodeURIComponent(symbol)}/corporate-action?lang=th`, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', Accept: 'application/json, text/plain, */*', 'Accept-Language': 'th-TH,th;q=0.9,en;q=0.8', Referer: `https://www.set.or.th/th/market/product/stock/quote/${encodeURIComponent(symbol)}/rights-benefits` } });
+    if (dbg) dbg.push(`SET:${symbol}:${r.status}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const list = Array.isArray(j) ? j : (j && (j.data || j.corporateActions || j.items)) || [];
+    const pick = (o, keys) => { for (const k of keys) if (o && o[k]) return String(o[k]).slice(0, 10); return null; };
+    const rows = list
+      .filter((o) => /^X[DN]/i.test(String(o.caType || o.type || o.symbolType || '')) || /ปันผล|dividend|เงินคืน|capital reduction/i.test(JSON.stringify(o).slice(0, 400)))
+      .map((o) => ({ ex: pick(o, ['xdate', 'xDate', 'exDate', 'exdate', 'xd']), pay: pick(o, ['paymentDate', 'payDate', 'paymentdate']), amt: Number(o.dividend || o.dividendPerShare || o.amount || o.dividendAmount) || null }))
+      .filter((o) => o.ex && /^\d{4}-\d{2}-\d{2}$/.test(o.ex) && o.ex >= today)
+      .sort((a, b) => a.ex.localeCompare(b.ex));
+    if (rows.length === 0) return null;
+    const x = rows[0];
+    return { symbol, exDate: x.ex, payDate: x.pay, amount: x.amt, kind: 'announced', source: 'SET (ประกาศแล้ว)' };
+  } catch (e) { if (dbg) dbg.push(`SET:${symbol}:ERR ${e.message}`); return null; }
 }
 
 // ---------- 2) AI สำรอง ----------
@@ -173,7 +194,9 @@ export default async function handler(req, res) {
     const noYahoo = [];
     for (const s of symbols) {
       const y = await fromYahoo(s, today, debug);
-      if (y.item) fresh.push(y.item);
+      let item = y.item;
+      if (y.thai) { const st = await fromSET(s, today, debug); if (st) item = st; }
+      if (item) fresh.push(item);
       else if (!y.found) noYahoo.push(s);
     }
     // Yahoo มักไม่มีวัน XD ที่ "ประกาศล่วงหน้า" ของหุ้น/REIT ไทย → ถามเว็บเสิร์ชสำหรับตัวที่ยังไม่มีรอบ "ประกาศแล้ว"
@@ -181,7 +204,9 @@ export default async function handler(req, res) {
     const announced = new Set(fresh.filter((f) => f.kind === 'announced').map((f) => f.symbol));
     // ลำดับความสำคัญ: เคยจ่ายปันผล +2, ชื่อแบบหุ้น/REIT (ไม่มีขีด เช่น QHBREIT) +1, กองทุนชื่อมีขีด (KT-JEPQ) 0
     const score = (s) => (payers.has(s) ? 2 : 0) + (/^[A-Z0-9&]{2,10}$/.test(s) ? 1 : 0);
-    const aiTargets = symbols.filter((s) => !announced.has(s)).sort((a, b) => score(b) - score(a)).slice(0, AI_MAX_SYMBOLS);
+    const soon = toStr(new Date(Date.now() + 60 * dayMs));
+    const needsAI = (s) => { const f = fresh.find((x) => x.symbol === s); return !f || (f.kind === 'estimate' && f.exDate <= soon); };
+    const aiTargets = symbols.filter((s) => !announced.has(s) && needsAI(s)).sort((a, b) => score(b) - score(a)).slice(0, AI_MAX_SYMBOLS);
     const aiItems = await fromAI(aiTargets, today);
     aiItems.forEach((it) => { const i = fresh.findIndex((f) => f.symbol === it.symbol); if (i === -1) fresh.push(it); else if (fresh[i].kind === 'estimate') fresh[i] = it; });
 
