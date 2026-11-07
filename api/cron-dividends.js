@@ -1,134 +1,198 @@
-// รันอัตโนมัติทุกวัน 07:00 น. (ตั้งเวลาไว้ใน vercel.json) — ดึงวัน XD/วันจ่ายปันผลของหุ้นที่ถืออยู่ทั้งหมด
-// แล้วอัปเดตเข้า Firestore ให้เลย โดยไม่ต้องเปิดแอป
+// ปฏิทินปันผล (XD) แบบประหยัดเงิน — รันทุกวันจันทร์ (ตั้งใน vercel.json) และเรียกจากปุ่ม "รีเฟรช" ในแอปได้ (?manual=1)
 //
-// สิ่งที่ต้องตั้งค่าก่อนใช้งานได้ (ทำครั้งเดียว ดูขั้นตอนในข้อความที่ส่งมาด้วย):
-// 1. Environment Variable บน Vercel: FIREBASE_SERVICE_ACCOUNT (JSON key ทั้งก้อนจาก Firebase Console)
-// 2. Environment Variable บน Vercel: CRON_SECRET (ตั้งเป็นรหัสลับอะไรก็ได้ ป้องกันคนนอกยิง endpoint นี้เล่น)
-// 3. Environment Variable ANTHROPIC_API_KEY (มีอยู่แล้วจาก api/claude.js)
-// 4. อัปโหลดไฟล์นี้ + vercel.json ขึ้น repo
+// ลำดับการหาข้อมูล (ถูก → แพง):
+//  1) Yahoo Finance (ฟรี) — ดึงประวัติปันผลย้อนหลัง แล้วคาดการณ์รอบถัดไปจากรอบเดิม (ถ้ามีรอบที่ประกาศล่วงหน้าแล้วจะใช้ตัวจริง)
+//  2) AI + เว็บเสิร์ช (Haiku, จำกัดจำนวนครั้งค้น) — เฉพาะตัวที่ Yahoo ไม่มีข้อมูล และเป็นตัวที่เคยได้รับปันผลจริงเท่านั้น
+// รายการที่ผ่านมาแล้วเกิน 30 วันจะถูกตัดทิ้ง ไม่ค้างเป็นข้อมูลเก่า
+//
+// Environment Variables (มีอยู่แล้ว): FIREBASE_SERVICE_ACCOUNT, CRON_SECRET, ANTHROPIC_API_KEY, LINE_CHANNEL_ACCESS_TOKEN, LINE_GROUP_ID
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// dividendCalendar เก็บอยู่ในเอกสารส่วนตัวของ Tommy เท่านั้น (users/{uid}/data/portfolio) ไม่ใช่เอกสารกลาง shared/krangya-family
-// UID นี้คือของ krangyank11@gmail.com — ถ้าเปลี่ยนบัญชีในอนาคตต้องมาแก้ตรงนี้ด้วย
 const FIRESTORE_PATH = ['users', '7XDNF2jiEVOXXxtnt5tVvUoSgKV2', 'data', 'portfolio'];
-// บัญชีสหกรณ์ + กองทุน DIME/WealthX ถูกย้ายไปเก็บที่เอกสารกลางนี้ (ใช้ร่วมกับภรรยา) ต้องอ่านมารวมด้วยตอนหาสัญลักษณ์หุ้นที่ถือ
 const SHARED_FIRESTORE_PATH = ['shared', 'krangya-family', 'data', 'main'];
+const DIVIDEND_SOURCES = ['coop_div', 'thai_div', 'us_div', 'yieldtech'];
+const AI_MODEL = 'claude-haiku-4-5-20251001';
+const MANUAL_CACHE_HOURS = 6;
+const STALE_DAYS = 30;
+const AI_MAX_SYMBOLS = 8;
 
 function getDb() {
-  if (getApps().length === 0) {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    initializeApp({ credential: cert(serviceAccount) });
-  }
+  if (getApps().length === 0) initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
   return getFirestore();
 }
 
-async function askClaude(prompt) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-    }),
-  });
-  const data = await response.json();
-  return (data.content || []).map((c) => c.text || '').join('\n');
+const dayMs = 86400000;
+const toStr = (d) => d.toISOString().slice(0, 10);
+const todayStr = () => toStr(new Date());
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / dayMs);
+function addMonths(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCMonth(d.getUTCMonth() + n);
+  return toStr(d);
+}
+function formatDateDMY(s) {
+  if (!s) return '-';
+  const [y, m, d] = s.split('-');
+  return y && m && d ? `${d}/${m}/${y}` : s;
+}
+function isStale(it, today) {
+  if (!it || !it.exDate) return true;
+  const cutoff = toStr(new Date(new Date(today).getTime() - STALE_DAYS * dayMs));
+  return it.exDate < cutoff && (!it.payDate || it.payDate < cutoff);
 }
 
-function safeParseJson(text) {
-  try {
-    const cleaned = (text || '').replace(/```json|```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : cleaned);
-  } catch {
-    return { items: [] };
+// ---------- 1) Yahoo Finance ----------
+async function yahooDividends(yahooSymbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=3y&interval=1mo&events=div`;
+  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PaotungBot/1.0)', Accept: 'application/json' } });
+  if (!r.ok) return null;
+  const j = await r.json();
+  const result = j && j.chart && j.chart.result && j.chart.result[0];
+  if (!result) return null;
+  const divs = result.events && result.events.dividends;
+  const list = divs ? Object.values(divs).map((d) => ({ date: toStr(new Date(d.date * 1000)), amount: Number(d.amount) })).filter((d) => d.amount > 0).sort((a, b) => a.date.localeCompare(b.date)) : [];
+  return { list, currency: result.meta && result.meta.currency };
+}
+
+function predictFromHistory(list, today) {
+  if (!list || list.length === 0) return null;
+  const upcoming = list.find((d) => d.date >= today);
+  if (upcoming) return { exDate: upcoming.date, amount: upcoming.amount, kind: 'announced' };
+  const last = list[list.length - 1];
+  let months = 12;
+  if (list.length >= 2) {
+    const gaps = [];
+    for (let i = Math.max(1, list.length - 6); i < list.length; i++) gaps.push(daysBetween(list[i - 1].date, list[i].date));
+    gaps.sort((a, b) => a - b);
+    const med = gaps[Math.floor(gaps.length / 2)];
+    months = med < 45 ? 1 : med < 135 ? 3 : med < 270 ? 6 : 12;
   }
+  // จ่ายล่าสุดนานเกิน 2 เท่าของรอบปกติ = น่าจะหยุดจ่ายแล้ว ไม่คาดการณ์
+  if (daysBetween(last.date, today) > months * 61 + 30) return null;
+  let next = last.date;
+  let guard = 0;
+  while (next < today && guard++ < 60) next = addMonths(next, months);
+  if (next < today) return null;
+  return { exDate: next, amount: last.amount, kind: 'estimate' };
 }
 
-// แปลง YYYY-MM-DD เป็น DD/MM/YYYY ให้ตรงกับฟอร์แมตวันที่ที่ใช้ทั้งแอป (ดู formatDateThai ใน App.jsx)
-function formatDateDMY(dateStr) {
-  if (!dateStr) return '-';
-  const [y, m, d] = dateStr.split('-');
-  if (!y || !m || !d) return dateStr;
-  return `${d}/${m}/${y}`;
+async function fromYahoo(symbol, today) {
+  const candidates = /^[A-Z0-9&-]+$/.test(symbol) ? [`${symbol}.BK`, symbol] : [symbol];
+  for (const c of candidates) {
+    try {
+      const d = await yahooDividends(c);
+      if (!d || d.list.length === 0) continue;
+      if (c.endsWith('.BK') && d.currency && d.currency !== 'THB') continue;
+      const p = predictFromHistory(d.list, today);
+      return { found: true, item: p ? { symbol, exDate: p.exDate, payDate: null, amount: p.amount, kind: p.kind, source: p.kind === 'announced' ? 'Yahoo Finance (ประกาศแล้ว)' : 'Yahoo Finance (คาดการณ์จากประวัติ — ยังไม่ประกาศ)' } : null };
+    } catch { /* ลองตัวถัดไป */ }
+  }
+  return { found: false, item: null };
+}
+
+// ---------- 2) AI สำรอง ----------
+async function fromAI(symbols, today) {
+  if (symbols.length === 0 || !process.env.ANTHROPIC_API_KEY) return [];
+  const prompt = `วันนี้คือ ${today} ค้นหาวันขึ้นเครื่องหมาย XD และวันจ่ายปันผล "ของรอบที่ยังไม่ถึง" (XD ตั้งแต่ ${today} เป็นต้นไป และประกาศแล้วเท่านั้น) ของหุ้น/กองทุน: ${symbols.join(', ')}
+กฎ: ห้ามเดา ห้ามตอบรอบที่ผ่านมาแล้ว ถ้าไม่พบรอบที่ประกาศล่วงหน้าให้ข้ามตัวนั้น amount = ปันผลต่อหน่วยของรอบนั้นรอบเดียว
+ตอบ JSON เท่านั้น: {"items":[{"symbol":"","exDate":"YYYY-MM-DD","payDate":"YYYY-MM-DD หรือ null","amount":ตัวเลขหรือnull,"source":"แหล่งข้อมูลสั้นๆ"}]}`;
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 1500, messages: [{ role: 'user', content: prompt }], tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }] }),
+    });
+    const data = await r.json();
+    const text = (data.content || []).map((c) => c.text || '').join('\n').replace(/```json|```/g, '');
+    const m = text.match(/\{[\s\S]*\}/);
+    const items = (m ? JSON.parse(m[0]).items : []) || [];
+    return items
+      .filter((it) => it && it.symbol && /^\d{4}-\d{2}-\d{2}$/.test(it.exDate || '') && it.exDate >= today)
+      .map((it) => ({ symbol: String(it.symbol).toUpperCase(), exDate: it.exDate, payDate: /^\d{4}-\d{2}-\d{2}$/.test(it.payDate || '') ? it.payDate : null, amount: it.amount != null ? Number(it.amount) || null : null, kind: 'ai', source: `${it.source || 'AI เว็บเสิร์ช'} (AI — เช็คซ้ำ)` }));
+  } catch { return []; }
 }
 
 async function sendLineNotify(message) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const groupId = process.env.LINE_GROUP_ID;
   if (!token || !groupId) return;
-  await fetch('https://api.line.me/v2/bot/message/push', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ to: groupId, messages: [{ type: 'text', text: message }] }),
-  });
+  try {
+    await fetch('https://api.line.me/v2/bot/message/push', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ to: groupId, messages: [{ type: 'text', text: message }] }) });
+  } catch { /* ไม่ให้การแจ้งเตือนพังทั้งงาน */ }
 }
 
 export default async function handler(req, res) {
-  // ป้องกันคนนอกยิง endpoint นี้เล่น — Vercel Cron จะส่ง header นี้มาเองอัตโนมัติถ้าตั้ง CRON_SECRET ไว้
-  const authHeader = req.headers.authorization;
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const manual = req.query && (req.query.manual === '1' || req.query.manual === 'true');
+  if (!manual && process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
-
   try {
     const db = getDb();
     const docRef = db.collection(FIRESTORE_PATH[0]).doc(FIRESTORE_PATH[1]).collection(FIRESTORE_PATH[2]).doc(FIRESTORE_PATH[3]);
     const snap = await docRef.get();
-    if (!snap.exists) {
-      res.status(404).json({ error: 'ไม่พบเอกสารข้อมูล ตรวจสอบ FIRESTORE_PATH ในไฟล์นี้ว่าตรงกับ App.jsx ไหม' });
-      return;
-    }
+    if (!snap.exists) { res.status(404).json({ error: 'ไม่พบเอกสารข้อมูล ตรวจสอบ FIRESTORE_PATH' }); return; }
     const state = snap.data();
-
-    // อ่านเอกสารกลาง (บัญชีสหกรณ์ + กองทุน DIME/WealthX ที่ใช้ร่วมกับภรรยา) มารวมด้วย เผื่อพลาดหุ้น/กองทุนบางตัวที่ย้ายไปอยู่ตรงนั้น
-    const sharedDocRef = db.collection(SHARED_FIRESTORE_PATH[0]).doc(SHARED_FIRESTORE_PATH[1]).collection(SHARED_FIRESTORE_PATH[2]).doc(SHARED_FIRESTORE_PATH[3]);
-    const sharedSnap = await sharedDocRef.get();
+    const sharedSnap = await db.collection(SHARED_FIRESTORE_PATH[0]).doc(SHARED_FIRESTORE_PATH[1]).collection(SHARED_FIRESTORE_PATH[2]).doc(SHARED_FIRESTORE_PATH[3]).get();
     const sharedState = sharedSnap.exists ? sharedSnap.data() : {};
 
-    // รวบรวมสัญลักษณ์หุ้น/กองทุนที่ถืออยู่จริงทั้งหมด (จากทั้งเอกสารส่วนตัวและเอกสารกลาง)
-    const symbolSet = new Set();
-    [...(state.accounts || []), ...(sharedState.accounts || [])].forEach((a) => (a.holdings || []).forEach((h) => { if (h.symbol) symbolSet.add(h.symbol.trim().toUpperCase()); }));
-    const symbols = Array.from(symbolSet);
-    if (symbols.length === 0) {
-      res.status(200).json({ ok: true, message: 'ไม่มีหุ้น/กองทุนที่ถืออยู่ ข้ามการดึงข้อมูล' });
+    const old = state.dividendCalendar || { items: [], fetchedAt: '' };
+    const today = todayStr();
+
+    // ปุ่มรีเฟรชในแอป: ถ้าเพิ่งอัพเดตไม่เกิน 6 ชม. ส่งของเดิมกลับ ไม่ดึงใหม่ (กันกดรัว)
+    if (manual && old.fetchedAt && Date.now() - new Date(old.fetchedAt).getTime() < MANUAL_CACHE_HOURS * 3600000) {
+      res.status(200).json({ ok: true, cached: true, items: old.items || [], fetchedAt: old.fetchedAt });
       return;
     }
 
-    const prompt = `คุณคือนักวิเคราะห์การลงทุน ค้นหาวันขึ้นเครื่องหมาย XD (ex-dividend date) และวันจ่ายเงินปันผล (payment date) ล่าสุดหรือที่ประกาศไว้ล่วงหน้า สำหรับหุ้น/กองทุนต่อไปนี้เท่านั้น ใช้เครื่องมือค้นเว็บจริงจากแหล่งทางการ ห้ามตอบจากความจำเก่า ห้ามเดา
-หุ้น/กองทุนที่ต้องการ: ${symbols.join(', ')}
-ถ้าหาไม่เจอสำหรับตัวไหน ให้ข้ามตัวนั้นไปเลย เอาเฉพาะรอบล่าสุดที่ประกาศแล้ว/ใกล้ที่สุด 1 รอบต่อสัญลักษณ์
-ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ:
-{"items":[{"symbol":"สัญลักษณ์","exDate":"YYYY-MM-DD","payDate":"YYYY-MM-DD หรือ null","amount":ตัวเลขหรือnull,"source":"ชื่อแหล่งข้อมูลสั้นๆ"}]}`;
+    // สัญลักษณ์ที่ถืออยู่ + สัญลักษณ์ที่เคยได้รับปันผลจริง (เฉพาะกลุ่มหลังที่ยอมใช้ AI สำรอง)
+    const accounts = [...(state.accounts || []), ...(sharedState.accounts || [])];
+    const held = new Set();
+    accounts.forEach((a) => (a.holdings || []).forEach((h) => { if (h.symbol) held.add(h.symbol.trim().toUpperCase()); }));
+    const payers = new Set();
+    [...(state.contributions || []), ...(sharedState.contributions || [])].forEach((c) => {
+      if (DIVIDEND_SOURCES.includes(c.source) && c.sourceSymbol) payers.add(String(c.sourceSymbol).trim().toUpperCase());
+    });
+    // ตัวที่เคยจ่ายปันผลและยังถืออยู่ (ถ้าจับคู่ไม่ได้เลย ใช้ทั้งหมดที่ถือ)
+    let symbols = [...payers].filter((s) => held.has(s));
+    if (symbols.length === 0) symbols = [...held];
+    if (symbols.length === 0) { res.status(200).json({ ok: true, items: [], message: 'ไม่มีหุ้นที่ถืออยู่' }); return; }
 
-    const text = await askClaude(prompt);
-    const parsed = safeParseJson(text);
-    const newItems = parsed.items || [];
+    const fresh = [];
+    const noYahoo = [];
+    for (const s of symbols) {
+      const y = await fromYahoo(s, today);
+      if (y.item) fresh.push(y.item);
+      else if (!y.found) noYahoo.push(s);
+    }
+    const aiTargets = noYahoo.filter((s) => payers.has(s)).slice(0, AI_MAX_SYMBOLS);
+    const aiItems = await fromAI(aiTargets, today);
+    aiItems.forEach((it) => { if (!fresh.some((f) => f.symbol === it.symbol)) fresh.push(it); });
 
-    // เทียบกับข้อมูลเดิม เพื่อดูว่ามีวัน XD ใหม่ที่เพิ่งประกาศไหม (ไว้แจ้งเตือนใน LINE เฉพาะของใหม่ ไม่ต้องแจ้งซ้ำทุกวัน)
-    const oldItems = (state.dividendCalendar && state.dividendCalendar.items) || [];
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const isNew = (item) => !oldItems.some((o) => o.symbol === item.symbol && o.exDate === item.exDate);
-    const isUpcoming = (item) => item.exDate && item.exDate >= todayStr; // ไม่แจ้งเตือนวัน XD ที่ผ่านไปแล้ว แม้จะเพิ่งเจอเป็นครั้งแรกก็ตาม (ข้อมูลเก่า ไม่ใช่ข่าวใหม่)
-    const freshItems = newItems.filter((it) => isNew(it) && isUpcoming(it));
+    // รวมกับของเดิม: ใช้ของใหม่ก่อน, ของเดิมเก็บไว้เฉพาะที่ยังไม่เก่า และไม่มีรอบใหม่ของตัวเดียวกัน
+    const oldItems = (old.items || []).filter((o) => !isStale(o, today));
+    const merged = fresh.map((it) => {
+      const same = (old.items || []).find((o) => o.symbol === it.symbol && o.exDate === it.exDate);
+      return same ? { ...same, ...it, calendarEventId: same.calendarEventId, calendarEventIdPay: same.calendarEventIdPay, payDate: it.payDate || same.payDate || null } : it;
+    });
+    oldItems.forEach((o) => { if (!merged.some((m) => m.symbol === o.symbol)) merged.push(o); });
+    merged.sort((a, b) => (a.exDate || '').localeCompare(b.exDate || ''));
 
-    await docRef.set({ dividendCalendar: { items: newItems, fetchedAt: new Date().toISOString() } }, { merge: true });
+    const fetchedAt = new Date().toISOString();
+    await docRef.set({ dividendCalendar: { items: merged, fetchedAt } }, { merge: true });
 
-    if (freshItems.length > 0) {
-      const lines = freshItems.map((it) => `• ${it.symbol}: XD ${formatDateDMY(it.exDate)}${it.payDate ? ` · จ่าย ${formatDateDMY(it.payDate)}` : ''}`).join('\n');
-      await sendLineNotify(`📅 พบวัน XD ใหม่ที่เพิ่งประกาศ:\n${lines}\n\nเข้าแอป > ข่าว > ปฏิทินปันผล เพื่อตั้งเตือนในปฏิทิน`);
+    // แจ้ง LINE เฉพาะรอบที่ประกาศจริง/AI พบใหม่ (ไม่แจ้งตัวคาดการณ์)
+    const isNew = (it) => !(old.items || []).some((o) => o.symbol === it.symbol && o.exDate === it.exDate);
+    const notify = fresh.filter((it) => it.kind !== 'estimate' && it.exDate >= today && isNew(it));
+    if (notify.length > 0) {
+      const lines = notify.map((it) => `• ${it.symbol}: XD ${formatDateDMY(it.exDate)}${it.payDate ? ` · จ่าย ${formatDateDMY(it.payDate)}` : ''}`).join('\n');
+      await sendLineNotify(`📅 พบวัน XD ใหม่ที่ประกาศแล้ว:\n${lines}\n\nเข้าแอป > ข่าว > ปฏิทินปันผล เพื่อตั้งเตือนในปฏิทิน`);
     }
 
-    res.status(200).json({ ok: true, total: newItems.length, new: freshItems.length });
+    const foundSet = new Set(merged.map((m) => m.symbol));
+    res.status(200).json({ ok: true, cached: false, items: merged, fetchedAt, missing: symbols.filter((s) => !foundSet.has(s)), stats: { symbols: symbols.length, yahoo: fresh.filter((f) => f.kind !== 'ai').length, ai: aiItems.length, notified: notify.length } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
