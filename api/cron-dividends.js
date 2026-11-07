@@ -16,7 +16,7 @@ const DIVIDEND_SOURCES = ['coop_div', 'thai_div', 'us_div', 'yieldtech'];
 const AI_MODEL = 'claude-haiku-4-5-20251001';
 const MANUAL_CACHE_HOURS = 6;
 const STALE_DAYS = 30;
-const AI_MAX_SYMBOLS = 10;
+const AI_MAX_SYMBOLS = 15;
 
 function getDb() {
   if (getApps().length === 0) initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
@@ -109,7 +109,7 @@ async function fromAI(symbols, today) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 1500, messages: [{ role: 'user', content: prompt }], tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] }),
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 2500, messages: [{ role: 'user', content: prompt }], tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }] }),
     });
     const data = await r.json();
     const text = (data.content || []).map((c) => c.text || '').join('\n').replace(/```json|```/g, '');
@@ -159,14 +159,13 @@ export default async function handler(req, res) {
     // สัญลักษณ์ที่ถืออยู่ + สัญลักษณ์ที่เคยได้รับปันผลจริง (เฉพาะกลุ่มหลังที่ยอมใช้ AI สำรอง)
     const accounts = [...(state.accounts || []), ...(sharedState.accounts || [])];
     const held = new Set();
-    accounts.forEach((a) => (a.holdings || []).forEach((h) => { if (h.symbol) held.add(h.symbol.trim().toUpperCase()); }));
+    accounts.forEach((a) => (a.holdings || []).forEach((h) => { if (h.symbol && Number(h.shares) > 0) held.add(h.symbol.trim().toUpperCase()); }));
     const payers = new Set();
     [...(state.contributions || []), ...(sharedState.contributions || [])].forEach((c) => {
       if (DIVIDEND_SOURCES.includes(c.source) && c.sourceSymbol) payers.add(String(c.sourceSymbol).trim().toUpperCase());
     });
-    // ตัวที่เคยจ่ายปันผลและยังถืออยู่ (ถ้าจับคู่ไม่ได้เลย ใช้ทั้งหมดที่ถือ)
-    let symbols = [...payers].filter((s) => held.has(s));
-    if (symbols.length === 0) symbols = [...held];
+    // ใช้ทุกตัวที่ถืออยู่จริง (shares > 0) — เดิมใช้เฉพาะตัวที่เคยบันทึกปันผล ทำให้หุ้นอื่นหลุดไป
+    const symbols = [...held];
     if (symbols.length === 0) { res.status(200).json({ ok: true, items: [], message: 'ไม่มีหุ้นที่ถืออยู่' }); return; }
 
     const fresh = [];
@@ -180,7 +179,9 @@ export default async function handler(req, res) {
     // Yahoo มักไม่มีวัน XD ที่ "ประกาศล่วงหน้า" ของหุ้น/REIT ไทย → ถามเว็บเสิร์ชสำหรับตัวที่ยังไม่มีรอบ "ประกาศแล้ว"
     // (เรียกครั้งเดียว/สัปดาห์ด้วย Haiku จึงถูกมาก) เรียงตัวที่เคยจ่ายปันผลก่อน
     const announced = new Set(fresh.filter((f) => f.kind === 'announced').map((f) => f.symbol));
-    const aiTargets = symbols.filter((s) => !announced.has(s)).sort((a, b) => (payers.has(b) ? 1 : 0) - (payers.has(a) ? 1 : 0)).slice(0, AI_MAX_SYMBOLS);
+    // ลำดับความสำคัญ: เคยจ่ายปันผล +2, ชื่อแบบหุ้น/REIT (ไม่มีขีด เช่น QHBREIT) +1, กองทุนชื่อมีขีด (KT-JEPQ) 0
+    const score = (s) => (payers.has(s) ? 2 : 0) + (/^[A-Z0-9&]{2,10}$/.test(s) ? 1 : 0);
+    const aiTargets = symbols.filter((s) => !announced.has(s)).sort((a, b) => score(b) - score(a)).slice(0, AI_MAX_SYMBOLS);
     const aiItems = await fromAI(aiTargets, today);
     aiItems.forEach((it) => { const i = fresh.findIndex((f) => f.symbol === it.symbol); if (i === -1) fresh.push(it); else if (fresh[i].kind === 'estimate') fresh[i] = it; });
 
