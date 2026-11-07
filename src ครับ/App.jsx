@@ -680,6 +680,8 @@ export default function App() {
   const [state, setState] = useState(null);
   const appliedLastTabRef = useRef(false);
   const stateRef = useRef(null);
+  const [startupAck, setStartupAck] = useState(false);
+  const [startupSkip, setStartupSkip] = useState({});
   const [tab, setTab] = useState(() => {
     if (typeof window === 'undefined') return 'dashboard';
     const path = window.location.pathname;
@@ -1177,6 +1179,77 @@ export default function App() {
     }
     return null;
   }, [tab, dogs, properties, creditCards, contributions, accounts, vehicles]);
+  // ===== ป๊อปอัพแจ้งเตือนสำคัญตอนเปิดแอป — รวมเรื่องด่วนทุกหมวดไว้ในกล่องเดียว ต้องกด "รับทราบ" ก่อนถึงข้ามได้ =====
+  const startupAlerts = useMemo(() => {
+    if (!state || !sharedState) return [];
+    const out = [];
+    const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+    const dayDiff = (y, m, d) => Math.round((new Date(y, m, d) - today0) / 86400000);
+    const dayDiffStr = (str) => { if (!str) return null; const [y, m, d] = String(str).slice(0, 10).split('-').map(Number); if (!y) return null; return dayDiff(y, m - 1, d); };
+    const when = (n) => (n < 0 ? `เลยมา ${-n} วัน` : n === 0 ? 'วันนี้' : n === 1 ? 'พรุ่งนี้' : `อีก ${n} วัน`);
+    const toneOf = (n) => (n <= 0 ? 'bad' : n <= 1 ? 'bad' : 'warn');
+    // นัดหมายของลูกๆ (วันนี้ - 3 วันข้างหน้า)
+    (dogs || []).forEach((d) => (d.appointments || []).forEach((a) => {
+      const n = dayDiffStr(a.date); if (n === null || n < 0 || n > 3) return;
+      out.push({ photo: d.photoUrl, key: `appt|${d.id}|${a.id || a.date + (a.purpose || '')}`, n, tone: toneOf(n), icon: '🐶', title: `${d.name} มีนัด${a.purpose ? ` "${a.purpose}"` : ''}`, sub: `${when(n)} · ${formatDateThai(a.date)}${a.hospital ? ' · ' + a.hospital : ''}`, tab: 'pets' });
+    }));
+    // ยาเห็บหมัด / ประกันของลูกๆ
+    (dogs || []).forEach((d) => {
+      const ft = d.fleaTick || {};
+      if (ft.lastGivenDate) {
+        const due = new Date(ft.lastGivenDate); due.setDate(due.getDate() + Number(ft.intervalDays || 84));
+        const n = dayDiff(due.getFullYear(), due.getMonth(), due.getDate());
+        if (n <= 3) out.push({ photo: d.photoUrl, key: `flea|${d.id}|${ft.lastGivenDate}`, n, tone: toneOf(n), icon: '🐛', title: `${d.name} ถึงกำหนดยาเห็บหมัด`, sub: when(n), tab: 'pets' });
+      }
+      if (d.insurance && d.insurance.endDate) {
+        const n = dayDiffStr(d.insurance.endDate);
+        if (n !== null && n >= -30 && n <= 14) out.push({ photo: d.photoUrl, key: `dins|${d.id}|${d.insurance.endDate}`, n, tone: toneOf(n), icon: '🛡️', title: `ประกันของ ${d.name} ${n < 0 ? 'หมดอายุแล้ว' : 'ใกล้หมดอายุ'}`, sub: when(n), tab: 'pets' });
+      }
+    });
+    // ค่าเช่า / ครบสัญญา
+    const ym = thisMonth();
+    (properties || []).forEach((p) => {
+      if (p.status === 'occupied' && p.rentDueDay) {
+        const pay = (p.payments || {})[ym];
+        if (!(pay && pay.paid)) {
+          const t = new Date(); const n = dayDiff(t.getFullYear(), t.getMonth(), Number(p.rentDueDay));
+          if (n <= 3) out.push({ key: `rent|${p.id}|${ym}`, n, tone: n <= 0 ? 'bad' : toneOf(n), icon: '🏠', title: `${n < 0 ? 'ค้างชำระค่าเช่า' : 'ถึงกำหนดค่าเช่า'} ${p.name}`, sub: `฿${fmt(p.rent)} · ${when(n)}`, tab: 'realestate' });
+        }
+      }
+      if (p.contractEndDate) {
+        const n = dayDiffStr(p.contractEndDate);
+        if (n !== null && n >= 0 && n <= 30) out.push({ key: `contract|${p.id}|${p.contractEndDate}`, n, tone: n <= 7 ? 'bad' : 'warn', icon: '📑', title: `${p.name} ใกล้ครบสัญญาเช่า`, sub: `${when(n)} · ${formatDateThai(p.contractEndDate)}`, tab: 'realestate' });
+      }
+    });
+    // บัตรเครดิตครบกำหนดจ่าย
+    (creditCards || []).forEach((c) => {
+      const t = new Date(); const n = dayDiff(t.getFullYear(), t.getMonth(), Number(c.dueDay || 15));
+      if (n >= 0 && n <= 3) out.push({ key: `card|${c.id || c.cardName}|${ym}`, n, tone: toneOf(n), icon: '💳', title: `บัตร ${c.cardName || c.bankName || ''} ครบกำหนดจ่าย`, sub: when(n), tab: 'expenses' });
+    });
+    // รถ: ภาษี / พ.ร.บ. / ประกัน
+    (vehicles || []).forEach((v) => ['tax', 'compulsory', 'insurance'].forEach((k) => {
+      const it = v[k]; if (!it || !it.expiryDate) return;
+      const n = dayDiffStr(it.expiryDate);
+      if (n !== null && n <= 14) out.push({ key: `veh|${v.id || v.name}|${k}|${it.expiryDate}`, n, tone: n <= 7 ? 'bad' : 'warn', icon: '🚗', title: `${v.name} — ${VEHICLE_ITEM_LABELS[k]} ${n < 0 ? 'หมดอายุแล้ว' : 'ใกล้หมดอายุ'}`, sub: when(n), tab: 'vehicles' });
+    }));
+    const dismissed = (state && state.dismissedAlerts) || {};
+    return out.filter((a) => !dismissed[a.key]).sort((a, b) => a.n - b.n);
+  }, [state, sharedState, dogs, properties, creditCards, vehicles]);
+  const showStartupAlerts = !startupAck && startupAlerts.length > 0;
+  // ปิดป๊อปอัพ — เรื่องที่ติ๊ก "ไม่ต้องเตือนซ้ำ" จะถูกจำไว้ (ผูกกับรอบนั้นๆ เช่นค่าเช่าเดือนนี้/นัดครั้งนั้น พอถึงรอบใหม่จะเตือนใหม่เอง)
+  function closeStartupAlerts() {
+    const keys = Object.keys(startupSkip).filter((k) => startupSkip[k]);
+    if (keys.length > 0 && state) {
+      const nowStr = new Date().toISOString().slice(0, 10);
+      const old = state.dismissedAlerts || {};
+      const kept = {};
+      Object.keys(old).forEach((k) => { if (daysUntil(old[k]) !== null && daysUntil(old[k]) > -120) kept[k] = old[k]; });
+      keys.forEach((k) => { kept[k] = nowStr; });
+      persist({ ...state, dismissedAlerts: kept });
+    }
+    setStartupSkip({});
+    setStartupAck(true);
+  }
   const hospitalList = state?.hospitalList || ['โรงพยาบาลสัตว์เล็กเกษตร', 'โรงพยาบาลสัตว์เล็กจุฬาฯ', 'Central West Animal Hospital', 'โรงพยาบาลสัตว์ทองหล่อ', 'โรงพยาบาลสัตว์อารักษ์', 'โรงพยาบาลสัตว์นครสวรรค์ (Big C)'];
   const doctorList = state?.doctorList || [];
   const goldShopList = state?.goldShopList || [];
@@ -1868,8 +1941,8 @@ export default function App() {
     persist({ ...state, investmentNews: { items, fetchedAt: new Date().toISOString() } });
   }
   const dividendCalendar = state?.dividendCalendar || { items: [], fetchedAt: '' };
-  function saveDividendCalendar(items) {
-    persist({ ...state, dividendCalendar: { items, fetchedAt: new Date().toISOString() } });
+  function saveDividendCalendar(items, fetchedAt) {
+    persist({ ...state, dividendCalendar: { items, fetchedAt: fetchedAt || state?.dividendCalendar?.fetchedAt || new Date().toISOString() } });
   }
   function addBloodTestType(name) { if (name && !bloodTestTypeList.includes(name)) persist({ ...state, bloodTestTypeList: [...bloodTestTypeList, name] }); }
   function addOrganType(name) { if (name && !organTypeList.includes(name)) persist({ ...state, organTypeList: [...organTypeList, name] }); }
@@ -2467,6 +2540,46 @@ export default function App() {
   return (
     <div style={{ background: PAPER, minHeight: '100vh', fontFamily: 'Sarabun, sans-serif', color: INK, fontVariantNumeric: 'tabular-nums' }} className="pb-24">
       <ConfirmDeleteHost />
+      {showStartupAlerts && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,22,28,.62)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
+          <div style={{ background: PAPER, width: '100%', maxWidth: 400, maxHeight: '86vh', borderRadius: 22, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 50px rgba(0,0,0,.35)' }}>
+            <div style={{ background: 'linear-gradient(135deg, #2A2418 0%, #3B3220 100%)', padding: '16px 18px', color: 'white' }}>
+              <p className="text-[11px]" style={{ color: '#E9C877', letterSpacing: 0.4 }}>แจ้งเตือนสำคัญวันนี้</p>
+              <p className="text-lg font-bold" style={{ lineHeight: 1.25 }}>🔔 มี {startupAlerts.length} เรื่องที่ต้องดู</p>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '12px 14px' }}>
+              {startupAlerts.map((a, i) => {
+                const c = a.tone === 'bad' ? { bg: '#FDECE9', bd: '#F3C4BC', fg: BAD } : { bg: '#FBF3E9', bd: '#F0DDB8', fg: WARN };
+                return (
+                  <React.Fragment key={a.key || i}>
+                  <div className="flex items-center gap-3 mb-2" style={{ background: c.bg, border: `1px solid ${c.bd}`, borderRadius: 14, padding: '10px 12px' }}>
+                    {a.photo ? (
+                      <span style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}>
+                        <img src={a.photo} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,.18)' }} />
+                        <span style={{ position: 'absolute', right: -4, bottom: -4, width: 20, height: 20, borderRadius: '50%', background: 'white', border: `1px solid ${c.bd}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>{a.icon}</span>
+                      </span>
+                    ) : (
+                      <span style={{ width: 38, height: 38, borderRadius: 12, background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{a.icon}</span>
+                    )}
+                    <span className="flex-1 min-w-0">
+                      <span className="text-[13.5px] font-semibold block" style={{ color: INK, lineHeight: 1.3 }}>{a.title}</span>
+                      <span className="text-[11.5px] font-bold block mt-0.5" style={{ color: c.fg }}>{a.sub}</span>
+                    </span>
+                    <button onClick={() => { setTab(a.tab); closeStartupAlerts(); }} className="text-[11px] font-bold flex-shrink-0" style={{ color: BRASS, background: 'white', border: `1px solid ${BORDER}`, borderRadius: 99, padding: '5px 10px' }}>ดู ›</button>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[11px] mb-2.5" style={{ color: SLATE, marginTop: -2, paddingLeft: 6 }}>
+                    <input type="checkbox" checked={!!startupSkip[a.key]} onChange={(e) => setStartupSkip({ ...startupSkip, [a.key]: e.target.checked })} /> ไม่ต้องเตือนเรื่องนี้ซ้ำ
+                  </label>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+            <div style={{ padding: '4px 14px 14px' }}>
+              <button onClick={closeStartupAlerts} className="w-full text-white text-sm font-bold" style={{ background: INK, borderRadius: 14, padding: '13px 0' }}>รับทราบ</button>
+            </div>
+          </div>
+        </div>
+      )}
       <PendingLineSharesFab
         items={state?.pendingLineShares || []}
         onShareOne={(item) => shareTextToLine(item.text, () => persist({ ...state, pendingLineShares: (state?.pendingLineShares || []).filter((x) => x.id !== item.id) }))}
@@ -5107,7 +5220,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     try {
       const symbols = holdings.map((h) => h.symbol).filter(Boolean);
       const rows = await scanBuySellHistory(file, symbols);
-      if (!rows || rows.length === 0) { setBsScanError('อ่านรายการไม่พบ ลองภาพที่ชัดกว่านี้'); return; }
+      if (!rows || rows.length === 0) { setBsScanError('ไม่พบรายการซื้อ/ขายในภาพนี้ — เมนูนี้อ่านได้เฉพาะ "ประวัติคำสั่งซื้อ-ขาย" ถ้าเป็นภาพพอร์ต (มูลค่า/กำไรขาดทุนของแต่ละกองทุน) ให้ใช้ปุ่ม "📷 ซิงค์พอร์ตจากภาพ" หรือ "นำเข้าทั้งพอร์ตจากภาพ" ในกล่องเครื่องมือด้านล่างแทน'); return; }
       const matched = rows.map((r) => {
         const found = holdings.find((h) => h.symbol && r.symbol && (h.symbol.toUpperCase() === r.symbol.toUpperCase() || h.symbol.toUpperCase().includes(r.symbol.toUpperCase()) || r.symbol.toUpperCase().includes(h.symbol.toUpperCase())));
         const rShares = r.shares ? Number(r.shares) : null;
@@ -5431,6 +5544,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
   const [divReinvest, setDivReinvest] = useState('');
   const [showSells, setShowSells] = useState(false);
   const [showBuys, setShowBuys] = useState(false);
+  const [showBuysLine, setShowBuysLine] = useState(false);
   const [editingBuy, setEditingBuy] = useState(null);
   const [editingSell, setEditingSell] = useState(null);
   const [editingDiv, setEditingDiv] = useState(null);
@@ -5785,6 +5899,37 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
           <span className="text-[10px] flex items-center gap-2" style={{ color: SLATE }}>฿{fmt(b.amount)} <EditButton onClick={() => setEditingBuy(b)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveBuy(accountId, h.id, b.id))}><Trash2 size={11} color={BAD} /></button></span>
         </div>
       ))}
+      {showBuys && (h.buys || []).length > 0 && <div className="mt-2"><LineSendBar label="ส่งประวัติการซื้อเข้า LINE" sub={`${(h.buys || []).length} รายการ`} onClick={() => setShowBuysLine(true)} /></div>}
+      {showBuysLine && (() => {
+        const cur = h.currency === 'USD' ? 'US$' : '฿';
+        const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
+        const name = h.symbol || h.name;
+        const byDateDesc = (list) => [...(list || [])].sort((x, y) => String(y.date || '').localeCompare(String(x.date || '')));
+        const pick = (o) => ({ buys: o.recent ? byDateDesc(h.buys).slice(0, 5) : byDateDesc(h.buys), sells: o.sells ? byDateDesc(h.sells) : [] });
+        const buyLine = (b) => `${formatDateDMY(b.date)} · ${cur}${fmt(b.amount)}${Number(b.shares) > 0 ? ` (${Number(Number(b.shares).toFixed(4)).toLocaleString()} หน่วย @ ${b.price})` : ''}`;
+        const sellLine = (x) => `${formatDateDMY(x.date)} · ${cur}${fmt(x.amount)}${Number(x.shares) > 0 ? ` (${Number(Number(x.shares).toFixed(4)).toLocaleString()} หน่วย)` : ''}`;
+        const totalOf = (list) => list.reduce((t, x) => t + Number(x.amount || 0), 0);
+        const getText = (o) => {
+          const { buys, sells } = pick(o);
+          let t = `📋 ประวัติการซื้อ ${name}${accName ? ' (' + accName + ')' : ''}\n` + buys.map((b, i) => `${i + 1}. ${buyLine(b)}`).join('\n') + `\nรวมซื้อ ${buys.length} ครั้ง ${cur}${fmt(totalOf(buys))}`;
+          if (sells.length) t += `\n\n💸 ประวัติการขาย\n` + sells.map((x, i) => `${i + 1}. ${sellLine(x)}`).join('\n') + `\nรวมขาย ${cur}${fmt(totalOf(sells))}`;
+          return t;
+        };
+        return (
+          <LineSendSheet title={`ส่งประวัติการซื้อ ${name}`} onClose={() => setShowBuysLine(false)}
+            options={[{ key: 'recent', label: 'เฉพาะ 5 รายการล่าสุด', defaultOn: false }, { key: 'sells', label: 'รวมประวัติการขาย', defaultOn: false }]}
+            getText={getText}
+            onSendOA={(to, o) => {
+              const { buys, sells } = pick(o);
+              const CAP = 30;
+              const rows = buys.slice(0, CAP).map((b) => ({ label: formatDateDMY(b.date), value: `${cur}${fmt(b.amount)}${Number(b.shares) > 0 ? ` · ${Number(Number(b.shares).toFixed(2)).toLocaleString()} หน่วย` : ''}` }));
+              if (buys.length > CAP) rows.push({ label: '…', value: `และอีก ${buys.length - CAP} รายการ` });
+              rows.push({ label: 'รวมซื้อ', value: `${buys.length} ครั้ง · ${cur}${fmt(totalOf(buys))}` });
+              if (sells.length) { sells.slice(0, 10).forEach((x) => rows.push({ label: `ขาย ${formatDateDMY(x.date)}`, value: `${cur}${fmt(x.amount)}` })); rows.push({ label: 'รวมขาย', value: `${cur}${fmt(totalOf(sells))}` }); }
+              sendLineFlex(`ประวัติการซื้อ ${name} ${buys.length} รายการ`, buildFlexCard({ title: `📋 ประวัติการซื้อ ${name}`, rows, note: accName ? `บัญชี ${accName}` : undefined, tab: 'accounts' }), to);
+            }} />
+        );
+      })()}
       {editingBuy && (
         <EditModal title="แก้ไขรายการซื้อ" onClose={() => setEditingBuy(null)}
           initialValues={{ date: editingBuy.date, shares: editingBuy.shares, price: editingBuy.price, amount: editingBuy.amount }}
@@ -6387,6 +6532,10 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
   const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime()) > 24 * 60 * 60 * 1000;
   const divItems = (dividendCalendar && dividendCalendar.items) || [];
   const divFetchedAt = dividendCalendar && dividendCalendar.fetchedAt;
+  const isDivStale = (it) => {
+    const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    return !it.exDate || (it.exDate < cutoff && (!it.payDate || it.payDate < cutoff));
+  };
 
   function collectSymbols() {
     const set = new Set();
@@ -6415,12 +6564,13 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
     }
     setDivLoading(true); setDivError(''); setDivProgress(null);
     try {
-      const held = collectSymbols();
-      const newItems = await fetchDividendCalendar(held, (done, total) => setDivProgress({ done, total }));
-      onSavedDividends(newItems);
-      const foundSymbols = new Set(newItems.map((it) => (it.symbol || '').toUpperCase()));
-      const missing = held.filter((s) => !foundSymbols.has(s));
-      setDivMissing(missing);
+      // ดึงผ่านเซิร์ฟเวอร์ (Yahoo ฟรีก่อน แล้วค่อย AI เฉพาะตัวที่หาไม่เจอ) — ถูกกว่าเดิมมาก
+      const resp = await fetch('/api/cron-dividends?manual=1');
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || `เซิร์ฟเวอร์ตอบ ${resp.status}`);
+      if (!data.cached) onSavedDividends(data.items || [], data.fetchedAt);
+      setDivMissing(data.missing || []);
+      if (data.cached) setDivError('ข้อมูลเพิ่งอัพเดตไม่เกิน 6 ชั่วโมง จึงใช้ข้อมูลเดิม (ระบบดึงใหม่อัตโนมัติทุกวันจันทร์)');
     } catch (e) { setDivError('ดึงข้อมูล XD ไม่สำเร็จ: ' + (e.message || 'ไม่ทราบสาเหตุ')); }
     finally { setDivLoading(false); setDivProgress(null); }
   }
@@ -6429,7 +6579,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
     const pref = getDivPref(item);
     if (!pref.xd && !pref.pay) return;
     setSyncingSymbol(item.symbol);
-    const sourceNote = `แหล่งข้อมูล: ${item.source || '-'} (ข้อมูลจาก AI เว็บเสิร์ช เช็คซ้ำกับประกาศทางการก่อนตัดสินใจ)`;
+    const sourceNote = `แหล่งข้อมูล: ${item.source || '-'} (ถ้าเป็นรอบ 'คาดการณ์' ยังไม่ใช่วันประกาศจริง เช็คกับประกาศทางการก่อนตัดสินใจ)`;
     let rXd = { ok: true, eventId: item.calendarEventId };
     let rPay = { ok: true, eventId: item.calendarEventIdPay };
     if (pref.xd) {
@@ -6477,10 +6627,10 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
             </button>
           </div>
           <div style={{ background: '#FEF3E2', border: '1px solid #FDE0A8', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: WARN }} className="mb-3">
-            ⚠️ ข้อมูลนี้มาจาก AI เว็บเสิร์ช (ไม่ใช่ข้อมูลโครงสร้างทางการ) — เช็คซ้ำกับประกาศของ SET/บริษัท หรือแหล่งข้อมูลทางการก่อนตัดสินใจซื้อ-ขายเสมอ
+            ℹ️ ดึงจาก Yahoo Finance (ฟรี) + AI เฉพาะตัวที่หาไม่เจอ · ป้ายเขียว = ประกาศแล้ว, เหลือง = คาดการณ์จากรอบก่อน (ยังไม่ประกาศ) — เช็คกับประกาศ SET/บริษัทก่อนตัดสินใจเสมอ
           </div>
           {divError && <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '10px 12px', fontSize: 11, color: '#991B1B' }} className="mb-3">⚠️ {divError}</div>}
-          {!divLoading && divItems.length === 0 && !divError && <Card><p className="text-xs text-center py-4" style={{ color: SLATE }}>ยังไม่มีข้อมูล กด "รีเฟรช" เพื่อค้นวัน XD ของหุ้นที่ถืออยู่</p></Card>}
+          {!divLoading && divItems.filter((x) => !isDivStale(x)).length === 0 && !divError && <Card><p className="text-xs text-center py-4" style={{ color: SLATE }}>ยังไม่มีรอบ XD ที่กำลังจะถึง กด "รีเฟรช" เพื่อดึงข้อมูลล่าสุด</p></Card>}
           {divMissing.length > 0 && (
             <div style={{ background: PAPER_DIM, borderRadius: 12, padding: '10px 12px' }} className="mb-3">
               <p className="text-[11px]" style={{ color: SLATE }}>🔍 ค้นแล้วแต่ยังไม่พบข้อมูล XD ของ: <span style={{ color: INK, fontWeight: 600 }}>{divMissing.join(', ')}</span></p>
@@ -6488,6 +6638,7 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
             </div>
           )}
           {divItems.map((it, idx) => {
+            if (isDivStale(it)) return null;
             const pref = getDivPref(it);
             const syncedLabel = [pref.xd && it.calendarEventId ? 'XD ✓' : null, pref.pay && it.calendarEventIdPay ? 'จ่ายเงิน ✓' : null].filter(Boolean).join(' · ');
             // เช็คคร่าวๆ ว่าวัน XD ที่ AI ตอบมาเก่าเกินไปไหม (เกิน 90 วันที่แล้ว) เผื่อ AI หยิบรอบเก่าปีก่อนมาตอบผิด จะได้เตือนให้เช็คซ้ำ
@@ -6495,10 +6646,10 @@ function NewsTab({ news, accounts, onSaved, dividendCalendar, onSavedDividends, 
             const daysSinceEx = exDateObj ? Math.floor((Date.now() - exDateObj.getTime()) / (1000 * 60 * 60 * 24)) : null;
             const looksStale = daysSinceEx !== null && daysSinceEx > 90;
             return (
-            <SwipeToDeleteRow key={idx} confirmMessage={`ลบ ${it.symbol} ออกจากปฏิทินปันผล? (จะกลับมาอีกถ้ารีเฟรชแล้ว AI เจอข้อมูลนี้อีก)`} onDelete={() => onSavedDividends(divItems.filter((_, i) => i !== idx))}>
+            <SwipeToDeleteRow key={idx} confirmMessage={`ลบ ${it.symbol} ออกจากปฏิทินปันผล? (จะกลับมาอีกถ้ารีเฟรชแล้วเจอข้อมูลนี้อีก)`} onDelete={() => onSavedDividends(divItems.filter((_, i) => i !== idx))}>
             <Card>
               <div className="flex justify-between items-start mb-1">
-                <p className="text-sm font-semibold" style={{ color: INK }}>{it.symbol}</p>
+                <p className="text-sm font-semibold" style={{ color: INK }}>{it.symbol} {it.kind === 'announced' && <span className="text-[9px] font-bold rounded-full px-1.5 py-0.5 ml-1" style={{ background: '#E1F5E9', color: GOOD }}>ประกาศแล้ว</span>}{it.kind === 'estimate' && <span className="text-[9px] font-bold rounded-full px-1.5 py-0.5 ml-1" style={{ background: '#FBF1DD', color: WARN }}>คาดการณ์</span>}{it.kind === 'ai' && <span className="text-[9px] font-bold rounded-full px-1.5 py-0.5 ml-1" style={{ background: '#E4EAF3', color: '#35547E' }}>AI · เช็คซ้ำ</span>}</p>
                 {it.amount && <span style={{ background: PAPER_DIM, color: BRASS }} className="text-[10px] font-semibold rounded-full px-2 py-0.5">฿{it.amount}/หน่วย</span>}
               </div>
               {looksStale && <p className="text-[10px] mb-1 px-2 py-1 rounded" style={{ background: '#FEE2E2', color: '#991B1B' }}>⚠️ วันที่นี้ผ่านมาแล้ว {daysSinceEx} วัน อาจเป็นข้อมูลรอบเก่าที่ AI หยิบผิด เช็คซ้ำก่อนตั้งเตือน</p>}
@@ -7507,12 +7658,12 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
       {dog && (
         <>
         <button onClick={() => setSelectedId(null)} className="flex items-center gap-1 text-xs font-semibold mb-3" style={{ color: BRASS }}>‹ ภาพรวมทุกตัว</button>
-        <Card>
+        <div style={{ background: 'linear-gradient(135deg, #FBF3E1 0%, #F3E7CC 100%)', border: `1px solid #EBDDB8`, borderRadius: 20, padding: 16, marginBottom: 12 }}>
           <input ref={photoFileRef} type="file" accept="image/*" onChange={handlePhotoFile} className="hidden" />
           <div className="flex items-center gap-4">
             <button onClick={() => photoFileRef.current && photoFileRef.current.click()} className="relative flex-shrink-0">
               {dog.photoUrl ? (
-                <img src={dog.photoUrl} alt={dog.name} className="w-18 h-18 rounded-full object-cover" style={{ width: 72, height: 72 }} />
+                <img src={dog.photoUrl} alt={dog.name} className="w-18 h-18 rounded-full object-cover" style={{ width: 76, height: 76, border: '3px solid white', boxShadow: '0 2px 8px rgba(0,0,0,.12)' }} />
               ) : (
                 <div style={{ background: PAPER_DIM, color: SLATE }} className="rounded-full flex items-center justify-center" style={{ width: 72, height: 72 }}>
                   {photoUploading ? <Loader2 size={22} className="animate-spin" /> : <Dog size={28} />}
@@ -7523,8 +7674,13 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
               </div>
             </button>
             <div className="flex-1">
-              <p className="text-lg font-bold" style={{ color: INK }}>{dog.name}</p>
+              <p className="text-xl font-bold" style={{ color: INK, lineHeight: 1.2 }}>{dog.name}</p>
               <p className="text-xs" style={{ color: SLATE }}>{dog.breed || 'ยังไม่ระบุพันธุ์'}</p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {dog.birthdate && <span className="text-[11px] font-semibold" style={{ background: 'rgba(255,255,255,.75)', borderRadius: 99, padding: '2px 9px', color: INK }}>🎂 {ageString(dog.birthdate)}</span>}
+                {dog.sex && <span className="text-[11px] font-semibold" style={{ background: 'rgba(255,255,255,.75)', borderRadius: 99, padding: '2px 9px', color: INK }}>{dog.sex}</span>}
+                {(dog.insurance && dog.insurance.endDate && daysUntil(dog.insurance.endDate) >= 0) && <span className="text-[11px] font-semibold" style={{ background: '#EDE6F7', borderRadius: 99, padding: '2px 9px', color: '#5B3E91' }}>🛡️ มีประกัน</span>}
+              </div>
             </div>
             <div className="flex flex-col items-center gap-1 flex-shrink-0" title={dog.lineGroupId ? 'ผูก LINE กลุ่มเฉพาะตัวแล้ว' : 'ยังไม่ผูก LINE กลุ่มเฉพาะตัว'}>
               <div style={{ background: dog.lineGroupId ? '#16A34A14' : PAPER_DIM }} className="w-9 h-9 rounded-full flex items-center justify-center">
@@ -7533,16 +7689,16 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
               <span className="text-[9px]" style={{ color: dog.lineGroupId ? GOOD : '#9CA3AF' }}>{dog.lineGroupId ? 'ผูกแล้ว' : 'ยังไม่ผูก'}</span>
             </div>
           </div>
-        </Card>
+        </div>
 
       <div className="grid grid-cols-5 gap-2 mb-4">
         {sections.map((s) => {
           const Icon = s.icon;
           const active = section === s.id;
           return (
-            <button key={s.id} onClick={() => setSection(s.id)} className="flex flex-col items-center gap-1 py-2 rounded-xl" style={{ background: active ? BRASS : PAPER_DIM }}>
-              <Icon size={17} color={active ? 'white' : SLATE} />
-              <span style={{ color: active ? 'white' : SLATE, fontWeight: active ? 600 : 400 }} className="text-[9.5px] leading-tight text-center px-0.5">{s.label}</span>
+            <button key={s.id} onClick={() => setSection(s.id)} className="flex flex-col items-center gap-1 py-2.5 rounded-2xl" style={{ background: active ? INK : 'white', border: `1px solid ${active ? INK : BORDER}`, boxShadow: active ? '0 3px 8px rgba(28,32,41,.25)' : 'none' }}>
+              <Icon size={18} color={active ? '#E9C877' : BRASS} />
+              <span style={{ color: active ? 'white' : INK, fontWeight: active ? 700 : 500 }} className="text-[9.5px] leading-tight text-center px-0.5">{s.label}</span>
             </button>
           );
         })}
@@ -9505,50 +9661,80 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
   const nextFleaDue = ft.lastGivenDate ? (() => { const d = new Date(ft.lastGivenDate); d.setDate(d.getDate() + Number(ft.intervalDays || 84)); return d.toISOString().slice(0, 10); })() : null;
   const insights = computeDogInsights(dog);
 
+  const dueChip = (dateStr, pastLabel) => {
+    const n = daysUntil(dateStr);
+    if (n === null) return null;
+    if (n < 0) return { text: `${pastLabel || 'เลยมา'} ${-n} วัน`, bg: '#FDECE9', c: BAD };
+    if (n === 0) return { text: 'วันนี้', bg: '#FDECE9', c: BAD };
+    if (n <= 7) return { text: `อีก ${n} วัน`, bg: '#FBF1DD', c: WARN };
+    if (n < 60) return { text: `อีก ${n} วัน`, bg: '#EEECE6', c: SLATE };
+    return { text: `อีก ${Math.round(n / 30.44)} เดือน`, bg: '#EEECE6', c: SLATE };
+  };
+  const quickRow = (icon, tint, label, value, chip, sectionId, last) => (
+    <button key={label} onClick={() => setSection && setSection(sectionId)} className="w-full flex items-center gap-3 py-2.5 text-left" style={{ borderBottom: last ? 'none' : `1px solid ${BORDER}`, background: 'transparent' }}>
+      <span style={{ width: 34, height: 34, borderRadius: 11, background: tint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>{icon}</span>
+      <span className="flex-1 min-w-0">
+        <span className="text-[11px] block" style={{ color: SLATE }}>{label}</span>
+        <span className="text-[13.5px] font-semibold block" style={{ color: INK, lineHeight: 1.3 }}>{value}</span>
+      </span>
+      {chip && <span className="text-[10.5px] font-bold flex-shrink-0" style={{ borderRadius: 99, padding: '2px 9px', background: chip.bg, color: chip.c }}>{chip.text}</span>}
+      <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+    </button>
+  );
+  const [showNotes, setShowNotes] = useState(false);
+
   return (
     <div>
-      <Card>
-        <p className="text-lg font-semibold mb-1">{dog.name}{dog.nickname && ` (${dog.nickname})`}</p>
-        <div className="grid grid-cols-2 gap-2">
-          <StatBox label="อายุ" value={ageString(dog.birthdate)} />
-          <WeightStatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} trendValues={recentWeights.length >= 2 ? recentWeights : null} trendColor={weightDelta < 0 ? BAD : weightDelta > 0 ? GOOD : SLATE} onClick={() => setSection('weight')} />
-          <StatBox label="BCS" value={dog.bcs || '-'} />
-          <StatBox label="เพศ/สี" value={`${dog.sex || '-'} / ${dog.color || '-'}`} />
-        </div>
-      </Card>
-      {dog.aiHealthInsight && dog.aiHealthInsight.text && (
+      {insights.length > 0 && (
         <Card>
-          <p className="text-xs font-bold mb-2 flex items-center gap-1.5" style={{ color: BRASS }}>🤖 AI วิเคราะห์สุขภาพ</p>
-          {dog.aiHealthInsight.text.split('\n').filter((line) => line.trim()).map((line, i) => (
-            <p key={i} className="text-sm mb-1" style={{ color: INK }}>{line.replace(/^[•\-*]\s*/, '• ')}</p>
-          ))}
-          <p className="text-[10px] mt-2" style={{ color: SLATE }}>⚠️ เป็นการสรุปเบื้องต้นจากข้อมูลที่บันทึกไว้ ไม่ใช่คำวินิจฉัยทางการแพทย์ ควรปรึกษาสัตวแพทย์เสมอ</p>
+          <p className="text-sm font-bold mb-2" style={{ color: INK }}>🔔 ข้อสังเกต / แจ้งเตือน</p>
+          {insights.map((it, i) => <InsightRow key={i} tone={it.tone} text={it.text} onClick={it.section ? () => setSection && setSection(it.section) : undefined} />)}
         </Card>
       )}
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <StatBox label="อายุ" value={ageString(dog.birthdate)} />
+        <WeightStatBox label="น้ำหนักล่าสุด" value={latestWeight ? `${latestWeight.weight} กก.` : '-'} trendValues={recentWeights.length >= 2 ? recentWeights : null} trendColor={weightDelta < 0 ? BAD : weightDelta > 0 ? GOOD : SLATE} onClick={() => setSection('weight')} />
+        <StatBox label="BCS" value={dog.bcs || '-'} />
+        <StatBox label="เพศ/สี" value={`${dog.sex || '-'} / ${dog.color || '-'}`} />
+      </div>
+      {dog.aiHealthInsight && dog.aiHealthInsight.text && (
+        <div style={{ background: 'linear-gradient(135deg, #F6F1FB 0%, #FBF6EA 100%)', border: '1px solid #E6DCF2', borderRadius: 18, padding: 14, marginBottom: 12 }}>
+          <p className="text-sm font-bold mb-2 flex items-center gap-1.5" style={{ color: '#5B3E91' }}>✨ AI วิเคราะห์สุขภาพ <span className="text-[10px] font-semibold" style={{ background: 'white', borderRadius: 99, padding: '1px 8px', color: SLATE }}>อัปเดตวันนี้</span></p>
+          {dog.aiHealthInsight.text.split('\n').filter((line) => line.trim()).map((line, i) => (
+            <p key={i} className="text-[13px] mb-1.5" style={{ color: INK, lineHeight: 1.5, background: 'rgba(255,255,255,.7)', borderRadius: 11, padding: '8px 10px' }}>{line.replace(/^[•\-*]\s*/, '')}</p>
+          ))}
+          <p className="text-[10px] mt-2" style={{ color: SLATE }}>⚠️ เป็นการสรุปเบื้องต้นจากข้อมูลที่บันทึกไว้ ไม่ใช่คำวินิจฉัยทางการแพทย์ ควรปรึกษาสัตวแพทย์เสมอ</p>
+        </div>
+      )}
       <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>สรุปสำคัญ</p>
-        <p className="text-sm mb-1">โรคประจำตัว: {dog.chronicDiseases || 'ไม่มี'}</p>
-        <p className="text-sm mb-1">แพ้ยา: {dog.drugAllergies || 'ไม่มี'}</p>
-        <p className="text-sm mb-1">ยาที่กำลังกิน: {activeMeds.length > 0 ? activeMeds.map((m) => m.name).join(', ') : 'ไม่มี'}</p>
-        <button onClick={() => setSection && setSection('vetvisits')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">ไปหาหมอล่าสุด: {lastVetVisit ? `${formatDateThai(lastVetVisit.date)} - ${lastVetVisit.reason || '-'}` : 'ยังไม่มีบันทึก'}</span>
-          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+        <p className="text-sm font-bold mb-2.5" style={{ color: INK }}>สรุปสำคัญ</p>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div style={{ background: '#FBFAF7', border: `1px solid ${BORDER}`, borderRadius: 13, padding: '9px 11px' }}><p className="text-[10.5px]" style={{ color: SLATE }}>โรคประจำตัว</p><p className="text-[13px] font-semibold" style={{ color: dog.chronicDiseases ? WARN : INK }}>{dog.chronicDiseases || 'ไม่มี'}</p></div>
+          <div style={{ background: dog.drugAllergies ? '#FDECE9' : '#FBFAF7', border: `1px solid ${dog.drugAllergies ? '#F3C4BC' : BORDER}`, borderRadius: 13, padding: '9px 11px' }}><p className="text-[10.5px]" style={{ color: SLATE }}>แพ้ยา</p><p className="text-[13px] font-semibold" style={{ color: dog.drugAllergies ? BAD : INK }}>{dog.drugAllergies || 'ไม่มี'}</p></div>
+        </div>
+        <button onClick={() => setSection && setSection('meds')} className="w-full text-left mb-1" style={{ background: '#F1F6F2', border: '1px solid #D7E7DB', borderRadius: 13, padding: '9px 11px' }}>
+          <p className="text-[10.5px] mb-1" style={{ color: SLATE }}>💊 ยาที่กำลังกิน {activeMeds.length > 0 ? `(${activeMeds.length} ตัว)` : ''}</p>
+          {activeMeds.length > 0 ? <div className="flex flex-wrap gap-1.5">{activeMeds.map((m) => <span key={m.id || m.name} className="text-[11.5px] font-semibold" style={{ background: 'white', border: '1px solid #D7E7DB', borderRadius: 99, padding: '2px 9px', color: GOOD }}>{m.name}</span>)}</div> : <p className="text-[13px] font-semibold" style={{ color: INK }}>ไม่มี</p>}
         </button>
-        <button onClick={() => setSection && setSection('appt')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">นัดถัดไป: {nextAppt ? `${formatDateThai(nextAppt.date)} · ${nextAppt.hospital || '-'}` : 'ไม่มี'}</span>
-          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-        </button>
-        <button onClick={() => setSection && setSection('flea')} className="flex items-center justify-between w-full text-left mb-1" style={{ background: 'transparent' }}>
-          <span className="text-sm">ยาเห็บหมัดครั้งถัดไป: {nextFleaDue ? formatDateThai(nextFleaDue) : 'ยังไม่ได้ตั้งค่า'}</span>
-          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-        </button>
-        <button onClick={() => setSection && setSection('insurance')} className="flex items-center justify-between w-full text-left" style={{ background: 'transparent' }}>
-          <span className="text-sm">ประกันหมดอายุ: {dog.insurance?.endDate ? formatDateThai(dog.insurance.endDate) : 'ไม่มี'}</span>
-          <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
-        </button>
+        {quickRow('🩺', '#E8F0F8', 'ไปหาหมอล่าสุด', lastVetVisit ? `${formatDateThai(lastVetVisit.date)} · ${lastVetVisit.reason || '-'}` : 'ยังไม่มีบันทึก', lastVetVisit ? { text: agoLabel(lastVetVisit.date), bg: '#EEECE6', c: SLATE } : null, 'vetvisits')}
+        {quickRow('📅', '#FBF1DD', 'นัดถัดไป', nextAppt ? `${formatDateThai(nextAppt.date)} · ${nextAppt.hospital || '-'}` : 'ไม่มี', nextAppt ? dueChip(nextAppt.date) : null, 'appt')}
+        {quickRow('🐛', '#E1F5E9', 'ยาเห็บหมัดครั้งถัดไป', nextFleaDue ? formatDateThai(nextFleaDue) : 'ยังไม่ได้ตั้งค่า', nextFleaDue ? dueChip(nextFleaDue, 'เลยกำหนด') : null, 'flea')}
+        {quickRow('🛡️', '#EDE6F7', 'ประกันหมดอายุ', dog.insurance?.endDate ? formatDateThai(dog.insurance.endDate) : 'ไม่มี', dog.insurance?.endDate ? dueChip(dog.insurance.endDate, 'หมดมา') : null, 'insurance', true)}
       </Card>
       <Card>
-        <p className="text-xs mb-3" style={{ color: SLATE }}>ประวัติการตรวจสุขภาพ</p>
+        <p className="text-sm font-bold mb-2" style={{ color: INK }}>💰 ค่าใช้จ่าย</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatBox label="ปีนี้" value={`฿${fmt(expensesThisYear)}`} />
+          <StatBox label="ตลอดชีวิต" value={`฿${fmt(expensesLifetime)}`} />
+        </div>
+      </Card>
+      <DogLatestChecksSummary dog={dog} setSection={setSection} />
+      <Card>
+        <button onClick={() => setShowNotes(!showNotes)} className="w-full flex items-center justify-between text-left" style={{ background: 'transparent' }}>
+          <span className="text-sm font-bold" style={{ color: INK }}>📝 บันทึกจากผลตรวจล่าสุด</span>
+          <span className="text-[11.5px] font-bold" style={{ color: BRASS }}>{showNotes ? 'ซ่อน ▲' : 'ดูโน้ตหมอ ▼'}</span>
+        </button>
+        {showNotes && <div className="mt-3">
         {(() => {
           const bloodTests = dog.bloodTests || [];
           const organExams = dog.organExams || [];
@@ -9574,19 +9760,8 @@ function DogOverviewSection({ dog, setSection, onRunHealthInsight }) {
             </button>
           ));
         })()}
+      </div>}
       </Card>
-      <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>ค่าใช้จ่าย</p>
-        <div className="grid grid-cols-2 gap-2">
-          <StatBox label="ปีนี้" value={`฿${fmt(expensesThisYear)}`} />
-          <StatBox label="ตลอดชีวิต" value={`฿${fmt(expensesLifetime)}`} />
-        </div>
-      </Card>
-      <Card>
-        <p className="text-xs mb-3" style={{ color: SLATE }}>ข้อสังเกต/แจ้งเตือน</p>
-        {insights.map((it, i) => <InsightRow key={i} tone={it.tone} text={it.text} onClick={it.section ? () => setSection && setSection(it.section) : undefined} />)}
-      </Card>
-      <DogLatestChecksSummary dog={dog} setSection={setSection} />
       <DogHealthTimeline dog={dog} setSection={setSection} />
     </div>
   );
@@ -9602,9 +9777,9 @@ const TIMELINE_TYPES = [
 ];
 function buildDogTimelineItems(dog) {
   const items = [];
-  (dog.imaging || []).forEach((r) => items.push({ date: r.date, label: r.type || 'Imaging', done: true, section: 'records', type: 'imaging', subLabel: r.label || '' }));
-  (dog.bloodTests || []).forEach((r) => items.push({ date: r.date, label: `ตรวจเลือด${r.type ? ' — ' + r.type : ''}`, done: true, section: 'records', type: 'blood', subLabel: r.label || '' }));
-  (dog.organExams || []).forEach((r) => items.push({ date: r.date, label: `ตรวจอวัยวะ — ${r.organ || ''}`, done: true, section: 'records', type: 'organ', subLabel: r.label || '' }));
+  (dog.imaging || []).forEach((r) => items.push({ date: r.date, label: r.type || 'Imaging', done: true, section: 'records', type: 'imaging', subLabel: r.label || '', name: r.type || 'Imaging' }));
+  (dog.bloodTests || []).forEach((r) => items.push({ date: r.date, label: `ตรวจเลือด${r.type ? ' — ' + r.type : ''}`, done: true, section: 'records', type: 'blood', subLabel: r.label || '', name: r.type || 'เลือด' }));
+  (dog.organExams || []).forEach((r) => items.push({ date: r.date, label: `ตรวจอวัยวะ — ${r.organ || ''}`, done: true, section: 'records', type: 'organ', subLabel: r.label || '', name: r.organ || 'อวัยวะ' }));
   (dog.appointments || []).forEach((a) => {
     const d = daysUntil(a.date);
     items.push({ date: a.date, label: `นัดหมาย${a.purpose ? ' — ' + a.purpose : ''}`, done: d === null || d < 0, section: 'appt', type: 'appt' });
@@ -9615,101 +9790,201 @@ function buildDogTimelineItems(dog) {
   return items.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// สรุปว่าแต่ละประเภทการตรวจ (ผลเลือด/อวัยวะ/Imaging แยกย่อยตามชนิด) ล่าสุดตรวจไปเมื่อไหร่ — เอาไว้เปิดดูตอนลูกป่วยว่าเช็คอะไรไปล่าสุดตอนไหน
+// ===== สรุปการตรวจล่าสุด (แบบช่องแยกกลุ่ม + สีบอกความสด) =====
+function shortThaiDate(d) {
+  if (!d) return '';
+  const [y, m, dd] = d.split('-').map(Number);
+  return `${dd} ${THAI_MONTH_SHORT[(m || 1) - 1]} ${(y || 0) + 543}`;
+}
+function agoLabel(dateStr) {
+  const days = -daysUntil(dateStr);
+  if (days <= 0) return 'วันนี้';
+  if (days < 30) return `${days} วันก่อน`;
+  const months = Math.floor(days / 30.44);
+  if (months < 12) return `${months} เดือนก่อน`;
+  const yrs = Math.floor(months / 12); const rem = months % 12;
+  return rem ? `${yrs} ปี ${rem} เดือนก่อน` : `${yrs} ปีก่อน`;
+}
+function freshTone(dateStr) {
+  const days = -daysUntil(dateStr);
+  if (days <= 92) return { c: GOOD, bg: '#E1F5E9' };
+  if (days <= 183) return { c: WARN, bg: '#FBF1DD' };
+  return { c: '#8A8579', bg: '#EEECE6' };
+}
 function DogLatestChecksSummary({ dog, setSection }) {
-  const latest = {};
-  (dog.bloodTests || []).forEach((r) => { const k = `🩸 ตรวจเลือด — ${r.type || 'ทั่วไป'}`; if (!latest[k] || latest[k] < r.date) latest[k] = r.date; });
-  (dog.organExams || []).forEach((r) => { const k = `🫁 ตรวจอวัยวะ — ${r.organ || 'ทั่วไป'}`; if (!latest[k] || latest[k] < r.date) latest[k] = r.date; });
-  (dog.imaging || []).forEach((r) => { const k = `🩻 ${r.type || 'Imaging'}`; if (!latest[k] || latest[k] < r.date) latest[k] = r.date; });
-  const rows = Object.entries(latest).sort((a, b) => a[0].localeCompare(b[0]));
-  if (rows.length === 0) return null;
+  const groups = [
+    { icon: '🩸', title: 'ตรวจเลือด', latest: {} },
+    { icon: '🫁', title: 'ตรวจอวัยวะ', latest: {} },
+    { icon: '🩻', title: 'ภาพถ่าย (Imaging)', latest: {} },
+  ];
+  (dog.bloodTests || []).forEach((r) => { const k = r.type || 'ทั่วไป'; if (!groups[0].latest[k] || groups[0].latest[k] < r.date) groups[0].latest[k] = r.date; });
+  (dog.organExams || []).forEach((r) => { const k = r.organ || 'ทั่วไป'; if (!groups[1].latest[k] || groups[1].latest[k] < r.date) groups[1].latest[k] = r.date; });
+  (dog.imaging || []).forEach((r) => { const k = r.type || 'Imaging'; if (!groups[2].latest[k] || groups[2].latest[k] < r.date) groups[2].latest[k] = r.date; });
+  const shown = groups.filter((g) => Object.keys(g.latest).length > 0);
+  if (shown.length === 0) return null;
   return (
     <Card>
-      <p className="text-xs mb-3" style={{ color: SLATE }}>สรุปการตรวจล่าสุดแยกตามประเภท</p>
-      {rows.map(([label, date], i) => (
-        <button key={label} onClick={() => setSection && setSection('records')} className="w-full flex justify-between items-center py-2 text-left" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', background: 'transparent' }}>
-          <span className="text-sm" style={{ color: INK }}>{label}</span>
-          <span className="text-xs" style={{ color: SLATE }}>{formatDateThai(date)}</span>
-        </button>
+      <div className="flex justify-between items-center mb-2">
+        <p className="text-sm font-bold" style={{ color: INK }}>ตรวจล่าสุด แยกตามประเภท</p>
+        <span className="text-[11px]" style={{ color: SLATE }}>แตะเพื่อดูผล ›</span>
+      </div>
+      <div className="flex gap-3 mb-1 text-[10.5px]" style={{ color: SLATE }}>
+        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: GOOD, marginRight: 4 }} />ไม่เกิน 3 เดือน</span>
+        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: WARN, marginRight: 4 }} />3–6 เดือน</span>
+        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#8A8579', marginRight: 4 }} />เกิน 6 เดือน</span>
+      </div>
+      {shown.map((g) => (
+        <div key={g.title}>
+          <p className="text-[11px] font-bold mt-3 mb-1.5 flex items-center gap-1.5" style={{ color: SLATE }}>{g.icon} {g.title}<span style={{ flex: 1, height: 1, background: BORDER }} /></p>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(g.latest).sort((a, b) => b[1].localeCompare(a[1]) || a[0].localeCompare(b[0])).map(([name, date]) => {
+              const t = freshTone(date);
+              return (
+                <button key={name} onClick={() => setSection && setSection('records')} className="text-left relative overflow-hidden" style={{ borderRadius: 14, padding: '10px 11px', border: `1px solid ${BORDER}`, background: '#FBFAF7' }}>
+                  <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: t.c }} />
+                  <p className="text-[12.5px] font-semibold" style={{ color: INK, paddingLeft: 4, lineHeight: 1.25 }}>{name}</p>
+                  <p className="text-[11px] mt-1" style={{ color: SLATE, paddingLeft: 4 }}>{shortThaiDate(date)}</p>
+                  <span className="text-[10.5px] font-bold" style={{ display: 'inline-block', marginTop: 5, marginLeft: 4, borderRadius: 99, padding: '1px 8px', background: t.bg, color: t.c }}>{agoLabel(date)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       ))}
     </Card>
   );
 }
 
+// ===== Timeline ประวัติสุขภาพ: กำลังจะมาถึง (นับถอยหลัง) + ที่ผ่านมา (รวมต่อวัน) + ค้นหา/กรอง =====
+const TL_TAG = {
+  blood: { label: 'เลือด', bg: '#FBE5E3', c: '#A83228' },
+  organ: { label: 'อวัยวะ', bg: '#E1F5E9', c: '#1F8A54' },
+  imaging: { label: 'Imaging', bg: '#E4EAF3', c: '#35547E' },
+  appt: { label: 'นัดหมาย', bg: '#E3EEF9', c: '#2B5C8A' },
+  insurance: { label: 'ประกัน', bg: '#EDE6F7', c: '#5B3E91' },
+};
 function DogHealthTimeline({ dog, setSection }) {
-  const [showAll, setShowAll] = useState(false);
   const [filterType, setFilterType] = useState('all');
+  const [query, setQuery] = useState('');
+  const [expandedDays, setExpandedDays] = useState({});
+  const [pastLimit, setPastLimit] = useState(5);
   const allItems = buildDogTimelineItems(dog);
-  const recent = allItems.slice(-8);
   if (allItems.length === 0) return null;
-
-  function renderList(items) {
-    const groupsByYear = {};
-    items.forEach((it) => { const y = it.date.slice(0, 4); if (!groupsByYear[y]) groupsByYear[y] = []; groupsByYear[y].push(it); });
-    const years = Object.keys(groupsByYear).sort().reverse();
-    return years.map((y) => {
-      // รวมรายการที่วันที่+ชื่อหัวข้อตรงกันเป๊ะๆ ติดกัน (เช่น "ตรวจเลือด — CBC" ซ้ำกันหลายรอบวันเดียว) เป็นแถวเดียว โชว์ป้ายสั้น (subLabel) ของแต่ละอันแทน กันแถวซ้ำยาวเป็นพรืด
-      const raw = [...groupsByYear[y]].reverse();
-      const grouped = [];
-      raw.forEach((it) => {
-        const last = grouped[grouped.length - 1];
-        if (last && last.date === it.date && last.label === it.label && last.type === it.type) last.items.push(it);
-        else grouped.push({ ...it, items: [it] });
-      });
-      return (
-        <div key={y} className="mb-3">
-          <p className="text-[11px] font-bold mb-2" style={{ color: SLATE }}>{y}</p>
-          {grouped.map((g, i) => (
-            <div key={i} className="flex gap-2.5">
-              <div className="flex flex-col items-center" style={{ flexShrink: 0 }}>
-                <div style={{ width: 22, height: 22, borderRadius: '50%', background: g.done ? '#E1F5E9' : '#FBF3E9', color: g.done ? GOOD : BRASS, fontSize: 11 }} className="flex items-center justify-center">{g.done ? '✅' : '⏰'}</div>
-                {i < grouped.length - 1 && <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 14 }} />}
-              </div>
-              <div className="pb-3.5 flex-1 min-w-0">
-                <button onClick={() => g.section && setSection && setSection(g.section)} className="w-full text-left" style={{ background: 'transparent' }}>
-                  <p className="text-[11px]" style={{ color: SLATE }}>{formatDateThai(g.date)}</p>
-                  <p className="text-sm font-semibold" style={{ color: INK }}>{g.label}{g.items.length > 1 && <span style={{ background: '#FBEAE7', color: '#A64B3D' }} className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ml-1.5">×{g.items.length} รายการ</span>}</p>
-                </button>
-                {g.items.length > 1 && (
-                  <div className="mt-1 flex flex-col gap-0.5">
-                    {g.items.filter((x) => x.subLabel).slice(0, 4).map((x, xi) => (
-                      <p key={xi} className="text-[11px]" style={{ color: x.subLabel.startsWith('⚠️') ? BAD : SLATE }}>• {x.subLabel}</p>
-                    ))}
-                    {g.items.filter((x) => x.subLabel).length > 4 && <p className="text-[11px]" style={{ color: SLATE }}>+ อีก {g.items.filter((x) => x.subLabel).length - 4} รายการ</p>}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+  const q = query.trim().toLowerCase();
+  const visible = allItems.filter((it) => (filterType === 'all' || it.type === filterType) && (!q || `${it.label} ${it.subLabel || ''} ${it.name || ''}`.toLowerCase().includes(q)));
+  const upcoming = visible.filter((it) => !it.done).sort((a, b) => a.date.localeCompare(b.date));
+  const pastDays = [];
+  [...visible.filter((it) => it.done)].sort((a, b) => b.date.localeCompare(a.date)).forEach((it) => {
+    const last = pastDays[pastDays.length - 1];
+    if (last && last.date === it.date) last.items.push(it); else pastDays.push({ date: it.date, items: [it] });
+  });
+  const countdown = (d) => {
+    const n = daysUntil(d);
+    if (n <= 0) return { big: 'วันนี้', small: '' };
+    if (n < 60) return { big: String(n), small: 'วัน' };
+    return { big: String(Math.round(n / 30.44)), small: 'เดือน' };
+  };
+  const Tag = ({ type, children }) => { const t = TL_TAG[type] || TL_TAG.appt; return <span className="text-[10px] font-bold" style={{ display: 'inline-block', borderRadius: 99, padding: '1px 7px', marginRight: 4, background: t.bg, color: t.c }}>{children || t.label}</span>; };
+  function renderDay(day) {
+    const [y, m, d] = day.date.split('-').map(Number);
+    const typeCounts = {};
+    day.items.forEach((it) => { typeCounts[it.type] = (typeCounts[it.type] || 0) + 1; });
+    const multi = day.items.length > 1;
+    const open = !!expandedDays[day.date];
+    const warnCount = day.items.filter((it) => (it.subLabel || '').startsWith('⚠️')).length;
+    const single = day.items[0];
+    return (
+      <div key={day.date} className="flex gap-2.5">
+        <div className="flex flex-col items-center" style={{ flexShrink: 0, width: 38 }}>
+          <div style={{ width: 38, textAlign: 'center', borderRadius: 10, background: PAPER_DIM, padding: '3px 0' }}>
+            <b className="block" style={{ fontSize: 15, lineHeight: 1.1, color: INK }}>{d}</b>
+            <span style={{ fontSize: 9, color: SLATE }}>{THAI_MONTH_SHORT[m - 1]} {String(y + 543).slice(2)}</span>
+          </div>
+          <div style={{ width: 2, flex: 1, background: BORDER, minHeight: 10, marginTop: 3 }} />
         </div>
-      );
-    });
-  }
-
-  const filteredAll = filterType === 'all' ? allItems : allItems.filter((it) => it.type === filterType);
-
-  return (
-    <>
-      <Card>
-        <p className="text-xs mb-3" style={{ color: SLATE }}>Timeline ประวัติสุขภาพ</p>
-        {renderList(recent)}
-        <button onClick={() => setShowAll(true)} className="text-xs font-semibold mt-1" style={{ color: BRASS }}>ดูทั้งหมด ({allItems.length} รายการ)</button>
-      </Card>
-      {showAll && (
-        <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
-          <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-3"><p className="text-sm font-semibold">ประวัติสุขภาพทั้งหมด</p><button onClick={() => setShowAll(false)}><X size={20} color={INK} /></button></div>
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-              <button onClick={() => setFilterType('all')} style={{ background: filterType === 'all' ? BRASS : PAPER_DIM, color: filterType === 'all' ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs">ทั้งหมด</button>
-              {TIMELINE_TYPES.map((t) => (
-                <button key={t.key} onClick={() => setFilterType(t.key)} style={{ background: filterType === t.key ? BRASS : PAPER_DIM, color: filterType === t.key ? 'white' : SLATE, flexShrink: 0 }} className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap">{t.icon} {t.label}</button>
-              ))}
-            </div>
-            {filteredAll.length === 0 ? <p className="text-xs" style={{ color: SLATE }}>ไม่มีรายการ</p> : renderList(filteredAll)}
+        <div className="flex-1 min-w-0 pb-3">
+          <div style={{ background: '#FBFAF7', border: `1px solid ${BORDER}`, borderLeft: multi ? `4px solid ${GOOD}` : `1px solid ${BORDER}`, borderRadius: 13, padding: '10px 12px' }}>
+            <button onClick={() => (multi ? setExpandedDays({ ...expandedDays, [day.date]: !open }) : (single.section && setSection && setSection(single.section)))} className="w-full text-left" style={{ background: 'transparent' }}>
+              <p className="text-[13px] font-semibold" style={{ color: INK, lineHeight: 1.3 }}>{multi ? `ตรวจหลายรายการวันเดียวกัน · ${day.items.length} รายการ` : single.label}</p>
+              <div className="flex flex-wrap mt-1.5 gap-y-1">
+                {Object.entries(typeCounts).map(([type, n]) => <Tag key={type} type={type}>{`${TL_TAG[type].label}${n > 1 ? ' ×' + n : ''}`}</Tag>)}
+                {warnCount > 0 && <span className="text-[10.5px] font-bold" style={{ borderRadius: 99, padding: '1px 8px', background: '#FDECE9', color: BAD }}>⚠️ ผิดปกติ {warnCount}</span>}
+              </div>
+              {multi && !open && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {day.items.slice(0, 5).map((it, i) => <span key={i} className="text-[10.5px]" style={{ borderRadius: 99, padding: '2px 8px', background: 'white', border: `1px solid ${BORDER}`, color: INK }}>{it.name || it.label}</span>)}
+                  {day.items.length > 5 && <span className="text-[10.5px]" style={{ color: SLATE, padding: '2px 4px' }}>+{day.items.length - 5}</span>}
+                </div>
+              )}
+              {!multi && single.subLabel && <p className="text-[11px] mt-1" style={{ color: single.subLabel.startsWith('⚠️') ? BAD : SLATE }}>{single.subLabel}</p>}
+            </button>
+            {multi && <button onClick={() => setExpandedDays({ ...expandedDays, [day.date]: !open })} className="text-[11.5px] font-bold mt-2" style={{ color: BRASS, background: 'transparent' }}>{open ? 'ซ่อนรายการ ▲' : `ดูทั้ง ${day.items.length} รายการ ▼`}</button>}
+            {multi && open && (
+              <div className="mt-2">
+                {day.items.map((it, i) => (
+                  <button key={i} onClick={() => it.section && setSection && setSection(it.section)} className="w-full text-left flex items-start gap-2 py-1.5" style={{ borderTop: `1px solid ${BORDER}`, background: 'transparent' }}>
+                    <Tag type={it.type} />
+                    <span className="flex-1 min-w-0"><span className="text-[12.5px] block" style={{ color: INK }}>{it.label}</span>{it.subLabel && <span className="text-[11px] block" style={{ color: it.subLabel.startsWith('⚠️') ? BAD : SLATE }}>{it.subLabel}</span>}</span>
+                    <ChevronRight size={14} color={SLATE} style={{ flexShrink: 0, marginTop: 3 }} />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+      </div>
+    );
+  }
+  const counts = { all: allItems.length };
+  TIMELINE_TYPES.forEach((t) => { counts[t.key] = allItems.filter((it) => it.type === t.key).length; });
+  let lastYear = '';
+  return (
+    <Card>
+      <div className="flex justify-between items-center mb-2">
+        <p className="text-sm font-bold" style={{ color: INK }}>ประวัติสุขภาพ</p>
+        <span className="text-[11px]" style={{ color: SLATE }}>{allItems.length} รายการ</span>
+      </div>
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔍 ค้นหา เช่น ตับ, ผิวหนัง, ประกัน…" className="w-full rounded-xl px-3 py-2 text-[13px] mb-2.5 outline-none" style={{ border: `1px solid ${BORDER}`, background: 'white' }} />
+      <div className="flex gap-1.5 overflow-x-auto mb-3 pb-0.5">
+        {[{ key: 'all', label: 'ทั้งหมด', icon: '' }, ...TIMELINE_TYPES].filter((t) => t.key === 'all' || counts[t.key] > 0).map((t) => (
+          <button key={t.key} onClick={() => setFilterType(t.key)} className="text-xs whitespace-nowrap" style={{ flexShrink: 0, borderRadius: 99, padding: '6px 12px', border: `1px solid ${filterType === t.key ? INK : BORDER}`, background: filterType === t.key ? INK : 'white', color: filterType === t.key ? 'white' : INK, fontWeight: filterType === t.key ? 700 : 400 }}>{t.icon ? t.icon + ' ' : ''}{t.label}<span style={{ opacity: 0.7, marginLeft: 3, fontSize: 10.5 }}>{counts[t.key]}</span></button>
+        ))}
+      </div>
+      {visible.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ไม่พบรายการที่ค้นหา</p>}
+      {upcoming.length > 0 && (
+        <>
+          <p className="text-[11px] font-bold mb-2 flex items-center gap-1.5" style={{ color: SLATE }}>⏰ กำลังจะมาถึง · เรียงจากใกล้สุด<span style={{ flex: 1, height: 1, background: BORDER }} /></p>
+          {upcoming.map((it, i) => {
+            const c = countdown(it.date); const soon = daysUntil(it.date) <= 3;
+            return (
+              <button key={i} onClick={() => it.section && setSection && setSection(it.section)} className="w-full text-left flex items-center gap-2.5 mb-2" style={{ borderRadius: 14, padding: '11px 12px', background: soon ? '#FDECE9' : '#FBF3E9', border: `1px solid ${soon ? '#F3C4BC' : '#F0DDB8'}` }}>
+                <span className="text-center" style={{ width: 52, flexShrink: 0, borderRadius: 12, background: 'white', padding: '5px 0', border: '1px solid rgba(0,0,0,.06)' }}>
+                  <b className="block" style={{ fontSize: c.small ? 19 : 14, lineHeight: 1.2, color: soon ? BAD : BRASS }}>{c.big}</b>
+                  {c.small && <span style={{ fontSize: 9.5, color: SLATE }}>{c.small}</span>}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="text-[13.5px] font-semibold block" style={{ color: INK, lineHeight: 1.3 }}>{it.label.replace(/^นัดหมาย — /, '')}</span>
+                  <span className="text-[11px] block mt-0.5" style={{ color: SLATE }}><Tag type={it.type} />{shortThaiDate(it.date)}</span>
+                </span>
+                <ChevronRight size={15} color={SLATE} style={{ flexShrink: 0 }} />
+              </button>
+            );
+          })}
+        </>
       )}
-    </>
+      {pastDays.length > 0 && (
+        <>
+          <p className="text-[11px] font-bold mt-3 mb-1 flex items-center gap-1.5" style={{ color: SLATE }}>✅ ที่ผ่านมา · ล่าสุดก่อน<span style={{ flex: 1, height: 1, background: BORDER }} /></p>
+          {pastDays.slice(0, pastLimit).map((day) => {
+            const y = String(Number(day.date.slice(0, 4)) + 543);
+            const header = y !== lastYear ? <p key={'y' + day.date} className="text-[11px] font-bold mt-2 mb-1.5" style={{ color: SLATE }}>{y}</p> : null;
+            lastYear = y;
+            return <React.Fragment key={day.date}>{header}{renderDay(day)}</React.Fragment>;
+          })}
+          {pastDays.length > pastLimit && <button onClick={() => setPastLimit(pastLimit + 10)} className="w-full text-[12.5px] font-bold rounded-xl py-2.5 mt-1" style={{ background: PAPER_DIM, color: INK }}>ดูย้อนหลังเพิ่ม ({pastDays.length - pastLimit} วันที่เหลือ)</button>}
+        </>
+      )}
+    </Card>
   );
 }
 
