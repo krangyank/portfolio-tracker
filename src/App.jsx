@@ -1206,6 +1206,13 @@ export default function App() {
         if (n !== null && n >= -30 && n <= 14) out.push({ photo: d.photoUrl, key: `dins|${d.id}|${d.insurance.endDate}`, n, tone: toneOf(n), icon: '🛡️', title: `ประกันของ ${d.name} ${n < 0 ? 'หมดอายุแล้ว' : 'ใกล้หมดอายุ'}`, sub: when(n), tab: 'pets' });
       }
     });
+    // เงินเคลมประกันที่ยังไม่เข้า — ถึงวันเช็คแล้ว (หรือเลยมา)
+    (dogs || []).forEach((d) => ((d.insurance && d.insurance.claims) || []).forEach((c) => {
+      if (c.received || !c.followUpDate) return;
+      const n = dayDiffStr(c.followUpDate); if (n === null || n > 1) return;
+      const acc = c.expectedAccountId ? (accounts || []).find((x) => x.id === c.expectedAccountId) : null;
+      out.push({ photo: d.photoUrl, key: `claim|${d.id}|${c.id}|${c.followUpDate}`, n, tone: n <= 0 ? 'bad' : 'warn', icon: '💰', title: `เช็คเงินเคลมประกัน ${d.name} ฿${fmt(c.reimbursedAmount ?? c.amount ?? 0)}`, sub: `${when(n)}${c.reason ? ` · ${c.reason}` : ''}${acc ? ` · คาดเข้าที่ ${acc.name}` : ''}`, tab: 'pets' });
+    }));
     // ค่าเช่า / ครบสัญญา
     const ym = thisMonth();
     (properties || []).forEach((p) => {
@@ -1234,7 +1241,7 @@ export default function App() {
     }));
     const dismissed = (state && state.dismissedAlerts) || {};
     return out.filter((a) => !dismissed[a.key]).sort((a, b) => a.n - b.n);
-  }, [state, sharedState, dogs, properties, creditCards, vehicles]);
+  }, [state, sharedState, dogs, properties, creditCards, vehicles, accounts]);
   const showStartupAlerts = !startupAck && startupAlerts.length > 0;
   // ปิดป๊อปอัพ — เรื่องที่ติ๊ก "ไม่ต้องเตือนซ้ำ" จะถูกจำไว้ (ผูกกับรอบนั้นๆ เช่นค่าเช่าเดือนนี้/นัดครั้งนั้น พอถึงรอบใหม่จะเตือนใหม่เอง)
   function closeStartupAlerts() {
@@ -7715,7 +7722,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'flea' && <DogFleaTickSection dog={dog} onLogFleaTick={onLogFleaTick} onRemoveFleaTickHistory={onRemoveFleaTickHistory} onUpdateFleaTickHistory={onUpdateFleaTickHistory} onUpdateFleaTickInfo={onUpdateFleaTickInfo} googleConnected={googleConnected} onAddGenericCalendarEvent={onAddGenericCalendarEvent} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} />}
           {section === 'insurance' && <DogInsuranceSection dog={dog} onUpdateInsurance={onUpdateInsurance} onAddInsuranceClaim={onAddInsuranceClaim} onUpdateInsuranceClaim={onUpdateInsuranceClaim} dogs={dogs} onCopyToMultipleDogs={onCopyToMultipleDogs} onAddInsuranceDocument={onAddInsuranceDocument} onRemoveInsuranceDocument={onRemoveInsuranceDocument} accounts={accounts} onAddContribution={onAddContribution} />}
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} draft={apptDraft} onConsumeDraft={() => setApptDraft(null)} />}
-          {section === 'vetvisits' && <DogVetVisitsSection dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} onStartFollowUp={(d) => { setApptDraft(d); setSection('appt'); }} onAddMedicalPhoto={onAddMedicalPhoto} />}
+          {section === 'vetvisits' && <DogVetVisitsSection accounts={accounts} dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} onStartFollowUp={(d) => { setApptDraft(d); setSection('appt'); }} onAddMedicalPhoto={onAddMedicalPhoto} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onRemoveBloodTest={onRemoveBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onRemoveOrganExam={onRemoveOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onRemoveImaging={onRemoveImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddImagingWithOrgans={onAddImagingWithOrgans} />}
           {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} />}
           {section === 'album' && <DogAlbumSection dog={dog} onAddAlbumPhoto={onAddAlbumPhoto} onRemoveAlbumPhoto={onRemoveAlbumPhoto} />}
@@ -10512,6 +10519,89 @@ function parseFraction(s) {
   );
 }
 
+
+// ---- เคลมประกันจากหน้าค่าใช้จ่าย: ตัวช่วยคำนวณ + กล่องเคลม ----
+function insuranceYearStats(ins) {
+  const i = ins || {};
+  let policyYearStart = null;
+  if (i.startDate) {
+    const start = new Date(i.startDate); const today = new Date();
+    const anniv = new Date(today.getFullYear(), start.getMonth(), start.getDate());
+    if (anniv > today) anniv.setFullYear(anniv.getFullYear() - 1);
+    policyYearStart = anniv.toISOString().slice(0, 10);
+  }
+  const claimsThisYear = (i.claims || []).filter((c) => !policyYearStart || c.date >= policyYearStart);
+  const used = claimsThisYear.reduce((sum, c) => sum + Number(c.reimbursedAmount ?? c.amount ?? 0), 0);
+  const annualLimit = Number(i.annualLimit || 0);
+  return { claimsThisYear, used, annualLimit, remaining: annualLimit - used, maxClaims: Number(i.maxClaimsPerYear || 0), pct: Number(i.reimbursementPct || 0) };
+}
+function dogHasInsurance(d) {
+  const i = d && d.insurance;
+  return !!(i && (i.company || Number(i.annualLimit) > 0 || Number(i.reimbursementPct) > 0));
+}
+function addDaysStr(n) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+const EMPTY_CLAIM_OPT = { on: false, override: null, followUpDate: '', accountId: '' };
+// ยอดเบิกที่คำนวณอัตโนมัติ: % ของค่ารักษา แต่ไม่เกินวงเงินคงเหลือ (ถ้าตั้งวงเงินรวมไว้)
+function calcClaimAmount(dog, total, opt) {
+  const st = insuranceYearStats(dog.insurance);
+  let auto = Math.round(Number(total || 0) * st.pct / 100);
+  if (st.annualLimit > 0) auto = Math.min(auto, Math.max(0, st.remaining));
+  const amount = opt && opt.override !== null && opt.override !== undefined ? Number(opt.override) || 0 : auto;
+  return { st, auto, amount };
+}
+function buildClaimFromOpt(dog, total, opt, reason, date, extra) {
+  const { amount } = calcClaimAmount(dog, total, opt);
+  if (!opt || !opt.on || !(Number(total) > 0)) return null;
+  return { id: uid(), date: date || new Date().toISOString().slice(0, 10), actualCost: Number(total), reimbursedAmount: amount, reason: reason || 'ค่ารักษา', received: false, followUpDate: opt.followUpDate || addDaysStr(14), expectedAccountId: opt.accountId || undefined, ...(extra || {}) };
+}
+function ClaimOnExpensePanel({ dog, total, value, onChange, accounts }) {
+  if (!dogHasInsurance(dog)) return null;
+  const opt = value || EMPTY_CLAIM_OPT;
+  const { st, auto, amount } = calcClaimAmount(dog, total, opt);
+  const after = st.annualLimit > 0 ? st.remaining - amount : null;
+  const set = (patch) => onChange({ ...opt, ...patch });
+  const fu = opt.followUpDate || addDaysStr(14);
+  return (
+    <div style={{ background: opt.on ? '#EEF6F0' : PAPER_DIM, border: `1px solid ${opt.on ? '#BFDCC8' : BORDER}`, borderRadius: 12 }} className="p-2.5 mt-3">
+      <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: INK }}>
+        <input type="checkbox" checked={!!opt.on} onChange={(e) => set({ on: e.target.checked, followUpDate: opt.followUpDate || addDaysStr(14) })} />
+        🛡️ เคลมประกันของ {dog.name} จากค่าใช้จ่ายนี้
+      </label>
+      {opt.on && (
+        <div className="mt-2">
+          {!(Number(total) > 0) && <p className="text-[11px] mb-1.5" style={{ color: WARN }}>กรอกจำนวนเงินค่าใช้จ่ายด้านบนก่อน ระบบจะคำนวณยอดเบิกให้</p>}
+          <div className="flex justify-between text-xs mb-1" style={{ color: SLATE }}><span>ค่ารักษารวม</span><b style={{ color: INK }}>฿{fmt(total || 0)}</b></div>
+          <label className="text-[10px]" style={{ color: SLATE }}>ยอดที่เบิกได้ {st.pct > 0 ? `(auto ${st.pct}%${st.annualLimit > 0 ? ' ไม่เกินวงเงินคงเหลือ' : ''} = ฿${fmt(auto)})` : '(กรอกเอง)'}</label>
+          <NumInput value={opt.override !== null && opt.override !== undefined ? opt.override : auto} onChange={(v) => set({ override: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
+          <div style={{ background: 'white', borderRadius: 10, border: `1px solid ${BORDER}` }} className="p-2 mb-2">
+            {st.annualLimit > 0 ? (
+              <>
+                <div className="flex justify-between text-[11px]" style={{ color: SLATE }}><span>วงเงินรวมต่อปี</span><span style={{ color: INK }}>฿{fmt(st.annualLimit)}</span></div>
+                <div className="flex justify-between text-[11px]" style={{ color: SLATE }}><span>ใช้สิทธิ์ไปแล้ว (รอบปีนี้)</span><span style={{ color: INK }}>฿{fmt(st.used)}</span></div>
+                <div className="flex justify-between text-[11px]" style={{ color: SLATE }}><span>คงเหลือก่อนเคลมครั้งนี้</span><span style={{ color: INK }}>฿{fmt(st.remaining)}</span></div>
+                <div className="flex justify-between text-xs font-semibold mt-1" style={{ color: after < 0 ? BAD : GOOD }}><span>หลังเคลมครั้งนี้เหลือ</span><span>฿{fmt(after)}</span></div>
+                {after < 0 && <p className="text-[10px] mt-1" style={{ color: BAD }}>⚠️ ยอดเบิกเกินวงเงินคงเหลือ ฿{fmt(-after)} — บริษัทอาจจ่ายให้ไม่ครบ</p>}
+              </>
+            ) : <p className="text-[11px]" style={{ color: SLATE }}>ยังไม่ได้ตั้ง "วงเงินรวมต่อปี" ในหน้าประกัน จึงยังไม่คำนวณยอดคงเหลือ</p>}
+            {st.maxClaims > 0 && <p className="text-[11px] mt-1" style={{ color: st.claimsThisYear.length + 1 > st.maxClaims ? BAD : SLATE }}>เคลมแล้ว {st.claimsThisYear.length} ครั้ง → ครั้งนี้เป็นครั้งที่ {st.claimsThisYear.length + 1} จาก {st.maxClaims} ครั้ง/ปี</p>}
+          </div>
+          <label className="text-[10px]" style={{ color: SLATE }}>เตือนให้เช็คว่าเงินเข้าหรือยัง</label>
+          <div className="flex gap-1.5 flex-wrap mt-1 mb-1.5">
+            {[7, 14, 30].map((d) => { const v = addDaysStr(d); return <button key={d} type="button" onClick={() => set({ followUpDate: v })} style={{ background: fu === v ? BRASS : 'white', color: fu === v ? 'white' : SLATE, border: `1px solid ${BORDER}` }} className="rounded-full px-3 py-1 text-xs">อีก {d} วัน</button>; })}
+          </div>
+          <input type="date" value={fu} onChange={(e) => set({ followUpDate: e.target.value })} className="rounded-lg px-2 py-1.5 text-xs w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
+          <label className="text-[10px]" style={{ color: SLATE }}>เงินเคลมจะเข้าที่ไหน / ไปเก็บที่บัญชีไหน (ไม่บังคับ)</label>
+          <select value={opt.accountId || ''} onChange={(e) => set({ accountId: e.target.value })} className="rounded-lg px-2 py-1.5 text-xs w-full mt-1" style={{ border: '1px solid #E7EAF0' }}>
+            <option value="">— ยังไม่ระบุ —</option>
+            {(accounts || []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          <p className="text-[10px] mt-1.5" style={{ color: SLATE }}>กดบันทึกแล้วระบบจะสร้างรายการเคลม (สถานะ "รอเงินเข้า") ในหน้าประกันให้เอง และเตือนใน LINE + ตอนเปิดแอปเมื่อถึงวันเช็ค</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUpdateInsuranceClaim, dogs, onCopyToMultipleDogs, onAddInsuranceDocument, onRemoveInsuranceDocument, accounts, onAddContribution }) {
   const docFileRef = useRef(null);
   const [docUploading, setDocUploading] = useState(false);
@@ -10567,7 +10657,7 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
   function submitClaim() {
     if (!actualCost) return;
     const reimbursedAmount = reimbursedOverride !== null ? Number(reimbursedOverride) : autoReimbursed;
-    onAddInsuranceClaim(dog.id, { date: new Date().toISOString().slice(0, 10), actualCost, reimbursedAmount, reason: claimReason, received: false });
+    onAddInsuranceClaim(dog.id, { date: new Date().toISOString().slice(0, 10), actualCost, reimbursedAmount, reason: claimReason, received: false, followUpDate: addDaysStr(14) });
     setActualCost(0); setClaimReason(''); setReimbursedOverride(null);
   }
   // ติ๊กว่าเงินเคลมเข้าบัญชีแล้ว — ถ้าเลือกบัญชีปลายทาง+ติ๊กให้โชว์ในเงินเข้า จะสร้างรายการ "เงินเข้า" ให้อัตโนมัติด้วย (เหมือนค่าเช่า/เงินประกันบ้านเช่า)
@@ -10615,7 +10705,8 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
         </div>
         <div className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>เตือนเมื่อวงเงินคงเหลือต่ำกว่า (บาท)</label><NumInput value={ins.lowBalanceThreshold} onChange={(v) => onUpdateInsurance(dog.id, { lowBalanceThreshold: v })} className="rounded-lg px-2 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2.5 mt-1">
-          <p className="text-xs" style={{ color: INK }}>ใช้สิทธิ์ไปแล้ว ฿{fmt(totalReimbursedThisYear)} จาก ฿{fmt(annualLimit)} (รอบปีนี้)</p>
+          <p className="text-xs" style={{ color: INK }}>ใช้สิทธิ์ไปแล้ว ฿{fmt(totalReimbursedThisYear)} จาก ฿{fmt(annualLimit)} (รอบปีนี้){annualLimit > 0 ? <b style={{ color: remaining < 0 ? BAD : GOOD }}> · เหลือ ฿{fmt(remaining)}</b> : ''}</p>
+          {(() => { const pend = (ins.claims || []).filter((c) => !c.received); const sum = pend.reduce((t, c) => t + Number(c.reimbursedAmount ?? c.amount ?? 0), 0); return pend.length > 0 ? <p className="text-xs mt-1" style={{ color: WARN }}>⏳ รอเงินเข้า {pend.length} รายการ รวม ฿{fmt(sum)}</p> : null; })()}
           {Number(ins.maxClaimsPerYear || 0) > 0 && <p className="text-xs mt-1" style={{ color: claimsThisYear.length >= Number(ins.maxClaimsPerYear) ? BAD : INK }}>เคลมไปแล้ว {claimsThisYear.length} จาก {ins.maxClaimsPerYear} ครั้ง (รอบปีนี้)</p>}
         </div>
         {(ins.renewalHistory || []).length > 0 && (
@@ -10729,7 +10820,14 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
                 </div>
               </div>
             ) : (
-              <button onClick={() => { setReceivingClaimId(c.id); setReceivedDate(new Date().toISOString().slice(0, 10)); }} className="text-xs font-semibold flex items-center gap-1" style={{ color: BRASS }}>⬜ เงินยังไม่เข้า — แตะเพื่อติ๊กเมื่อได้รับแล้ว</button>
+              <div>
+                {(c.followUpDate || c.expectedAccountId) && (() => {
+                  const expAcc = c.expectedAccountId ? (accounts || []).find((a) => a.id === c.expectedAccountId) : null;
+                  const dl = c.followUpDate ? Math.round((new Date(c.followUpDate) - new Date(new Date().toISOString().slice(0, 10))) / 86400000) : null;
+                  return <p className="text-[11px] mb-1.5" style={{ color: dl !== null && dl <= 0 ? BAD : WARN }}>⏰ {c.followUpDate ? `เช็คเงินวันที่ ${formatDateThai(c.followUpDate)}${dl === 0 ? ' (วันนี้)' : dl < 0 ? ` (เลยมา ${-dl} วัน)` : ` (อีก ${dl} วัน)`}` : ''}{expAcc ? ` · คาดว่าเข้าที่ ${expAcc.name}` : ''}</p>;
+                })()}
+                <button onClick={() => { setReceivingClaimId(c.id); setReceivedDate(new Date().toISOString().slice(0, 10)); setReceivedAccountId(c.expectedAccountId || ''); }} className="text-xs font-semibold flex items-center gap-1" style={{ color: BRASS }}>⬜ เงินยังไม่เข้า — แตะเพื่อติ๊กเมื่อได้รับแล้ว</button>
+              </div>
             )}
           </div>
         </Card>
@@ -10737,12 +10835,13 @@ function DogInsuranceSection({ dog, onUpdateInsurance, onAddInsuranceClaim, onUp
       })}
       {editingClaim && (
         <EditModal title="แก้ไขการเคลม" onClose={() => setEditingClaim(null)}
-          initialValues={{ date: editingClaim.date, actualCost: editingClaim.actualCost ?? editingClaim.amount ?? 0, reimbursedAmount: editingClaim.reimbursedAmount ?? editingClaim.amount ?? 0, reason: editingClaim.reason || '' }}
+          initialValues={{ date: editingClaim.date, actualCost: editingClaim.actualCost ?? editingClaim.amount ?? 0, reimbursedAmount: editingClaim.reimbursedAmount ?? editingClaim.amount ?? 0, reason: editingClaim.reason || '', followUpDate: editingClaim.followUpDate || '' }}
           fields={[
             { key: 'date', label: 'วันที่', type: 'date' },
             { key: 'actualCost', label: 'ค่ารักษาจริง', type: 'number' },
             { key: 'reimbursedAmount', label: 'เบิกได้จริง', type: 'number' },
             { key: 'reason', label: 'เหตุผล/อาการ', type: 'text' },
+            { key: 'followUpDate', label: 'วันที่ให้เตือนเช็คเงินเข้า', type: 'date' },
           ]}
           onSave={(v) => { onUpdateInsuranceClaim(dog.id, editingClaim.id, { date: v.date, actualCost: Number(v.actualCost) || 0, reimbursedAmount: Number(v.reimbursedAmount) || 0, reason: v.reason }); setEditingClaim(null); }}
         />
@@ -11007,8 +11106,9 @@ function makeVisitSectionRow(key, form) {
   return {};
 }
 
-function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, weigherList, medicationList, onAddMedicationPreset, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddOrganExam, onStartFollowUp, onAddMedicalPhoto }) {
+function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, weigherList, medicationList, onAddMedicationPreset, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddOrganExam, onStartFollowUp, onAddMedicalPhoto }) {
   const [selectedVisitId, setSelectedVisitId] = useState(null);
+  const [claimOpt, setClaimOpt] = useState(EMPTY_CLAIM_OPT);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hospital: '', doctor: '', department: '', reason: '', diagnosis: '', cost: 0 });
   // เดิม bug: เงื่อนไขโชว์ช่องพิมพ์ชื่อ รพ. ใหม่ อิงจาก form.hospital ไม่ว่าง แต่กด "+ เพิ่มโรงพยาบาลใหม่" จะเคลียร์ form.hospital เป็นค่าว่างก่อน เลยไม่เข้าเงื่อนไข ช่องพิมพ์เลยไม่โผล่เลยสักครั้ง — แก้เป็น flag แยกต่างหาก ไม่ผูกกับค่าว่าง/ไม่ว่างของ hospital
@@ -11187,6 +11287,11 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
         }
       });
       patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, doctor: form.doctor, department: form.department, reason: form.reason, diagnosis: form.diagnosis, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
+      if (activeSections.includes('expense') && claimOpt.on) {
+        const total = (sectionData.expense || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const claim = buildClaimFromOpt(dog, total, claimOpt, form.reason || form.diagnosis, form.date, { visitId });
+        if (claim) patch.insurance = { ...(dog.insurance || {}), claims: [claim, ...((dog.insurance || {}).claims || [])] };
+      }
       onUpdateDog(dog.id, patch);
       // ไม่ยิง LINE อัตโนมัติตอนสร้างแล้ว (เดิมส่งทันทีแม้กรอกแค่บางส่วน) — ย้ายไปเป็นปุ่ม "ส่งสรุปเข้า LINE ตอนนี้" ในหน้ารายละเอียด ให้กดส่งเองได้ทุกเมื่อ หลังกรอกครบตามต้องการแล้ว
       // บันทึกยาที่พิมพ์เองใหม่เข้ารายการ "ยาที่เคยใช้" ด้วย เหมือน Tab ยาโดยตรง (แก้บั๊กที่เคยตกหล่นมาก่อน)
@@ -11198,7 +11303,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
         });
       }
       setForm({ date: new Date().toISOString().slice(0, 10), hospital: '', doctor: '', department: '', reason: '', diagnosis: '', cost: 0 });
-      setActiveSections([]); setSectionData({}); setSectionPhotos({}); setVisitPhotos([]);
+      setActiveSections([]); setSectionData({}); setSectionPhotos({}); setVisitPhotos([]); setClaimOpt(EMPTY_CLAIM_OPT);
       setShowAddForm(false);
       setVisitFollowUpNote(null); appliedApptRef.current = null;
     } finally { setSubmitting(false); }
@@ -11272,7 +11377,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
   }
 
   if (selected) return (
-    <VetVisitDetail dog={dog} visit={selected} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment}
+    <VetVisitDetail accounts={accounts} dog={dog} visit={selected} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment}
       onBack={() => setSelectedVisitId(null)} onUpdateVetVisit={onUpdateVetVisit} onUpdateDog={onUpdateDog}
       onRemoveVetVisit={(id) => { onRemoveVetVisit(dog.id, id); setSelectedVisitId(null); }}
       onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection}
@@ -11492,6 +11597,7 @@ function DogVetVisitsSection({ dog, hospitalList, onAddHospital, doctorList, onA
                 <button onClick={() => addRowToSection('expense')} style={{ border: `1px solid ${BRASS}`, borderRadius: 10, color: BRASS }} className="flex items-center justify-center gap-1.5 text-xs py-2.5"><PlusCircle size={14} /> เพิ่มอีกรายการ</button>
                 <SectionPhotoAttach sectionKey="expense" />
               </div>
+              <ClaimOnExpensePanel dog={dog} accounts={accounts} total={(sectionData.expense || []).reduce((sum, r) => sum + Number(r.amount || 0), 0)} value={claimOpt} onChange={setClaimOpt} />
             </div>
           )}
 
@@ -11574,7 +11680,7 @@ function LinkedRecordAttachButton({ onAdd }) {
   );
 }
 
-function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, onBack, onUpdateVetVisit, onUpdateDog, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, weigherList, medicationList, onAddMedicationPreset, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onStartFollowUp, onAddMedicalPhoto }) {
+function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, onBack, onUpdateVetVisit, onUpdateDog, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, weigherList, medicationList, onAddMedicationPreset, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onStartFollowUp, onAddMedicalPhoto }) {
   const [showLinker, setShowLinker] = useState(false);
   const [linkType, setLinkType] = useState(VET_RECORD_TYPES[0].type);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -11613,6 +11719,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
     const rows = (procData[key] || []).filter((_, i) => i !== idx);
     if (rows.length === 0) toggleProcSection(key); else setProcData((prev) => ({ ...prev, [key]: rows }));
   }
+  const [procClaimOpt, setProcClaimOpt] = useState(EMPTY_CLAIM_OPT);
   async function submitAddedProcedures() {
     setProcSubmitting(true);
     try {
@@ -11626,8 +11733,13 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
         patch[def.field] = [...newEntries, ...existing];
       });
       patch.vetVisits = (dog.vetVisits || []).map((v) => (v.id === visit.id ? { ...v, linkedRecords: newLinks } : v));
+      if (procSections.includes('expense') && procClaimOpt.on) {
+        const total = (procData.expense || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const claim = buildClaimFromOpt(dog, total, procClaimOpt, visit.reason || visit.diagnosis, visit.date, { visitId: visit.id });
+        if (claim) patch.insurance = { ...(dog.insurance || {}), claims: [claim, ...((dog.insurance || {}).claims || [])] };
+      }
       onUpdateDog(dog.id, patch);
-      setProcSections([]); setProcData({}); setShowAddProcedure(false);
+      setProcSections([]); setProcData({}); setShowAddProcedure(false); setProcClaimOpt(EMPTY_CLAIM_OPT);
     } finally { setProcSubmitting(false); }
   }
 
@@ -12084,6 +12196,7 @@ function VetVisitDetail({ dog, visit, hospitalList, onAddHospital, doctorList, o
                   </div>
                 ))}
                 <button onClick={() => addProcRow('expense')} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มอีกรายการ</button>
+                <ClaimOnExpensePanel dog={dog} accounts={accounts} total={(procData.expense || []).reduce((sum, r) => sum + Number(r.amount || 0), 0)} value={procClaimOpt} onChange={setProcClaimOpt} />
               </div>
             )}
             <div className="flex gap-2 mt-2">
