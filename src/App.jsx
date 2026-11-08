@@ -2924,6 +2924,17 @@ function EditButton({ onClick }) {
   return <button onClick={onClick} className="text-[11px] underline mr-2" style={{ color: BRASS }}>แก้ไข</button>;
 }
 
+// สรุปเรื่องเงินของการไปหาหมอครั้งหนึ่ง: ค่าใช้จ่ายรวม + เคลมประกัน (ผูกด้วย visitId) + ส่วนที่จ่ายเอง + วงเงินคงเหลือ — ใช้ทั้งข้อความและการ์ดที่ส่ง LINE
+function visitMoneySummary(dog, visit) {
+  const linkedExp = (visit.linkedRecords || []).filter((lr) => lr.type === 'expenses').map((lr) => (dog.expenses || []).find((r) => r.id === lr.id)).filter(Boolean);
+  const expSum = linkedExp.reduce((t, e) => t + Number(e.amount || 0), 0);
+  const total = expSum > 0 ? expSum : Number(visit.cost || 0);
+  const claims = ((dog.insurance && dog.insurance.claims) || []).filter((c) => c.visitId === visit.id);
+  const claimed = claims.reduce((t, c) => t + Number(c.reimbursedAmount ?? c.amount ?? 0), 0);
+  const allReceived = claims.length > 0 && claims.every((c) => c.received);
+  const st = insuranceYearStats(dog.insurance);
+  return { total, claims, claimed, allReceived, selfPay: Math.max(0, total - claimed), remaining: st.annualLimit > 0 ? st.remaining : null, annualLimit: st.annualLimit };
+}
 // สรุปข้อมูล "ไปหาหมอ" ครั้งหนึ่งเป็นข้อความเต็ม รวมทุกรายการที่เชื่อมโยงไว้ (ผลเลือด/อวัยวะ/Imaging/น้ำหนัก/ยา/ค่าใช้จ่าย)
 function buildVetVisitShareText(dog, visit) {
   const lines = [];
@@ -2934,7 +2945,13 @@ function buildVetVisitShareText(dog, visit) {
   if (visit.doctor) lines.push(`👨‍⚕️ สัตวแพทย์: ${visit.doctor}`);
   if (visit.reason) lines.push(`📝 เหตุผลที่ไป: ${visit.reason}`);
   if (visit.diagnosis) lines.push(`💬 ผลวินิจฉัย/การรักษา: ${visit.diagnosis}`);
-  if (visit.cost) lines.push(`💰 ค่าใช้จ่าย: ฿${fmt(visit.cost)}`);
+  const money = visitMoneySummary(dog, visit);
+  if (money.total > 0) lines.push(`💰 ค่าใช้จ่ายรวม: ฿${fmt(money.total)}`);
+  if (money.claims.length > 0) {
+    lines.push(`🛡️ เคลมประกัน: ฿${fmt(money.claimed)} (${money.allReceived ? 'เงินเข้าแล้ว' : 'รอเงินเข้า'})`);
+    if (money.total > 0) lines.push(`🧍 จ่ายเอง: ฿${fmt(money.selfPay)}`);
+    if (money.remaining !== null) lines.push(`📊 วงเงินประกันคงเหลือ: ฿${fmt(money.remaining)} จาก ฿${fmt(money.annualLimit)}`);
+  }
   const linked = visit.linkedRecords || [];
   linked.forEach((lr) => {
     const record = (dog[lr.type] || []).find((r) => r.id === lr.id);
@@ -3064,7 +3081,13 @@ async function renderVetVisitSummaryCard(dog, visit) {
   if (visit.hospital) rows.push({ icon: '🏥', label: 'โรงพยาบาล', value: visit.hospital });
   if (visit.department) rows.push({ icon: '🚪', label: 'แผนก', value: visit.department });
   if (visit.doctor) rows.push({ icon: '👨‍⚕️', label: 'สัตวแพทย์', value: visit.doctor });
-  if (visit.cost) rows.push({ icon: '💰', label: 'ค่าใช้จ่าย', value: `฿${fmt(visit.cost)}` });
+  const money = visitMoneySummary(dog, visit);
+  if (money.total > 0) rows.push({ icon: '💰', label: 'ค่าใช้จ่ายรวม', value: `฿${fmt(money.total)}` });
+  if (money.claims.length > 0) {
+    rows.push({ icon: '🛡️', label: 'เคลมประกัน', value: `฿${fmt(money.claimed)} (${money.allReceived ? 'เงินเข้าแล้ว' : 'รอเงินเข้า'})` });
+    if (money.total > 0) rows.push({ icon: '🧍', label: 'จ่ายเอง', value: `฿${fmt(money.selfPay)}` });
+    if (money.remaining !== null) rows.push({ icon: '📊', label: 'วงเงินประกันคงเหลือ', value: `฿${fmt(money.remaining)} จาก ฿${fmt(money.annualLimit)}` });
+  }
   let heroUrl = (visit.photos && visit.photos[0] && visit.photos[0].url) || null;
   if (!heroUrl) {
     for (const lr of (visit.linkedRecords || [])) {
@@ -3090,6 +3113,17 @@ async function renderVetVisitDetailCard(dog, visit) {
     else if (lr.type === 'expenses') rows.push({ icon: '🧾', label: 'ค่าใช้จ่าย', value: `฿${fmt(record.amount)} (${record.category || ''})` });
     else if (lr.type === 'appointments') rows.push({ icon: '📅', label: 'นัดครั้งถัดไป', value: `${formatDateThai(record.date)}${record.hospital ? ' · ' + record.hospital : ''}${record.purpose ? ' · ' + record.purpose : ''}` });
   });
+  const money = visitMoneySummary(dog, visit);
+  if (money.claims.length > 0) {
+    money.claims.forEach((c) => {
+      const amt = Number(c.reimbursedAmount ?? c.amount ?? 0);
+      const parts = [`฿${fmt(amt)}`, c.received ? `เงินเข้าแล้ว${c.receivedDate ? ' ' + formatDateThai(c.receivedDate) : ''}` : 'รอเงินเข้า'];
+      if (!c.received && c.followUpDate) parts.push(`เช็คเงิน ${formatDateThai(c.followUpDate)}`);
+      rows.push({ icon: '🛡️', label: 'เคลมประกัน', value: parts.join(' · ') });
+    });
+    if (money.total > 0) rows.push({ icon: '🧍', label: 'จ่ายเอง', value: `฿${fmt(money.selfPay)} (จากค่ารักษา ฿${fmt(money.total)})` });
+    if (money.remaining !== null) rows.push({ icon: '📊', label: 'วงเงินประกันคงเหลือ', value: `฿${fmt(money.remaining)} จาก ฿${fmt(money.annualLimit)}` });
+  }
   if (rows.length === 0) return null; // ไม่มีรายละเอียดเพิ่มเติมอะไรเลย ไม่ต้องสร้างการ์ดที่ 2 เปล่าๆ
   return drawInfoCardImage({ eyebrow: 'รายละเอียดเพิ่มเติม', title: `🐶 ${dog.name}`, subtitle: formatDateThai(visit.date), heroUrl: null, rows, footerNote: 'เป๋าตุง Family' });
 }
@@ -11919,9 +11953,17 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูทุกครั้ง</button>
-      <Card>
-        <div className="flex justify-between items-center mb-2">
-          <p className="text-base font-bold" style={{ color: INK }}>{formatDateThai(visit.date)}</p>
+      {(() => {
+        const hm = visitMoneySummary(dog, visit);
+        return (
+      <div style={{ background: `linear-gradient(135deg, ${INK} 0%, #2B3350 100%)`, borderRadius: 24, boxShadow: '0 10px 28px rgba(15,23,42,0.22)' }} className="p-5 mb-4 relative overflow-hidden">
+        <div style={{ position: 'absolute', right: -40, top: -40, width: 150, height: 150, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
+        <div className="flex justify-between items-start mb-3 relative">
+          <div>
+            <p className="text-[10px] font-semibold tracking-widest uppercase mb-1" style={{ color: 'rgba(255,255,255,0.55)' }}>🏥 ไปหาหมอ · {dog.name}</p>
+            <p className="text-xl font-bold" style={{ color: 'white' }}>{formatDateThai(visit.date)}</p>
+            {(visit.hospital || visit.doctor) && <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.75)' }}>{[visit.hospital, visit.doctor].filter(Boolean).join(' · ')}</p>}
+          </div>
           <div className="flex items-center gap-3">
             <button onClick={async () => {
               setShareStatus({ loading: true });
@@ -11940,10 +11982,19 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
               } catch (e) {
                 setShareStatus({ loading: false, message: `สร้างการ์ดไม่สำเร็จ: ${e.message}`, isError: true });
               }
-            }}><Share2 size={16} color={BRASS} /></button>
-            <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveVetVisit(visit.id))}><Trash2 size={16} color={BAD} /></button>
+            }}><Share2 size={16} color="white" /></button>
+            <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveVetVisit(visit.id))}><Trash2 size={16} color="#FFB4AB" /></button>
           </div>
         </div>
+        <div className="flex flex-wrap gap-2 relative">
+          {hm.total > 0 && <span className="text-[11px] font-semibold rounded-full px-3 py-1" style={{ background: 'rgba(255,255,255,0.14)', color: 'white' }}>💰 ฿{fmt(hm.total)}</span>}
+          {hm.claims.length > 0 && <span className="text-[11px] font-semibold rounded-full px-3 py-1" style={{ background: hm.allReceived ? 'rgba(52,199,89,0.28)' : 'rgba(255,196,77,0.28)', color: 'white' }}>🛡️ เคลม ฿{fmt(hm.claimed)} · {hm.allReceived ? 'เงินเข้าแล้ว' : 'รอเงินเข้า'}</span>}
+          {linkedRecords.length > 0 && <span className="text-[11px] font-semibold rounded-full px-3 py-1" style={{ background: 'rgba(255,255,255,0.14)', color: 'white' }}>🔗 {linkedRecords.length} รายการ</span>}
+        </div>
+      </div>
+        );
+      })()}
+      <Card style={{ borderRadius: 24 }}>
         {onStartFollowUp && (
           <button
             onClick={() => onStartFollowUp({
@@ -11973,53 +12024,53 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
             )}
           </div>
         )}
-        <label className="text-[10px]" style={{ color: SLATE }}>วันที่ไป</label>
-        <input type="date" value={visit.date} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { date: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        <label className="text-[10px]" style={{ color: SLATE }}>โรงพยาบาล</label>
-        <select value={showCustomHospital ? '__new__' : (list.includes(visit.hospital) ? visit.hospital : '')} onChange={(e) => { if (e.target.value === '__new__') { setShowCustomHospital(true); } else { setShowCustomHospital(false); onUpdateVetVisit(dog.id, visit.id, { hospital: e.target.value }); } }} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-1" style={{ border: '1px solid #E7EAF0' }}>
+        <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>วันที่ไป</label>
+        <input type="date" value={visit.date} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { date: e.target.value })} className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-4" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
+        <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>โรงพยาบาล</label>
+        <select value={showCustomHospital ? '__new__' : (list.includes(visit.hospital) ? visit.hospital : '')} onChange={(e) => { if (e.target.value === '__new__') { setShowCustomHospital(true); } else { setShowCustomHospital(false); onUpdateVetVisit(dog.id, visit.id, { hospital: e.target.value }); } }} className="px-3.5 py-2.5 text-sm w-full mt-1 mb-1" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }}>
           <option value="">— เลือกโรงพยาบาล —</option>
           {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
           <option value="__new__">+ พิมพ์เอง</option>
         </select>
         {showCustomHospital && (
           <div className="flex gap-2 mb-2">
-            <input value={visit.hospital || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} autoFocus />
+            <input value={visit.hospital || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="px-3.5 py-2.5 text-sm flex-1" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} autoFocus />
             <button type="button" onClick={() => { if (visit.hospital) { onAddHospital(visit.hospital); setShowCustomHospital(false); } }} className="text-xs rounded-lg px-3" style={{ border: '1px solid #E7EAF0', color: BRASS }}>บันทึกชื่อนี้ไว้</button>
           </div>
         )}
-        <label className="text-[10px]" style={{ color: SLATE }}>เหตุผลที่ไป</label>
-        <input value={visit.reason || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { reason: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        <label className="text-[10px]" style={{ color: SLATE }}>แผนก</label>
-        <TypeSelectWithCustom options={departmentList || []} value={visit.department || ''} onChange={(v) => { onUpdateVetVisit(dog.id, visit.id, { department: v }); if (v && visit.doctor) onSetDoctorDepartment(visit.doctor, v); }} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        <label className="text-[10px]" style={{ color: SLATE }}>สัตวแพทย์ผู้ตรวจ</label>
+        <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>เหตุผลที่ไป</label>
+        <input value={visit.reason || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { reason: e.target.value })} className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-4" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
+        <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>แผนก</label>
+        <TypeSelectWithCustom options={departmentList || []} value={visit.department || ''} onChange={(v) => { onUpdateVetVisit(dog.id, visit.id, { department: v }); if (v && visit.doctor) onSetDoctorDepartment(visit.doctor, v); }} className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-4" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
+        <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>สัตวแพทย์ผู้ตรวจ</label>
         <MemoTextField list={doctorList} value={visit.doctor || ''} onChange={(v) => {
           const knownDept = (doctorDepartments || {})[v];
           onUpdateVetVisit(dog.id, visit.id, { doctor: v, ...(knownDept ? { department: knownDept } : {}) });
-        }} onAddToList={(name) => { onAddDoctor(name); if (visit.department) onSetDoctorDepartment(name, visit.department); }} placeholder="ชื่อสัตวแพทย์" className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        <label className="text-[10px]" style={{ color: SLATE }}>ผลวินิจฉัย/การรักษา</label>
-        <textarea value={visit.diagnosis || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { diagnosis: e.target.value })} rows={3} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
-        <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่าย</label>
-        <NumInput value={visit.cost} onChange={(v) => onUpdateVetVisit(dog.id, visit.id, { cost: v })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
-        <label className="text-[10px]" style={{ color: SLATE }}>รูปอาการ (เช่น ถ่ายแผล/จุดที่เป็น)</label>
+        }} onAddToList={(name) => { onAddDoctor(name); if (visit.department) onSetDoctorDepartment(name, visit.department); }} placeholder="ชื่อสัตวแพทย์" className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-4" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
+        <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>ผลวินิจฉัย/การรักษา</label>
+        <textarea value={visit.diagnosis || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { diagnosis: e.target.value })} rows={3} className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-4" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
+        <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>ค่าใช้จ่าย</label>
+        <NumInput value={visit.cost} onChange={(v) => onUpdateVetVisit(dog.id, visit.id, { cost: v })} className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-4" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
+        <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>รูปอาการ (เช่น ถ่ายแผล/จุดที่เป็น)</label>
         <input ref={photoFileRef} type="file" accept="image/*" onChange={handleSymptomPhoto} className="hidden" />
-        <button onClick={() => photoFileRef.current && photoFileRef.current.click()} className="flex items-center gap-1 text-xs mt-1" style={{ color: BRASS }}>
+        <button onClick={() => photoFileRef.current && photoFileRef.current.click()} className="flex items-center gap-1.5 text-xs font-semibold mt-1.5 rounded-full px-3.5 py-2" style={{ color: BRASS, background: PAPER_DIM }}>
           {photoUploading ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />} {photoUploading ? 'กำลังอัพโหลด...' : 'แนบรูปอาการ'}
         </button>
         {(visit.photos || []).length > 0 && (
           <div className="grid grid-cols-4 gap-1.5 mt-2">
             {visit.photos.map((ph) => (
               <div key={ph.id} className="relative">
-                <button onClick={() => setLightboxUrl(ph.url)} className="w-full block"><img src={ph.url} alt="" className="w-full h-16 object-cover rounded-lg" /></button>
+                <button onClick={() => setLightboxUrl(ph.url)} className="w-full block"><img src={ph.url} alt="" className="w-full h-20 object-cover" style={{ borderRadius: 14 }} /></button>
                 <button onClick={() => removeSymptomPhoto(ph.id)} style={{ background: 'rgba(0,0,0,0.5)' }} className="absolute top-0.5 right-0.5 rounded-full p-0.5"><Trash2 size={10} color="white" /></button>
               </div>
             ))}
           </div>
         )}
       </Card>
-      <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>เพิ่มหัตถการอื่นๆ ให้ครั้งนี้</p>
+      <Card style={{ borderRadius: 24 }}>
+        <p className="text-[10px] font-bold tracking-wide uppercase mb-2" style={{ color: SLATE, letterSpacing: 0.6 }}>เพิ่มหัตถการอื่นๆ ให้ครั้งนี้</p>
         {!showAddProcedure ? (
-          <button onClick={() => setShowAddProcedure(true)} className="flex items-center gap-1 text-xs" style={{ color: BRASS }}><PlusCircle size={13} /> เพิ่มหัตถการใหม่ (เช่น เพิ่งนึกได้ว่ามีตรวจเลือด/CT เพิ่ม)</button>
+          <button onClick={() => setShowAddProcedure(true)} className="flex items-center gap-2 text-xs font-semibold w-full rounded-2xl px-4 py-3" style={{ color: BRASS, border: `1.5px dashed ${BRASS}`, background: PAPER_DIM }}><PlusCircle size={15} /> เพิ่มหัตถการใหม่ (เช่น เพิ่งนึกได้ว่ามีตรวจเลือด/CT เพิ่ม)</button>
         ) : (
           <div>
             <div className="flex flex-wrap gap-2 mb-3">
@@ -12206,8 +12257,8 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
           </div>
         )}
       </Card>
-      <Card>
-        <p className="text-xs mb-2" style={{ color: SLATE }}>รายการที่เชื่อมโยงไว้ ({linkedRecords.length})</p>
+      <Card style={{ borderRadius: 24 }}>
+        <p className="text-[10px] font-bold tracking-wide uppercase mb-2" style={{ color: SLATE, letterSpacing: 0.6 }}>🔗 รายการที่เชื่อมโยงไว้ ({linkedRecords.length})</p>
         {linkedRecords.length === 0 && <p className="text-xs mb-2" style={{ color: SLATE }}>ยังไม่ได้เชื่อมโยงอะไร</p>}
         {linkedRecords.map((lr, i) => {
           const typeMeta = VET_RECORD_TYPES.find((t) => t.type === lr.type);
@@ -12216,16 +12267,16 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
           const targetTab = VET_RECORD_TAB_MAP[lr.type];
           const detail = typeMeta.getDetail ? typeMeta.getDetail(record) : null;
           return (
-            <button key={`${lr.type}-${lr.id}`} onClick={() => targetTab && setSection && setSection(targetTab)} className="flex justify-between items-center py-2 w-full text-left" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-              <div>
-                <p className="text-[10px]" style={{ color: BRASS }}>{typeMeta.label}</p>
+            <button key={`${lr.type}-${lr.id}`} onClick={() => targetTab && setSection && setSection(targetTab)} className="flex justify-between items-center p-3 w-full text-left mb-2 gap-2" style={{ background: '#F7F8FA', borderRadius: 16 }}>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-bold uppercase" style={{ color: BRASS, letterSpacing: 0.5 }}>{typeMeta.label}</p>
                 <p className="text-sm">{typeMeta.getLabel(record)}</p>
                 {detail && <p className="text-xs mt-0.5" style={{ color: SLATE }}>{detail}</p>}
               </div>
               <div className="flex items-center gap-2">
                 {record.photos && record.photos.length > 0 ? (
                   <button onClick={(e) => { e.stopPropagation(); setLightboxUrl(record.photos[0].url); }} style={{ flexShrink: 0 }}>
-                    <img src={record.photos[0].url} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', border: `1px solid ${BORDER}` }} />
+                    <img src={record.photos[0].url} alt="" style={{ width: 44, height: 44, borderRadius: 12, objectFit: 'cover', border: `1px solid ${BORDER}` }} />
                   </button>
                 ) : onAddMedicalPhoto && (
                   <LinkedRecordAttachButton onAdd={(file) => onAddMedicalPhoto(dog.id, lr.type, lr.id, file)} />
@@ -12250,7 +12301,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
             <button onClick={() => setShowLinker(false)} className="text-xs mt-2" style={{ color: SLATE }}>ปิด</button>
           </div>
         ) : (
-          <button onClick={() => setShowLinker(true)} className="flex items-center gap-1 text-xs mt-2" style={{ color: BRASS }}><PlusCircle size={13} /> เชื่อมโยงรายการที่มีอยู่แล้ว</button>
+          <button onClick={() => setShowLinker(true)} className="flex items-center gap-1.5 text-xs font-semibold mt-1" style={{ color: BRASS }}><PlusCircle size={14} /> เชื่อมโยงรายการที่มีอยู่แล้ว</button>
         )}
       </Card>
 
