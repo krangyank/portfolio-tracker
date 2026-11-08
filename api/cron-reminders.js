@@ -141,6 +141,17 @@ export default async function handler(req, res) {
         });
         if (result && result.shouldNotify) { pushLine(result.line, groupId); if (result.dedupKey) nextSharedRemindersSent[result.dedupKey] = todayStr; }
       }
+      // เงินเคลมประกันที่ยังไม่เข้า — เตือนวันถึงกำหนดเช็ค แล้วเตือนซ้ำทุก 3 วันจนกว่าจะติ๊กว่าเงินเข้าแล้วในแอป
+      ((dog.insurance && dog.insurance.claims) || []).forEach((c) => {
+        if (c.received || !c.followUpDate) return;
+        const dl = daysUntil(c.followUpDate);
+        if (dl === null || dl > 0) return;
+        if (dl < 0 && (-dl) % 3 !== 0) return;
+        const acc = c.expectedAccountId ? (sharedState.accounts || []).find((x) => x.id === c.expectedAccountId) : null;
+        const amt = Number(c.reimbursedAmount ?? c.amount ?? 0).toLocaleString('en-US');
+        const when = dl === 0 ? 'ถึงวันเช็คเงินวันนี้' : `เลยวันเช็คมา ${-dl} วัน ยังไม่ได้ติ๊กว่าเงินเข้า`;
+        pushLine(`💰 เช็คเงินเคลมประกัน ${dog.name}: ฿${amt}${c.reason ? ` (${c.reason})` : ''} — ${when}${acc ? `\nคาดว่าเงินเข้าที่: ${acc.name}` : ''}\nเงินเข้าแล้วให้ไปติ๊กในแอป > ลูกๆ > ประกัน`, groupId);
+      });
     });
 
     (sharedState.properties || []).forEach((p) => {
