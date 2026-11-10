@@ -5036,6 +5036,8 @@ function GoldAccountCard({ account: a, onUpdate, onRemove, onAddGoldLot, onUpdat
 
 function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpdateHolding, onRemoveHolding, onAddDividend, onRemoveDividend, onUpdateDividend, onRefreshPrice, finnhubKey, categoryColor, onScanValue, allAccounts, onSellHolding, onRemoveSell, onRemoveBuy, onUpdateSell, onUpdateBuy, onAddContribution, onRecordYieldTech, onRecordYieldTechBatch, onRecordBuySellBatch, onRemoveYieldTechHistory, onUpdateYieldTechHistory, customDestinationList, onAddCustomDestination }) {
   const [expanded, setExpanded] = useState(true);
+  const [showSoldHoldings, setShowSoldHoldings] = useState(false);
+  const [holdSort, setHoldSort] = useState('value');
   const [toolsOpen, setToolsOpen] = useState(false); // เครื่องมือนำเข้า/ซิงค์ด้วย AI พับเก็บไว้ (ถ้ามี draft ค้างอยู่จะโชว์เองเสมอ)
   const [selectedHoldingId, setSelectedHoldingId] = useState(null);
   const holdings = a.holdings || [];
@@ -5518,31 +5520,101 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1 text-xs mt-1" style={{ color: categoryColor }}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {holdings.length} หุ้นในบัญชีนี้</button>
       {expanded && (
         <div className="mt-3">
+          {(() => {
+            const act = holdings.filter((hh) => Number(hh.shares || 0) > 0);
+            const tot = act.reduce((t, hh) => t + holdingMarketValueTHB(hh), 0);
+            if (act.length < 2 || tot <= 0) return null;
+            const COLS = ['#2E5266', '#B8874B', '#7C3AED', '#3F6152', '#A64B3D'];
+            const sorted = [...act].sort((x, y) => holdingMarketValueTHB(y) - holdingMarketValueTHB(x));
+            const top = sorted.slice(0, 4); const rest = sorted.slice(4).reduce((t, hh) => t + holdingMarketValueTHB(hh), 0);
+            return (
+              <div className="mb-3">
+                <div className="flex" style={{ height: 8, borderRadius: 99, overflow: 'hidden', gap: 2 }}>
+                  {top.map((hh, k) => <i key={hh.id} style={{ display: 'block', height: '100%', width: `${(holdingMarketValueTHB(hh) / tot) * 100}%`, background: COLS[k] }} />)}
+                  {rest > 0 && <i style={{ display: 'block', height: '100%', width: `${(rest / tot) * 100}%`, background: '#CBD5E1' }} />}
+                </div>
+                <div className="flex flex-wrap mt-1.5" style={{ gap: '2px 10px' }}>
+                  {top.map((hh, k) => <span key={hh.id} className="text-[10px]" style={{ color: SLATE }}><b style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 99, background: COLS[k], marginRight: 4 }} />{hh.symbol} {Math.round((holdingMarketValueTHB(hh) / tot) * 100)}%</span>)}
+                  {rest > 0 && <span className="text-[10px]" style={{ color: SLATE }}><b style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 99, background: '#CBD5E1', marginRight: 4 }} />อื่นๆ {Math.round((rest / tot) * 100)}%</span>}
+                </div>
+              </div>
+            );
+          })()}
+          <div className="flex mb-2" style={{ background: '#F1F2F6', borderRadius: 12, padding: 3 }}>
+            {[['value', 'มูลค่า'], ['gain', 'กำไร/ขาดทุน'], ['name', 'ชื่อ A-Z']].map(([k, l]) => (
+              <button key={k} onClick={() => setHoldSort(k)} className="flex-1 text-[11px] font-semibold py-1.5" style={{ borderRadius: 9, background: holdSort === k ? 'white' : 'transparent', color: holdSort === k ? INK : SLATE, boxShadow: holdSort === k ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>{l}</button>
+            ))}
+          </div>
           <div style={{ borderRadius: CARD_RADIUS, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
-            {holdings.map((h, i) => {
+            {(() => {
               const AVATAR_COLORS = ['#2E5266', '#B8874B', '#7C3AED', '#3F6152', '#A64B3D'];
-              const avatarColor = AVATAR_COLORS[i % AVATAR_COLORS.length];
+              const activeMV = holdings.reduce((t, hh) => t + (Number(hh.shares || 0) > 0 ? holdingMarketValueTHB(hh) : 0), 0);
+              const renderRow = (h, i, muted) => {
+                const avatarColor = muted ? '#94A3B8' : AVATAR_COLORS[i % AVATAR_COLORS.length];
+                const cb = holdingCostBasisTHB(h); const mv = holdingMarketValueTHB(h); const g = mv - cb; const gp = cb ? (g / cb) * 100 : 0;
+                const cur = h.currency === 'USD' ? '$' : '฿';
+                const up = g >= 0;
+                return (
+                  <button key={h.id} onClick={() => setSelectedHoldingId(h.id)} className="w-full text-left px-3 py-3" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', background: 'white', opacity: muted ? 0.7 : 1 }}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div style={{ background: `${avatarColor}1F`, color: avatarColor }} className="w-9 h-9 rounded-xl flex items-center justify-center text-[10px] font-bold flex-shrink-0">{(h.symbol || '?').slice(0, 2)}</div>
+                        <div className="text-left">
+                          <p style={{ color: INK }} className="text-sm font-semibold">{h.symbol || '(ยังไม่ตั้งชื่อ)'}</p>
+                          <p style={{ color: SLATE }} className="text-[11px]">{fmt2(h.shares)} หุ้น</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="text-right">
+                          <p style={{ color: INK }} className="text-sm font-bold">฿{fmt(mv)}</p>
+                          <span style={gp <= -30 ? { background: BAD, color: 'white' } : { background: up ? '#16A34A14' : '#DC262614', color: up ? GOOD : BAD }} className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full">{up ? '+' : ''}{gp.toFixed(1)}%{gp <= -30 ? ' ▼' : ''}</span>
+                        </div>
+                        <ChevronRight size={15} color={SLATE} />
+                      </div>
+                    </div>
+                    {!muted && activeMV > 0 && (
+                      <div className="mt-2.5">
+                        <div style={{ height: 4, borderRadius: 99, background: '#EEF0F4', overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, (mv / activeMV) * 100)}%`, background: BRASS, borderRadius: 99 }} /></div>
+                        <p className="text-[10px] mt-1" style={{ color: SLATE }}>{((mv / activeMV) * 100).toFixed(1)}% ของบัญชี</p>
+                      </div>
+                    )}
+                    {!muted && (
+                      <div className="grid grid-cols-3 gap-1.5 mt-1.5" style={{ background: '#F6F7FA', borderRadius: 12, padding: '8px 10px' }}>
+                        <div>
+                          <p className="text-[9px]" style={{ color: SLATE }}>ต้นทุน/หุ้น</p>
+                          <p className="text-[12px] font-semibold" style={{ color: INK }}>{cur}{fmt2(h.avgCost)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px]" style={{ color: SLATE }}>ราคาตลาด</p>
+                          <p className="text-[12px] font-semibold" style={{ color: INK }}>{cur}{fmt2(h.currentPrice)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[9px]" style={{ color: SLATE }}>{up ? 'กำไร' : 'ขาดทุน'}</p>
+                          <p className="text-[12px] font-semibold" style={{ color: up ? GOOD : BAD }}>{up ? '+' : '-'}฿{fmt(Math.abs(g))}</p>
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                );
+              };
+              const gainOf = (hh) => holdingMarketValueTHB(hh) - holdingCostBasisTHB(hh);
+              const activeH = holdings.map((h, i) => ({ h, i })).filter((x) => Number(x.h.shares || 0) > 0).sort((x, y) => holdSort === 'gain' ? gainOf(x.h) - gainOf(y.h) : holdSort === 'name' ? String(x.h.symbol || '').localeCompare(String(y.h.symbol || '')) : holdingMarketValueTHB(y.h) - holdingMarketValueTHB(x.h));
+              const soldH = holdings.map((h, i) => ({ h, i })).filter((x) => !(Number(x.h.shares || 0) > 0));
               return (
-              <button key={h.id} onClick={() => setSelectedHoldingId(h.id)} className="w-full flex items-center justify-between px-3 py-3" style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none', background: 'white' }}>
-                <div className="flex items-center gap-2.5">
-                  <div style={{ background: `${avatarColor}1F`, color: avatarColor }} className="w-9 h-9 rounded-xl flex items-center justify-center text-[10px] font-bold flex-shrink-0">{(h.symbol || '?').slice(0, 2)}</div>
-                  <div className="text-left">
-                    <p style={{ color: INK }} className="text-sm font-semibold">{h.symbol || '(ยังไม่ตั้งชื่อ)'}</p>
-                    <p style={{ color: SLATE }} className="text-[11px]">{fmt2(h.shares)} หุ้น</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="text-right">
-                    <p style={{ color: INK }} className="text-sm font-bold">฿{fmt(holdingMarketValueTHB(h))}</p>
-                    {(() => { const cb = holdingCostBasisTHB(h); const g = holdingMarketValueTHB(h) - cb; const gp = cb ? (g / cb) * 100 : 0; return (
-                      <span style={{ background: gp >= 0 ? '#16A34A14' : '#DC262614', color: gp >= 0 ? GOOD : BAD }} className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full">{gp >= 0 ? '+' : ''}{gp.toFixed(1)}%</span>
-                    ); })()}
-                  </div>
-                  <ChevronRight size={15} color={SLATE} />
-                </div>
-              </button>
+                <>
+                  {activeH.map((x, k) => renderRow(x.h, x.i, false))}
+                  {soldH.length > 0 && (
+                    <>
+                      <button onClick={() => setShowSoldHoldings(!showSoldHoldings)} className="w-full flex items-center justify-between px-3 py-2.5 text-[11px] font-semibold" style={{ background: '#F6F7FA', color: SLATE, borderTop: activeH.length > 0 ? `1px solid ${BORDER}` : 'none' }}>
+                        <span>📦 ไม่มีหุ้นแล้ว · {soldH.length} ตัว ({soldH.map((x) => x.h.symbol).filter(Boolean).slice(0, 4).join(', ')}{soldH.length > 4 ? '…' : ''})</span>
+                        {showSoldHoldings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                      {showSoldHoldings && soldH.map((x) => renderRow(x.h, x.i, true))}
+                    </>
+                  )}
+                </>
               );
-            })}
+            })()}
           </div>
           <button onClick={() => onAddHolding(a.id)} className="flex items-center gap-1 text-xs mt-2" style={{ color: BRASS }}><PlusCircle size={13} /> เพิ่มหุ้นในบัญชีนี้</button>
         </div>
