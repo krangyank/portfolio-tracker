@@ -6,7 +6,7 @@ import {
   BarChart3, Camera, Sparkles, Share2, X, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Settings, AlertTriangle, CheckCircle2, Info, Calendar, LogOut, Receipt, Mic,
   Dog, Scale, Syringe, Shield, Bug, Stethoscope, Eye, EyeOff, Search, Upload,
-  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper, Rss, Car, Coins,
+  ClipboardList, Bell, ChevronRight, ChevronLeft, Home, Phone, MessageCircle, Wrench, Image as ImageIcon, Percent, User, Newspaper, Rss, Car, Coins, Pencil,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { signOut } from 'firebase/auth';
@@ -466,7 +466,7 @@ async function getGoogleAuthCode(clientId) {
     try {
       const client = window.google.accounts.oauth2.initCodeClient({
         client_id: clientId,
-        scope: 'https://www.googleapis.com/auth/calendar.events',
+        scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file',
         ux_mode: 'popup',
         callback: (resp) => { if (resp && resp.code) resolve(resp.code); else reject(new Error('ไม่ได้รับสิทธิ์เข้าถึง Google Calendar')); },
       });
@@ -474,6 +474,27 @@ async function getGoogleAuthCode(clientId) {
     } catch (e) { reject(e); }
   });
 }
+
+// ---- สำรองข้อมูลขึ้น Google Drive (ไฟล์เดียว ทับของเดิมทุกครั้ง) ให้ Claude ในแชทอ่านได้ผ่านตัวเชื่อม Drive ----
+const BACKUP_FILE_NAME = 'paotung-backup.json';
+async function driveUploadBackup(accessToken, jsonText) {
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const q = encodeURIComponent(`name='${BACKUP_FILE_NAME}' and trashed=false`);
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`, { headers: auth });
+  const j = await r.json();
+  if (!r.ok) throw new Error((j.error && j.error.message) || 'เข้าถึง Google Drive ไม่สำเร็จ');
+  const id = j.files && j.files[0] && j.files[0].id;
+  let res;
+  if (id) {
+    res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, { method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json; charset=UTF-8' }, body: jsonText });
+  } else {
+    const boundary = 'paotung' + Date.now();
+    const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: BACKUP_FILE_NAME, mimeType: 'application/json' })}\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${jsonText}\r\n--${boundary}--`;
+    res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { ...auth, 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
+  }
+  if (!res.ok) { let m = ''; try { m = (await res.json()).error.message; } catch (e) { /* ignore */ } throw new Error(m || `อัพโหลดไม่สำเร็จ (${res.status})`); }
+}
+const BACKUP_STRIP_KEYS = ['finnhubKey', 'googleRefreshToken', 'googleClientId'];
 
 async function exchangeGoogleCode(clientId, code) {
   const res = await fetch('/api/google-token', {
@@ -727,6 +748,49 @@ export default function App() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state && state.googleRefreshToken, state && state.googleClientId]);
+
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMsg, setBackupMsg] = useState('');
+  const autoBackupTried = useRef(false);
+  function buildBackupPayload() {
+    const personal = { ...(stateRef.current || {}) };
+    BACKUP_STRIP_KEYS.forEach((k) => { delete personal[k]; });
+    return { app: 'paotung-family', version: 1, exportedAt: new Date().toISOString(), note: 'personal = ข้อมูลส่วนตัว, shared = ข้อมูลที่แชร์กับภรรยา (ลูกๆ/บัญชีร่วม) — ตัดรหัสและคีย์ออกแล้ว', personal, shared: sharedStateRef.current || {} };
+  }
+  async function runBackup(silent) {
+    if (!googleToken) { if (!silent) setBackupMsg('ต้องเชื่อมต่อ Google ก่อน'); return; }
+    setBackupBusy(true); if (!silent) setBackupMsg('');
+    try {
+      const text = JSON.stringify(buildBackupPayload());
+      await withGoogleTokenRetry((tok) => driveUploadBackup(tok, text));
+      persist({ ...stateRef.current, lastBackupAt: new Date().toISOString() });
+      setBackupMsg('✓ สำรองขึ้น Google Drive แล้ว');
+    } catch (e) {
+      const m = e.message || '';
+      setBackupMsg(/insufficient|scope|permission|forbidden|403/i.test(m) ? 'ยังไม่ได้รับสิทธิ์ Drive — กด "ยกเลิกการเชื่อมต่อ" แล้วเชื่อมต่อ Google ใหม่ และติ๊กอนุญาต Drive' : `สำรองไม่สำเร็จ: ${m}`);
+    } finally { setBackupBusy(false); }
+  }
+  function downloadBackupFile() {
+    const blob = new Blob([JSON.stringify(buildBackupPayload(), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `paotung-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+  // สำรองอัตโนมัติ: เปิดแอปแล้วเชื่อม Google ได้ + ผ่านไปเกิน 20 ชม.จากครั้งก่อน → สำรองเงียบๆ 1 ครั้งต่อการเปิดแอป
+  useEffect(() => {
+    if (!googleToken || !state || state.autoBackup === false || autoBackupTried.current) return;
+    const last = state.lastBackupAt ? new Date(state.lastBackupAt).getTime() : 0;
+    if (Date.now() - last < 20 * 3600 * 1000) { autoBackupTried.current = true; return; }
+    let tries = 0; let t = null;
+    const attempt = () => {
+      if (autoBackupTried.current) return;
+      if (sharedStateRef.current) { autoBackupTried.current = true; runBackup(true); return; }
+      if (++tries < 8) t = setTimeout(attempt, 3000);
+    };
+    t = setTimeout(attempt, 4000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleToken, state && state.lastBackupAt, state && state.autoBackup]);
 
   async function connectCalendar() {
     setCalendarError('');
@@ -1882,6 +1946,24 @@ export default function App() {
   }
   function addHospital(name) { if (name && !hospitalList.includes(name)) persist({ ...state, hospitalList: [...hospitalList, name] }); }
   function addDoctor(name) { if (name && !doctorList.includes(name)) persist({ ...state, doctorList: [...doctorList, name] }); }
+  function renameInList(key, oldN, newN) {
+    const cur = (state && state[key]) || (key === 'hospitalList' ? hospitalList : []);
+    if (cur.includes(newN)) { persist({ ...state, [key]: cur.filter((x) => x !== oldN) }); return; }
+    const patch = { [key]: cur.map((x) => (x === oldN ? newN : x)) };
+    if (key === 'doctorList' && doctorDepartments[oldN]) { const dd = { ...doctorDepartments }; dd[newN] = dd[oldN]; delete dd[oldN]; patch.doctorDepartments = dd; }
+    persist({ ...state, ...patch });
+  }
+  function removeFromList(key, n) {
+    const cur = (state && state[key]) || (key === 'hospitalList' ? hospitalList : []);
+    const patch = { [key]: cur.filter((x) => x !== n) };
+    if (key === 'doctorList' && doctorDepartments[n]) { const dd = { ...doctorDepartments }; delete dd[n]; patch.doctorDepartments = dd; }
+    persist({ ...state, ...patch });
+  }
+  LIST_MANAGERS = {
+    doctor: { list: doctorList, rename: (a, b) => renameInList('doctorList', a, b), remove: (n) => removeFromList('doctorList', n) },
+    hospital: { list: hospitalList, rename: (a, b) => renameInList('hospitalList', a, b), remove: (n) => removeFromList('hospitalList', n) },
+    goldShop: { list: goldShopList, rename: (a, b) => renameInList('goldShopList', a, b), remove: (n) => removeFromList('goldShopList', n) },
+  };
   function addGoldShop(name) { if (name && !goldShopList.includes(name)) persist({ ...state, goldShopList: [...goldShopList, name] }); }
   function addDepartment(name) { if (name && !departmentList.includes(name)) persist({ ...state, departmentList: [...departmentList, name] }); }
   // จำคู่ "หมอ-แผนก" ไว้ พอเลือกชื่อหมอที่เคยบันทึกไว้แล้ว จะเติมแผนกให้อัตโนมัติ (เพราะปกติพบหมอคนเดิมประจำแผนกเดิม)
@@ -2670,7 +2752,8 @@ export default function App() {
           calendarError={calendarError} reconnecting={reconnecting}
           openToLastTab={state.openToLastTab} onChangeOpenToLastTab={(v) => persist({ ...state, openToLastTab: v })}
           notifyDisplayName={state.notifyDisplayName} userEmail={user && user.email} onChangeNotifyDisplayName={changeNotifyDisplayName}
-          lineNotifyEnabled={state.lineNotifyEnabled !== false} onChangeLineNotifyEnabled={changeLineNotifyEnabled} />
+          lineNotifyEnabled={state.lineNotifyEnabled !== false} onChangeLineNotifyEnabled={changeLineNotifyEnabled}
+          onBackupNow={() => runBackup(false)} backupBusy={backupBusy} backupMsg={backupMsg} lastBackupAt={state.lastBackupAt} autoBackup={state.autoBackup !== false} onChangeAutoBackup={(v) => persist({ ...state, autoBackup: v })} onDownloadBackup={downloadBackupFile} />
       )}
 
       {tab === 'dashboard' && (
@@ -2870,6 +2953,43 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
 
 // dropdown ที่เลือกจากลิสต์ได้ หรือกด "อื่นๆ (พิมพ์เอง)" แล้วพิมพ์เองได้เลย — ใช้กับประเภทตรวจเลือด/อวัยวะ/Imaging
 // ช่องที่จดจำค่าที่เคยพิมพ์ไว้ (เช่น ชื่อสัตวแพทย์) — เลือกจาก dropdown ได้ หรือพิมพ์ใหม่แล้วกด "จำชื่อนี้ไว้" เพื่อบันทึกเข้ารายการ
+// ตัวจัดการรายชื่อที่เคยจำไว้ (หมอ/โรงพยาบาล/ร้านทอง) — แก้ชื่อ + ลบได้ ตั้งค่าจากคอมโพเนนต์หลักผ่านตัวแปร LIST_MANAGERS
+let LIST_MANAGERS = null;
+function ListManageLink({ kind, list }) {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [draft, setDraft] = useState('');
+  const mgr = LIST_MANAGERS && LIST_MANAGERS[kind];
+  if (!mgr || !(list || []).length) return null;
+  return (
+    <div className="mb-2">
+      <button type="button" onClick={() => { setOpen(!open); setEditing(null); }} className="text-[11px] font-semibold flex items-center gap-1" style={{ color: BRASS }}>✏️ {open ? 'ปิดการจัดการรายชื่อ' : 'แก้ไข/ลบรายชื่อที่จำไว้'}</button>
+      {open && (
+        <div style={{ background: '#F7F8FA', borderRadius: 14 }} className="p-2 mt-1.5">
+          {(list || []).map((n) => (
+            <div key={n} className="flex items-center gap-2 py-1.5" style={{ borderTop: '1px solid #EEF0F4' }}>
+              {editing === n ? (
+                <>
+                  <input value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus className="flex-1 px-2.5 py-1.5 text-sm rounded-lg" style={{ background: 'white', border: `1px solid ${BRASS}` }} />
+                  <button type="button" onClick={() => { const v = draft.trim(); if (v && v !== n) mgr.rename(n, v); setEditing(null); }} className="text-xs font-semibold rounded-lg px-3 py-1.5" style={{ background: BRASS, color: 'white' }}>บันทึก</button>
+                  <button type="button" onClick={() => setEditing(null)} className="text-xs" style={{ color: SLATE }}>ยกเลิก</button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm" style={{ color: INK }}>{n}</span>
+                  <button type="button" onClick={() => { setEditing(n); setDraft(n); }} className="p-1"><Pencil size={14} color={BRASS} /></button>
+                  <button type="button" onClick={() => confirmDelete(`ลบ "${n}" ออกจากรายชื่อที่จำไว้? (รายการเก่าที่เคยบันทึกไม่ถูกลบ)`, () => mgr.remove(n))} className="p-1"><Trash2 size={14} color={BAD} /></button>
+                </>
+              )}
+            </div>
+          ))}
+          <p className="text-[10px] mt-1.5" style={{ color: SLATE }}>แก้ชื่อจะเปลี่ยนเฉพาะรายชื่อที่เลือกได้ ส่วนรายการที่บันทึกไปแล้วยังใช้ชื่อเดิม</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MemoTextField({ list, value, onChange, onAddToList, placeholder, className, style }) {
   const inList = value && (list || []).includes(value);
   return (
@@ -2884,6 +3004,7 @@ function MemoTextField({ list, value, onChange, onAddToList, placeholder, classN
           <button type="button" onClick={() => onAddToList(value)} className="text-xs rounded-lg px-3 whitespace-nowrap" style={{ border: `1px solid ${BRASS}`, color: BRASS }}>จำชื่อนี้ไว้</button>
         )}
       </div>
+      {(() => { const k = LIST_MANAGERS && (list === LIST_MANAGERS.doctor.list ? 'doctor' : list === LIST_MANAGERS.hospital.list ? 'hospital' : list === LIST_MANAGERS.goldShop.list ? 'goldShop' : null); return k ? <div className="mt-1.5"><ListManageLink kind={k} list={list} /></div> : null; })()}
     </div>
   );
 }
@@ -3445,7 +3566,7 @@ function MedicalPhotoAttach({ record, onAddPhoto, onRemovePhoto }) {
   );
 }
 
-function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting, openToLastTab, onChangeOpenToLastTab, notifyDisplayName, userEmail, onChangeNotifyDisplayName, lineNotifyEnabled, onChangeLineNotifyEnabled }) {
+function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChangeGoogleClientId, googleToken, onConnectCalendar, onDisconnectCalendar, calendarError, reconnecting, openToLastTab, onChangeOpenToLastTab, notifyDisplayName, userEmail, onChangeNotifyDisplayName, lineNotifyEnabled, onChangeLineNotifyEnabled, onBackupNow, backupBusy, backupMsg, lastBackupAt, autoBackup, onChangeAutoBackup, onDownloadBackup }) {
   return (
     <div style={{ background: '#00000066' }} className="fixed inset-0 z-50 flex items-end">
       <div style={{ background: PAPER }} className="w-full rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
@@ -3494,6 +3615,15 @@ function SettingsModal({ finnhubKey, onChange, onClose, googleClientId, onChange
           </button>
           {googleToken && <button onClick={onDisconnectCalendar} className="w-full text-xs rounded-lg py-2 mb-2" style={{ border: '1px solid #E7EAF0', color: BAD }}>ยกเลิกการเชื่อมต่อ</button>}
           {calendarError && <p className="text-[11px]" style={{ color: BAD }}>{calendarError}</p>}
+          <div style={{ background: PAPER_DIM, borderRadius: 14 }} className="p-3 my-3">
+            <p className="text-xs font-semibold mb-1" style={{ color: INK }}>💾 สำรองข้อมูลขึ้น Google Drive</p>
+            <p className="text-[11px] mb-2" style={{ color: SLATE }}>เก็บเป็นไฟล์ paotung-backup.json ใน Drive ของคุณ (ทับไฟล์เดิม) — ไม่มีรหัสผ่าน/คีย์ API ในไฟล์ ใช้ให้ Claude อ่านข้อมูลในแชทได้ด้วย</p>
+            <p className="text-[11px] mb-2" style={{ color: lastBackupAt ? SLATE : BAD }}>{lastBackupAt ? `สำรองล่าสุด: ${new Date(lastBackupAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}` : 'ยังไม่เคยสำรอง'}</p>
+            <button onClick={onBackupNow} disabled={backupBusy || !googleToken} style={{ background: googleToken ? INK : '#94A3B8' }} className="w-full text-white rounded-lg py-2 text-sm mb-2 flex items-center justify-center gap-2">{backupBusy ? <Loader2 size={14} className="animate-spin" /> : null}{backupBusy ? 'กำลังสำรอง...' : googleToken ? 'สำรองตอนนี้' : 'เชื่อมต่อ Google ก่อน'}</button>
+            <button onClick={onDownloadBackup} className="w-full text-xs rounded-lg py-2 mb-2" style={{ border: '1px solid #E7EAF0', color: BRASS }}>ดาวน์โหลดเป็นไฟล์ในเครื่อง</button>
+            <label className="flex items-center gap-2 text-[11px]" style={{ color: SLATE }}><input type="checkbox" checked={autoBackup} onChange={(e) => onChangeAutoBackup(e.target.checked)} /> สำรองอัตโนมัติวันละครั้งเมื่อเปิดแอป</label>
+            {backupMsg && <p className="text-[11px] mt-2" style={{ color: backupMsg.startsWith('✓') ? GOOD : BAD }}>{backupMsg}</p>}
+          </div>
           <p className="text-[11px]" style={{ color: SLATE }}>เชื่อมต่อครั้งเดียว ระบบจะจำไว้และเชื่อมต่อให้อัตโนมัติทุกครั้งที่เปิดแอปในอนาคต</p>
         </div>
       </div>
@@ -11061,6 +11191,7 @@ function DogAppointmentsSection({ dog, onAddAppointment, onRemoveAppointment, on
           {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
           <option value="__new__">+ เพิ่มโรงพยาบาลใหม่</option>
         </select>
+        <ListManageLink kind="hospital" list={list} />
         {(!list.includes(form.hospital)) && (
           <div className="flex gap-2 mt-1 mb-2">
             <input value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
@@ -11512,6 +11643,7 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
             {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
             <option value="__new__">+ เพิ่มโรงพยาบาลใหม่</option>
           </select>
+        <ListManageLink kind="hospital" list={list} />
           {showCustomHospital && (
             <div className="flex gap-2 mb-2">
               <input value={form.hospital} onChange={(e) => setForm({ ...form, hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} autoFocus />
@@ -12104,6 +12236,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
           {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
           <option value="__new__">+ พิมพ์เอง</option>
         </select>
+        <ListManageLink kind="hospital" list={list} />
         {showCustomHospital && (
           <div className="flex gap-2 mb-2">
             <input value={visit.hospital || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { hospital: e.target.value })} placeholder="พิมพ์ชื่อโรงพยาบาล" className="px-3.5 py-2.5 text-sm flex-1" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} autoFocus />
@@ -12708,6 +12841,7 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
           {list.map((hName) => <option key={hName} value={hName}>{hName}</option>)}
           <option value="__new__">+ เพิ่มโรงพยาบาลใหม่</option>
         </select>
+        <ListManageLink kind="hospital" list={list} />
         {(hospital && !list.includes(hospital)) && (
           <div className="flex gap-2 mb-2">
             <input value={hospital} onChange={(e) => setHospital(e.target.value)} placeholder="พิมพ์ชื่อโรงพยาบาล" className="rounded-lg px-3 py-1.5 text-sm flex-1" style={{ border: '1px solid #E7EAF0' }} />
