@@ -2268,13 +2268,13 @@ export default function App() {
   }
   // บันทึกผล Imaging พร้อมสร้างรายการ "อวัยวะ" ให้อัตโนมัติสำหรับทุกอวัยวะที่เกี่ยวข้อง (เช่น อัลตร้าซาวด์เจอนิ่วถุงน้ำดี + ต่อมหมวกไตโต พร้อมกัน)
   // ทำเป็นก้อนเดียว (imaging + organExams + link วันเดียวกัน) แล้วเขียนทีเดียว กันปัญหาเขียนทับที่เจอมาก่อน
-  function addImagingWithOrgans(dogId, entry, organNames) {
+  function addImagingWithOrgans(dogId, entry, organNames, organNotes) {
     const d = dogs.find((x) => x.id === dogId);
     if (!d) return;
-    const { relatedOrgans, ...imagingEntry } = entry;
+    const { relatedOrgans, organNotes: _on, ...imagingEntry } = entry;
     const imagingId = uid();
     const newImaging = { id: imagingId, ...imagingEntry };
-    const organEntries = (organNames || []).map((organ) => ({ id: uid(), organ, date: entry.date, note: entry.note }));
+    const organEntries = (organNames || []).map((organ) => ({ id: uid(), organ, date: entry.date, note: ((organNotes || {})[organ] || '').trim() }));
     let patch = {
       imaging: [newImaging, ...(d.imaging || [])],
       organExams: [...organEntries, ...(d.organExams || [])],
@@ -2290,7 +2290,8 @@ export default function App() {
     if (d.lineGroupId) {
       const rows = [{ label: 'วันที่', value: formatDateThai(entry.date) }];
       if (organNames && organNames.length) rows.push({ label: 'อวัยวะที่ตรวจ', value: organNames.join(', ') });
-      if (entry.note) rows.push({ label: 'บันทึก', value: entry.note });
+      (organNames || []).forEach((o) => { const t = ((organNotes || {})[o] || '').trim(); if (t) rows.push({ label: o, value: t }); });
+      if (entry.note) rows.push({ label: 'สรุป', value: entry.note });
       sendLineFlex(
         `📷 ผลภาพถ่ายใหม่ ${d.name}: ${entry.type || '-'} (${formatDateThai(entry.date)})`,
         buildFlexCard({ title: `📷 ${d.name} — ผลภาพถ่าย: ${entry.type || '-'}`, rows, tab: 'pets' }),
@@ -4271,6 +4272,9 @@ async function scanMedicalResult(file, kind) {
   const prompt = `นี่คือภาพ${kindLabel}ของสัตว์เลี้ยง ความละเอียดอาจแตกต่างกันมาก อ่านเท่าที่มีในภาพจริงเท่านั้น ห้ามเดามั่ว ${optionsHint}
 สำคัญ: ถ้าในภาพเป็นภาษาอังกฤษ (เช่น รายงานผล X-ray/Ultrasound ที่หมอเขียนเป็นศัพท์แพทย์ภาษาอังกฤษ) ให้ "แปลเป็นภาษาไทย" ในช่อง note ด้วย ห้ามคัดลอกข้อความภาษาอังกฤษมาใส่ตรงๆ แปลให้เป็นภาษาไทยที่เจ้าของสัตว์อ่านเข้าใจง่าย แต่ยังคงศัพท์ทางการแพทย์ที่จำเป็น (เช่น ชื่ออวัยวะ) ไว้ได้ถ้าจำเป็น
 ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"type": "ประเภท/อวัยวะที่ตรวจ ใกล้เคียงจากรายการที่ให้ไว้ หรือค่าว่างถ้าไม่แน่ใจ", "date": "YYYY-MM-DD ถ้ามีวันที่ระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ/ค่าที่ได้/ลักษณะที่พบสั้นๆ เป็นภาษาไทย"}`;
+  const imagingPrompt = `${prompt.split('ตอบกลับเป็น JSON เท่านั้น')[0]}
+สำคัญมาก: ห้ามเขียนอธิบายยาว ห้ามแต่งเติมคำอธิบายทางการแพทย์เอง ให้ลอกสิ่งที่ใบรายงานเขียนไว้จริงๆ แล้วแปลสั้นๆ เป็นไทย แยกตามอวัยวะ (1-2 ประโยคต่ออวัยวะ ตามที่ใบเขียน)
+ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น รูปแบบ: {"type": "ประเภท Imaging จากรายการที่ให้ไว้ หรือค่าว่าง", "date": "YYYY-MM-DD หรือค่าว่าง", "organs": {"ชื่ออวัยวะ (ใกล้เคียงจากรายการอวัยวะ: ${ORGAN_TYPES.join(', ')})": "ผลของอวัยวะนั้นตามใบรายงาน สั้นๆ"}, "note": "สรุป/Impression ท้ายใบรายงาน (ถ้าไม่มีให้ค่าว่าง) ไม่เกิน 3 บรรทัด"}`;
   const text = await askServer(prompt, base64, 'image/jpeg');
   return safeParseJson(text);
 }
@@ -4280,7 +4284,7 @@ async function scanMedicalResult(file, kind) {
 async function scanBloodTestReport(file) {
   const base64 = await readFileAsBase64(file);
   const prompt = `นี่คือภาพใบรายงานผลตรวจเลือดของสัตว์เลี้ยงจากโรงพยาบาลสัตว์ (มักเป็นตารางทางการ มีคอลัมน์ Code/Parameter/Value/Unit/Reference/Flag) อาจมีหลายหมวดในใบเดียวกัน เช่น Hematology (CBC), Chemistry, Special Test — อ่านทุกหมวดที่เห็นในภาพ แยกเป็น 1 รายการต่อ 1 หมวด
-สำหรับแต่ละหมวด สรุปผลเป็นข้อความสั้นๆ อ่านง่าย เน้นค่าที่ผิดปกติ (คอลัมน์ Flag เป็น H หรือ L) ขึ้นก่อนพร้อมระบุว่าสูง/ต่ำกว่าเกณฑ์ปกติ ตามด้วยค่าสำคัญอื่นๆ ถ้ามีค่าเยอะมากไม่ต้องเขียนครบทุกตัว เอาเฉพาะที่มีนัยสำคัญพอ
+สำหรับแต่ละหมวด ห้ามเขียนอธิบายสาเหตุ/คำแนะนำ/คำอธิบายทางการแพทย์ ให้ใส่เฉพาะค่าที่ผิดปกติ บรรทัดละ 1 ค่า รูปแบบ "ชื่อค่า ค่าที่ได้ หน่วย (ref ต่ำ-สูง) ↑หรือ↓" แล้วปิดท้ายด้วยบรรทัด "ค่าอื่นๆ อยู่ในเกณฑ์ปกติ" (ถ้าปกติทั้งหมดให้เขียนบรรทัดเดียว) ไม่เกิน 8 บรรทัด สรุปผลเป็นข้อความสั้นๆ อ่านง่าย เน้นค่าที่ผิดปกติ (คอลัมน์ Flag เป็น H หรือ L) ขึ้นก่อนพร้อมระบุว่าสูง/ต่ำกว่าเกณฑ์ปกติ ตามด้วยค่าสำคัญอื่นๆ ถ้ามีค่าเยอะมากไม่ต้องเขียนครบทุกตัว เอาเฉพาะที่มีนัยสำคัญพอ
 ประเภทหมวดที่ใกล้เคียงจากรายการนี้ถ้ามี: ${BLOOD_TEST_TYPES.join(', ')} — ถ้าหมวดที่เจอไม่ตรงกับรายการนี้เลย (เช่น "Chemistry" หรือ "Special Test") ให้ตอบชื่อหมวดตามที่เห็นในภาพได้เลย ไม่ต้องฝืนเลือกจากรายการ
 นอกจากนี้ให้ตั้ง "label" สั้นๆ (ไม่เกิน 6-7 คำ) แยกให้ชัดว่าหมวดนี้คือเรื่องอะไรโดยเฉพาะ เช่น "Cortisol ก่อนกระตุ้น (Pre-ACTH)", "⚠️ ค่าผิดปกติ: WBC, MCV ต่ำ", "Lab Panel: BASO#/IPF%/PP" — ใช้แยกแยะเวลามีผลตรวจหลายใบวันเดียวกันที่ล้วนเป็นหมวดเดียวกัน (เช่น CBC ซ้ำหลายรอบในวันเดียว) ถ้ามีค่าผิดปกติให้ label นั้นขึ้นต้นด้วย "⚠️" เสมอ
 ตอบเป็น JSON array เท่านั้น ห้ามมีข้อความอื่นก่อน/หลัง รูปแบบ: [{"type": "ชื่อหมวด", "date": "YYYY-MM-DD ถ้ามีวันที่ส่งตรวจระบุในภาพ ไม่งั้นค่าว่าง", "note": "สรุปผลตรวจ", "label": "ป้ายสั้นแยกแยะ"}]`;
@@ -11508,20 +11512,8 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
         const rows = def.multi ? sectionData[def.key] : [sectionData[def.key]];
         const existing = dog[def.field] || [];
         const photo = uploadedPhotos[def.key];
-        const newEntries = rows.map((row) => { const id = uid(); linkedRecords.push({ type: def.field, id }); return { id, ...row, ...(photo ? { photos: [photo] } : {}) }; });
+        const newEntries = rows.map((rawRow) => { const { relatedOrgans: rel, ...row } = rawRow; const id = uid(); linkedRecords.push({ type: def.field, id }); return { id, ...row, ...(rel && rel.length ? { organs: rel } : {}), ...(photo ? { photos: [photo] } : {}) }; });
         patch[def.field] = [...newEntries, ...existing];
-        // ถ้าเป็นหมวด Imaging และมีการเลือก "อวัยวะที่เกี่ยวข้อง" ไว้ ให้สร้างรายการอวัยวะให้อัตโนมัติด้วย
-        if (def.key === 'imaging') {
-          const organNewEntries = [];
-          rows.forEach((row) => {
-            (row.relatedOrgans || []).forEach((organ) => {
-              const id = uid();
-              linkedRecords.push({ type: 'organExams', id });
-              organNewEntries.push({ id, organ, date: row.date, note: row.note });
-            });
-          });
-          if (organNewEntries.length) patch.organExams = [...organNewEntries, ...(patch.organExams || dog.organExams || [])];
-        }
       });
       patch.vetVisits = [{ id: visitId, date: form.date, hospital: form.hospital, doctor: form.doctor, department: form.department, reason: form.reason, diagnosis: form.diagnosis, cost: form.cost, photos: uploadedVisitPhotos, linkedRecords }, ...(dog.vetVisits || [])];
       if (activeSections.includes('expense') && claimOpt.on) {
@@ -11779,7 +11771,7 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
                   <div className="flex justify-between items-center mb-1">{(sectionData.imaging || []).length > 1 && <button onClick={() => removeRowFromSection('imaging', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
                   <TypeSelectWithCustom options={imagingTypeList} value={row.type} onChange={(v) => updateRowInSection('imaging', idx, { type: v })} onAddToList={onAddImagingType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                   <textarea value={row.note} onChange={(e) => updateRowInSection('imaging', idx, { note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1.5" style={{ border: '1px solid #E7EAF0' }} />
-                  <p className="text-[10px] mb-1" style={{ color: SLATE }}>อวัยวะที่เกี่ยวข้อง (สร้างในแท็บอวัยวะให้อัตโนมัติ)</p>
+                  <p className="text-[10px] mb-1" style={{ color: SLATE }}>แปะป้ายอวัยวะที่อยู่ในใบนี้ (ไว้ค้นหา)</p>
                   <div className="flex flex-wrap gap-1.5">
                     {organTypeList.map((o) => {
                       const active = (row.relatedOrgans || []).includes(o);
@@ -12537,6 +12529,7 @@ function MedicalResultCard({ record: r, typeLabel, onEdit, onAddPhoto, onRemoveP
       <div className="flex justify-between items-start">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold">{typeLabel} · {formatDateThai(r.date)}</p>
+          {(r.organs || []).length > 0 && <div className="flex flex-wrap gap-1 mt-1.5">{r.organs.map((o) => <span key={o} className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: PAPER_DIM, color: INK }}>{o}</span>)}</div>}
           {r.label && <span style={{ background: isWarning ? '#FBEAEA' : '#FBEAE7', color: isWarning ? BAD : '#A64B3D' }} className="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full mt-1.5">{r.label}</span>}
           {r.note && (
             <p className="text-xs mt-1.5" style={{ color: SLATE, ...(expanded ? {} : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) }}>{r.note}</p>
@@ -12551,9 +12544,10 @@ function MedicalResultCard({ record: r, typeLabel, onEdit, onAddPhoto, onRemoveP
 }
 function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRemoveBloodTest, onAddOrganExam, onUpdateOrganExam, onRemoveOrganExam, onAddImaging, onUpdateImaging, onRemoveImaging, onAddMedicalPhoto, onRemoveMedicalPhoto, onUploadRecordPhoto, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddImagingWithOrgans }) {
   const [subTab, setSubTab] = useState('blood');
-  const [bt, setBt] = useState({ type: BLOOD_TEST_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
+  const [bt, setBt] = useState({ type: BLOOD_TEST_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '', organs: [] });
+  const [findOrgan, setFindOrgan] = useState('');
   const [oe, setOe] = useState({ organ: ORGAN_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '' });
-  const [im, setIm] = useState({ type: IMAGING_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '', relatedOrgans: [] });
+  const [im, setIm] = useState({ type: IMAGING_TYPES[0], date: new Date().toISOString().slice(0, 10), note: '', relatedOrgans: [], organNotes: {} });
   const [editingBt, setEditingBt] = useState(null);
   const [editingOe, setEditingOe] = useState(null);
   const [editingIm, setEditingIm] = useState(null);
@@ -12624,7 +12618,13 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
             <TypeSelectWithCustom options={bloodTestTypeList} value={bt.type} onChange={(v) => setBt({ ...bt, type: v })} onAddToList={onAddBloodTestType} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <input type="date" value={bt.date} onChange={(e) => setBt({ ...bt, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <textarea value={bt.note} onChange={(e) => setBt({ ...bt, note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
-            <button onClick={() => submitWithPhoto('bloodTests', bt, btScan, onAddBloodTest, () => setBt({ ...bt, note: '' }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
+            <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>แปะป้ายว่าใบนี้มีค่าอะไรด้วย (ตับ ไต ฯลฯ — ไว้ค้นหา)</p>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {organTypeList.map((o) => { const active = (bt.organs || []).includes(o); return (
+                <button key={o} type="button" onClick={() => setBt({ ...bt, organs: active ? bt.organs.filter((x) => x !== o) : [...(bt.organs || []), o] })} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : INK }} className="rounded-full px-2.5 py-1 text-[11px]">{o}</button>
+              ); })}
+            </div>
+            <button onClick={() => submitWithPhoto('bloodTests', bt, btScan, onAddBloodTest, () => setBt({ ...bt, note: '', organs: [] }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
           </Card>
           {[...(dog.bloodTests || [])].map((r) => (
             <SwipeToDeleteRow key={r.id} confirmMessage="ลบผลตรวจเลือดรายการนี้? ข้อมูลจะหายถาวร" onDelete={() => onRemoveBloodTest(dog.id, r.id)}>
@@ -12635,6 +12635,33 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
       )}
       {subTab === 'organ' && (
         <>
+          <Card>
+            <p className="text-xs font-semibold mb-2">ค้นหาตามอวัยวะ — แตะเพื่อดูทุกผลที่แปะป้ายไว้</p>
+            <div className="flex flex-wrap gap-1.5">
+              {organTypeList.map((o) => (
+                <button key={o} type="button" onClick={() => setFindOrgan(findOrgan === o ? '' : o)} style={{ background: findOrgan === o ? BRASS : PAPER_DIM, color: findOrgan === o ? 'white' : INK }} className="rounded-full px-2.5 py-1 text-[11px]">{o}</button>
+              ))}
+            </div>
+            {findOrgan && (() => {
+              const hits = [
+                ...(dog.bloodTests || []).filter((r) => (r.organs || []).includes(findOrgan)).map((r) => ({ r, kind: 'ผลเลือด', title: r.type })),
+                ...(dog.imaging || []).filter((r) => (r.organs || []).includes(findOrgan)).map((r) => ({ r, kind: 'Imaging', title: r.type })),
+                ...(dog.organExams || []).filter((r) => r.organ === findOrgan).map((r) => ({ r, kind: 'ตรวจอวัยวะ', title: r.organ })),
+              ].sort((a, b) => (b.r.date || '').localeCompare(a.r.date || ''));
+              return (
+                <div className="mt-3">
+                  {hits.length === 0 && <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีผลที่แปะป้าย {findOrgan}</p>}
+                  {hits.map(({ r, kind, title }) => (
+                    <div key={kind + r.id} className="py-2" style={{ borderTop: `1px solid ${BORDER}` }}>
+                      <p className="text-xs font-semibold">{formatDateThai(r.date)} · {kind}: {title}</p>
+                      {r.note && <p className="text-[11px] mt-0.5" style={{ color: SLATE, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.note}</p>}
+                      {(r.photos || []).length > 0 && <p className="text-[10px] mt-0.5" style={{ color: BRASS }}>📎 มีรูปใบผลแนบ</p>}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </Card>
           <Card>
             <ScanButton scan={oeScan} kind="organExams" label="ถ่ายรูปผลตรวจอวัยวะ ให้ AI กรอกให้" onResult={(r) => setOe({ organ: ORGAN_TYPES.includes(r.type) ? r.type : oe.organ, date: r.date || oe.date, note: r.note || oe.note })} />
             <TypeSelectWithCustom options={organTypeList} value={oe.organ} onChange={(v) => setOe({ ...oe, organ: v })} onAddToList={onAddOrganType} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
@@ -12655,8 +12682,8 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
             <ScanButton scan={imScan} kind="imaging" label="ถ่ายรูปผล Imaging ให้ AI กรอกให้" onResult={(r) => setIm({ ...im, type: IMAGING_TYPES.includes(r.type) ? r.type : im.type, date: r.date || im.date, note: r.note || im.note })} />
             <TypeSelectWithCustom options={imagingTypeList} value={im.type} onChange={(v) => setIm({ ...im, type: v })} onAddToList={onAddImagingType} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <input type="date" value={im.date} onChange={(e) => setIm({ ...im, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
-            <textarea value={im.note} onChange={(e) => setIm({ ...im, note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} rows={3} />
-            <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>อวัยวะที่เกี่ยวข้อง (เลือกได้หลายอวัยวะ — จะสร้างรายการในแท็บอวัยวะให้อัตโนมัติ)</p>
+            <textarea value={im.note} onChange={(e) => setIm({ ...im, note: e.target.value })} placeholder="สรุป / Impression (ท้ายใบรายงาน)" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} rows={3} />
+            <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>แปะป้ายอวัยวะที่อยู่ในใบนี้ (แตะเลือกได้หลายอัน ไว้ค้นหา)</p>
             <div className="flex flex-wrap gap-1.5 mb-3">
               {organTypeList.map((o) => {
                 const active = (im.relatedOrgans || []).includes(o);
@@ -12666,14 +12693,14 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
               })}
             </div>
             <button onClick={async () => {
-              const organs = im.relatedOrgans || [];
+              const organs = [];
               if (imScan.scannedFile && imScan.attach) {
                 const photo = await onUploadRecordPhoto(dog.id, 'imaging', imScan.scannedFile);
-                onAddImagingWithOrgans(dog.id, { ...im, photos: [photo] }, organs);
+                onAddImagingWithOrgans(dog.id, { ...im, organs: im.relatedOrgans || [], photos: [photo] }, organs, {});
               } else {
-                onAddImagingWithOrgans(dog.id, im, organs);
+                onAddImagingWithOrgans(dog.id, { ...im, organs: im.relatedOrgans || [] }, organs, {});
               }
-              setIm({ ...im, note: '', relatedOrgans: [] });
+              setIm({ ...im, note: '', relatedOrgans: [], organNotes: {} });
               imScan.setScannedFile(null);
             }} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผล Imaging</button>
           </Card>
