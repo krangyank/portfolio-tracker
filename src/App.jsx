@@ -3318,12 +3318,27 @@ async function renderRecordPhotoCards(dog, visit) {
   });
   return Promise.all(jobs);
 }
+// ดึงรูปต้นฉบับ (เต็มใบ ไม่ครอป ไม่ใส่กรอบ) ที่แนบไว้กับการพบหมอ + รายการที่เชื่อมโยง
+async function fetchOriginalPhotoBlobs(dog, visit) {
+  const urls = [];
+  (visit.photos || []).forEach((ph) => ph && ph.url && urls.push(ph.url));
+  (visit.linkedRecords || []).forEach((lr) => {
+    const rec = (dog[lr.type] || []).find((r) => r.id === lr.id);
+    (rec && rec.photos || []).forEach((ph) => ph && ph.url && urls.push(ph.url));
+  });
+  const uniq = [...new Set(urls)].slice(0, 10);
+  const out = [];
+  for (const u of uniq) {
+    try { const res = await fetch(u); if (res.ok) out.push(await res.blob()); } catch (e) { console.error('fetch original photo failed', e); }
+  }
+  return out;
+}
 // แชร์การ์ดรูปที่สร้างไว้ทั้งหมด (ไฟล์ PNG ในเครื่อง — รับได้หลายใบ) — คัดลอกข้อความเต็มใส่คลิปบอร์ดคู่กันไว้เผื่อแอปปลายทางไม่แปะข้อความมาด้วยตอนแชร์รูป
 async function shareVisitCards(cardBlobs, text) {
   const result = { ok: false, sharedWithImage: false, error: null, textCopiedToClipboard: false };
   navigator.clipboard.writeText(text).then(() => { result.textCopiedToClipboard = true; }).catch((e) => console.error('clipboard copy failed', e));
   try {
-    const files = (cardBlobs || []).filter(Boolean).map((blob, i) => new File([blob], `vet-visit-${i + 1}.png`, { type: 'image/png' }));
+    const files = (cardBlobs || []).filter(Boolean).map((blob, i) => new File([blob], `vet-visit-${i + 1}.${(blob.type || '').includes('jpeg') ? 'jpg' : (blob.type || '').includes('webp') ? 'webp' : 'png'}`, { type: blob.type || 'image/png' }));
     if (navigator.share && files.length > 0) {
       if (navigator.canShare && navigator.canShare({ files })) {
         await navigator.share({ files });
@@ -11928,6 +11943,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
   const [photoUploading, setPhotoUploading] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState(null);
   const [shareStatus, setShareStatus] = useState(null); // { loading, message, failedPhotoUrls }
+  const [shareOpts, setShareOpts] = useState(null); // null = ปิด, ไม่งั้น { cards, records, originals }
   const [lineSending, setLineSending] = useState(false);
   const [showVisitLine, setShowVisitLine] = useState(false);
   const [lineSentAt, setLineSentAt] = useState(visit.lastLineNotifyAt || null);
@@ -12158,9 +12174,43 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
     }
   }
 
+  async function doVisitShare(o) {
+    setShareStatus({ loading: true });
+    try {
+      const [summaryBlob, detailBlob, recordCards, originals] = await Promise.all([
+        o.cards ? renderVetVisitSummaryCard(dog, visit) : null,
+        o.cards ? renderVetVisitDetailCard(dog, visit) : null,
+        o.records ? renderRecordPhotoCards(dog, visit) : [],
+        o.originals ? fetchOriginalPhotoBlobs(dog, visit) : [],
+      ]);
+      const fullText = buildVetVisitShareText(dog, visit);
+      const allCardBlobs = [summaryBlob, detailBlob, ...recordCards, ...originals].filter(Boolean);
+      if (allCardBlobs.length === 0) { setShareStatus({ loading: false, message: 'ไม่มีรูปให้ส่ง (ลองติ๊กอย่างน้อย 1 อย่าง หรือยังไม่ได้แนบรูป)', isError: true }); return; }
+      const res = await shareVisitCards(allCardBlobs, fullText);
+      if (res.error) setShareStatus({ loading: false, message: `แชร์ไม่สำเร็จ: ${res.error}`, isError: true });
+      else if (res.sharedWithImage) setShareStatus({ loading: false, message: `ส่งรูปแล้ว ${allCardBlobs.length} ใบ` });
+      else setShareStatus(null);
+    } catch (e) {
+      setShareStatus({ loading: false, message: `สร้างการ์ดไม่สำเร็จ: ${e.message}`, isError: true });
+    }
+  }
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-xs mb-3" style={{ color: BRASS }}>‹ กลับไปดูทุกครั้ง</button>
+      {shareOpts && (
+        <div onClick={() => setShareOpts(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: PAPER, width: '100%', borderRadius: '18px 18px 0 0', padding: 18 }}>
+            <p className="text-sm font-semibold mb-2">เลือกสิ่งที่จะส่งออก LINE</p>
+            {[['cards', 'การ์ดสรุป + รายละเอียดการไปหาหมอ', 'ภาพสวยๆ มีข้อมูลค่าใช้จ่าย/เคลม'], ['records', 'การ์ดผลตรวจ (รูปใบผลใส่กรอบพร้อมหัวข้อ)', 'รูปถูกย่อ/ครอปให้พอดีการ์ด'], ['originals', 'รูปต้นฉบับ (เต็มใบ ไม่ครอป)', 'ใบ Lab / ใบอัลตราซาวด์ตามที่ถ่ายไว้ ชัดที่สุด']].map(([k, l, sub]) => (
+              <label key={k} className="flex items-start gap-2 py-2" style={{ borderTop: `1px solid ${BORDER}` }}>
+                <input type="checkbox" checked={!!shareOpts[k]} onChange={(e) => setShareOpts({ ...shareOpts, [k]: e.target.checked })} style={{ marginTop: 3 }} />
+                <span className="flex-1"><span className="text-sm block">{l}</span><span className="text-[11px] block" style={{ color: SLATE }}>{sub}</span></span>
+              </label>
+            ))}
+            <button onClick={() => { const o = shareOpts; setShareOpts(null); doVisitShare(o); }} style={{ background: '#06C755' }} className="w-full text-white rounded-lg py-2.5 text-sm font-semibold mt-3">แชร์ออก LINE</button>
+          </div>
+        </div>
+      )}
       {(() => {
         const hm = visitMoneySummary(dog, visit);
         return (
@@ -12173,24 +12223,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
             {(visit.hospital || visit.doctor) && <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.75)' }}>{[visit.hospital, visit.doctor].filter(Boolean).join(' · ')}</p>}
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={async () => {
-              setShareStatus({ loading: true });
-              try {
-                const [summaryBlob, detailBlob, recordCards] = await Promise.all([
-                  renderVetVisitSummaryCard(dog, visit),
-                  renderVetVisitDetailCard(dog, visit),
-                  renderRecordPhotoCards(dog, visit),
-                ]);
-                const fullText = buildVetVisitShareText(dog, visit);
-                const allCardBlobs = [summaryBlob, detailBlob, ...recordCards];
-                const res = await shareVisitCards(allCardBlobs, fullText);
-                if (res.error) setShareStatus({ loading: false, message: `แชร์ไม่สำเร็จ: ${res.error}`, isError: true });
-                else if (res.sharedWithImage) setShareStatus({ loading: false, message: `ส่งการ์ดแล้ว ${allCardBlobs.filter(Boolean).length} ใบ (สรุป + รายละเอียด + รูปแนบแต่ละรายการ)${res.textCopiedToClipboard ? ' — คัดลอกข้อความเต็มไว้ในคลิปบอร์ดให้แล้วด้วย วางเพิ่มได้ถ้าต้องการ' : ''}`, isError: false });
-                else setShareStatus(null);
-              } catch (e) {
-                setShareStatus({ loading: false, message: `สร้างการ์ดไม่สำเร็จ: ${e.message}`, isError: true });
-              }
-            }}><Share2 size={16} color="white" /></button>
+            <button onClick={() => setShareOpts({ cards: true, records: true, originals: false })}><Share2 size={16} color="white" /></button>
             <button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveVetVisit(visit.id))}><Trash2 size={16} color="#FFB4AB" /></button>
           </div>
         </div>
