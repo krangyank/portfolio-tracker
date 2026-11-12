@@ -2919,6 +2919,19 @@ function AccountPickerWithCustom({ options, value, onChange, customList, onAddCu
   );
 }
 
+function OrganTagPicker({ value, onChange, list, label }) {
+  const cur = value || [];
+  return (
+    <div className="mb-2">
+      <p className="text-[10px] mb-1" style={{ color: SLATE }}>{label || 'แปะป้ายอวัยวะที่อยู่ในใบนี้ (ไว้ค้นหา)'}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {(list || []).map((o) => { const active = cur.includes(o); return (
+          <button key={o} type="button" onClick={() => onChange(active ? cur.filter((x) => x !== o) : [...cur, o])} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : INK }} className="rounded-full px-2.5 py-1 text-[11px]">{o}</button>
+        ); })}
+      </div>
+    </div>
+  );
+}
 function EditModal({ title, fields, initialValues, onSave, onClose }) {
   const [values, setValues] = useState(initialValues);
   function setField(key, v) { setValues({ ...values, [key]: v }); }
@@ -2929,7 +2942,9 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
         {fields.map((f) => (
           <div key={f.key} className="mb-3">
             <label className="text-xs" style={{ color: SLATE }}>{f.label}</label>
-            {f.type === 'number' ? (
+            {f.type === 'organTags' ? (
+              <div className="mt-1"><OrganTagPicker label="แตะเพื่อเพิ่ม/เอาป้ายออก" list={f.options} value={values[f.key]} onChange={(v) => setField(f.key, v)} /></div>
+            ) : f.type === 'number' ? (
               <NumInput value={values[f.key]} onChange={(v) => setField(f.key, v)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
             ) : f.type === 'select' ? (
               <select value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1">
@@ -11748,6 +11763,12 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
                   <div className="flex justify-between items-center mb-1">{(sectionData.bloodTest || []).length > 1 && <button onClick={() => removeRowFromSection('bloodTest', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
                   <TypeSelectWithCustom options={bloodTestTypeList} value={row.type} onChange={(v) => updateRowInSection('bloodTest', idx, { type: v })} onAddToList={onAddBloodTestType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                   <textarea value={row.note} onChange={(e) => updateRowInSection('bloodTest', idx, { note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                  <p className="text-[10px] mb-1" style={{ color: SLATE }}>แปะป้ายว่าใบนี้มีค่าอะไรด้วย (ไว้ค้นหา)</p>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {organTypeList.map((o) => { const active = (row.organs || []).includes(o); return (
+                      <button key={o} type="button" onClick={() => updateRowInSection('bloodTest', idx, { organs: active ? row.organs.filter((x) => x !== o) : [...(row.organs || []), o] })} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : INK }} className="rounded-full px-2.5 py-1 text-[11px]">{o}</button>
+                    ); })}
+                  </div>
                   {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
                 </div>
               ))}
@@ -12367,6 +12388,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <TypeSelectWithCustom options={bloodTestTypeList} value={row.type} onChange={(v) => updateProcRow('bloodTest', idx, { type: v })} onAddToList={onAddBloodTestType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <textarea value={row.note} onChange={(e) => updateProcRow('bloodTest', idx, { note: e.target.value })} placeholder="ผลตรวจ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                    <OrganTagPicker list={organTypeList} value={row.organs} onChange={(v) => updateProcRow('bloodTest', idx, { organs: v })} />
                     <div className="flex items-center gap-2 mt-1.5">
                       {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-16 h-16 object-cover rounded-lg" />}
                       <label className="text-[11px] font-semibold flex items-center gap-1 cursor-pointer" style={{ color: BRASS }}>
@@ -12395,6 +12417,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <TypeSelectWithCustom options={imagingTypeList} value={row.type} onChange={(v) => updateProcRow('imaging', idx, { type: v })} onAddToList={onAddImagingType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                     <textarea value={row.note} onChange={(e) => updateProcRow('imaging', idx, { note: e.target.value })} placeholder="ผลอ่านภาพ" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
+                    <OrganTagPicker list={organTypeList} value={row.organs} onChange={(v) => updateProcRow('imaging', idx, { organs: v })} />
                     <div className="flex items-center gap-2 mt-1.5">
                       {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-16 h-16 object-cover rounded-lg" />}
                       <label className="text-[11px] font-semibold flex items-center gap-1 cursor-pointer" style={{ color: BRASS }}>
@@ -12713,11 +12736,12 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
       )}
       {editingBt && (
         <EditModal title="แก้ไขผลตรวจเลือด" onClose={() => setEditingBt(null)}
-          initialValues={{ type: editingBt.type, date: editingBt.date, note: editingBt.note || '', label: editingBt.label || '' }}
+          initialValues={{ type: editingBt.type, date: editingBt.date, note: editingBt.note || '', label: editingBt.label || '', organs: editingBt.organs || [] }}
           fields={[
             { key: 'type', label: 'ประเภท', type: 'select', options: BLOOD_TEST_TYPES },
             { key: 'date', label: 'วันที่', type: 'date' },
             { key: 'label', label: 'ป้ายสั้นแยกแยะ (ไม่บังคับ)', type: 'text' },
+            { key: 'organs', label: 'ป้ายอวัยวะ (ตับ ไต ฯลฯ)', type: 'organTags', options: organTypeList },
             { key: 'note', label: 'ผลตรวจ/ค่าที่ได้', type: 'textarea' },
           ]}
           onSave={(v) => { onUpdateBloodTest(dog.id, editingBt.id, v); setEditingBt(null); }}
@@ -12736,10 +12760,11 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
       )}
       {editingIm && (
         <EditModal title="แก้ไขผล Imaging" onClose={() => setEditingIm(null)}
-          initialValues={{ type: editingIm.type, date: editingIm.date, note: editingIm.note || '' }}
+          initialValues={{ type: editingIm.type, date: editingIm.date, note: editingIm.note || '', organs: editingIm.organs || [] }}
           fields={[
             { key: 'type', label: 'ประเภท', type: 'select', options: IMAGING_TYPES },
             { key: 'date', label: 'วันที่', type: 'date' },
+            { key: 'organs', label: 'ป้ายอวัยวะ (ตับ ไต ม้าม ฯลฯ)', type: 'organTags', options: organTypeList },
             { key: 'note', label: 'ผลอ่านภาพ/รายงาน', type: 'textarea' },
           ]}
           onSave={(v) => { onUpdateImaging(dog.id, editingIm.id, v); setEditingIm(null); }}
