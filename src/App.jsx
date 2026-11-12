@@ -6644,7 +6644,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 12 พ.ย. 20:25 (v-yt4)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 12 พ.ย. 22:40 (v-att5)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -11636,6 +11636,7 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
 
   function SectionPhotoAttach({ sectionKey }) {
     const fileRef = useRef(null);
+    const plainRef = useRef(null);
     const file = sectionPhotos[sectionKey];
     const [scanning, setScanning] = useState(false);
     const [scanError, setScanError] = useState('');
@@ -11650,9 +11651,17 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
       } catch (err) { setScanError('AI อ่านภาพไม่สำเร็จ กรอกเองแทนได้ (รูปยังแนบไว้อยู่)'); }
       finally { setScanning(false); if (fileRef.current) fileRef.current.value = ''; }
     }
+    function handlePlain(e) {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      setSectionPhotos({ ...sectionPhotos, [sectionKey]: f });
+      setScanError('');
+      if (plainRef.current) plainRef.current.value = '';
+    }
     return (
       <div className="mb-2">
         <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+        <input ref={plainRef} type="file" accept="image/*" onChange={handlePlain} className="hidden" />
         {file ? (
           <div style={{ border: `1px solid ${GOOD}`, borderRadius: 10 }} className="px-3 py-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: scanning ? BRASS : GOOD }}>
@@ -11664,6 +11673,9 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
           </div>
         ) : (
           <button onClick={() => fileRef.current && fileRef.current.click()} style={{ border: `1px solid ${BRASS}`, borderRadius: 10, color: BRASS }} className="flex items-center justify-center gap-1.5 text-xs w-full py-2.5"><Camera size={14} /> ถ่ายรูปให้ AI อ่าน</button>
+        )}
+        {!file && (
+          <button type="button" onClick={() => plainRef.current && plainRef.current.click()} style={{ border: `1px solid ${BORDER}`, borderRadius: 10, color: INK, marginTop: 6 }} className="flex items-center justify-center gap-1.5 text-xs w-full py-2.5"><Camera size={14} color={SLATE} /> 📎 แนบรูปอย่างเดียว</button>
         )}
       </div>
     );
