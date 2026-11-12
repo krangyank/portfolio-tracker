@@ -2034,6 +2034,7 @@ export default function App() {
     persist({ ...state, dividendCalendar: { items, fetchedAt: fetchedAt || state?.dividendCalendar?.fetchedAt || new Date().toISOString() } });
   }
   function addBloodTestType(name) { if (name && !bloodTestTypeList.includes(name)) persist({ ...state, bloodTestTypeList: [...bloodTestTypeList, name] }); }
+  ADD_ORGAN_TYPE = (name) => addOrganType(name);
   function addOrganType(name) { if (name && !organTypeList.includes(name)) persist({ ...state, organTypeList: [...organTypeList, name] }); }
   function addImagingType(name) { if (name && !imagingTypeList.includes(name)) persist({ ...state, imagingTypeList: [...imagingTypeList, name] }); }
   function addWeigher(name) { if (name && !weigherList.includes(name)) persist({ ...state, weigherList: [...weigherList, name] }); }
@@ -2919,6 +2920,7 @@ function AccountPickerWithCustom({ options, value, onChange, customList, onAddCu
   );
 }
 
+let ADD_ORGAN_TYPE = null;
 function OrganTagPicker({ value, onChange, list, label }) {
   const cur = value || [];
   return (
@@ -2928,6 +2930,7 @@ function OrganTagPicker({ value, onChange, list, label }) {
         {(list || []).map((o) => { const active = cur.includes(o); return (
           <button key={o} type="button" onClick={() => onChange(active ? cur.filter((x) => x !== o) : [...cur, o])} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : INK }} className="rounded-full px-2.5 py-1 text-[11px]">{o}</button>
         ); })}
+        <button type="button" onClick={() => { const n = (window.prompt('ชื่ออวัยวะที่ต้องการเพิ่ม') || '').trim(); if (!n) return; if (ADD_ORGAN_TYPE) ADD_ORGAN_TYPE(n); onChange([...cur.filter((x) => x !== n), n]); }} style={{ border: `1px dashed ${BRASS}`, color: BRASS }} className="rounded-full px-2.5 py-1 text-[11px]">+ เพิ่ม</button>
       </div>
     </div>
   );
@@ -11763,12 +11766,7 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
                   <div className="flex justify-between items-center mb-1">{(sectionData.bloodTest || []).length > 1 && <button onClick={() => removeRowFromSection('bloodTest', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
                   <TypeSelectWithCustom options={bloodTestTypeList} value={row.type} onChange={(v) => updateRowInSection('bloodTest', idx, { type: v })} onAddToList={onAddBloodTestType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                   <textarea value={row.note} onChange={(e) => updateRowInSection('bloodTest', idx, { note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
-                  <p className="text-[10px] mb-1" style={{ color: SLATE }}>แปะป้ายว่าใบนี้มีค่าอะไรด้วย (ไว้ค้นหา)</p>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {organTypeList.map((o) => { const active = (row.organs || []).includes(o); return (
-                      <button key={o} type="button" onClick={() => updateRowInSection('bloodTest', idx, { organs: active ? row.organs.filter((x) => x !== o) : [...(row.organs || []), o] })} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : INK }} className="rounded-full px-2.5 py-1 text-[11px]">{o}</button>
-                    ); })}
-                  </div>
+                  <OrganTagPicker list={organTypeList} value={row.organs} onChange={(v) => updateRowInSection('bloodTest', idx, { organs: v })} label="แปะป้ายว่าใบนี้มีค่าอะไรด้วย (ไว้ค้นหา)" />
                   {row.photos && row.photos[0] && <img src={row.photos[0].url} alt="" className="w-20 h-20 object-cover rounded-lg mt-1.5" />}
                 </div>
               ))}
@@ -11792,15 +11790,7 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
                   <div className="flex justify-between items-center mb-1">{(sectionData.imaging || []).length > 1 && <button onClick={() => removeRowFromSection('imaging', idx)} className="text-[11px] ml-auto" style={{ color: BAD }}>ลบ</button>}</div>
                   <TypeSelectWithCustom options={imagingTypeList} value={row.type} onChange={(v) => updateRowInSection('imaging', idx, { type: v })} onAddToList={onAddImagingType} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
                   <textarea value={row.note} onChange={(e) => updateRowInSection('imaging', idx, { note: e.target.value })} placeholder="ผลอ่านภาพ/รายงาน" rows={2} className="rounded-lg px-2 py-1.5 text-sm w-full mb-1.5" style={{ border: '1px solid #E7EAF0' }} />
-                  <p className="text-[10px] mb-1" style={{ color: SLATE }}>แปะป้ายอวัยวะที่อยู่ในใบนี้ (ไว้ค้นหา)</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {organTypeList.map((o) => {
-                      const active = (row.relatedOrgans || []).includes(o);
-                      return (
-                        <button key={o} type="button" onClick={() => updateRowInSection('imaging', idx, { relatedOrgans: active ? row.relatedOrgans.filter((x) => x !== o) : [...(row.relatedOrgans || []), o] })} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : SLATE }} className="rounded-full px-2 py-1 text-[10px]">{o}</button>
-                      );
-                    })}
-                  </div>
+                  <OrganTagPicker list={organTypeList} value={row.relatedOrgans} onChange={(v) => updateRowInSection('imaging', idx, { relatedOrgans: v })} />
                 </div>
               ))}
               <div className="grid grid-cols-2 gap-2 mt-2">
@@ -12641,12 +12631,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
             <TypeSelectWithCustom options={bloodTestTypeList} value={bt.type} onChange={(v) => setBt({ ...bt, type: v })} onAddToList={onAddBloodTestType} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <input type="date" value={bt.date} onChange={(e) => setBt({ ...bt, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <textarea value={bt.note} onChange={(e) => setBt({ ...bt, note: e.target.value })} placeholder="ผลตรวจ/ค่าที่ได้" className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }} rows={3} />
-            <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>แปะป้ายว่าใบนี้มีค่าอะไรด้วย (ตับ ไต ฯลฯ — ไว้ค้นหา)</p>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {organTypeList.map((o) => { const active = (bt.organs || []).includes(o); return (
-                <button key={o} type="button" onClick={() => setBt({ ...bt, organs: active ? bt.organs.filter((x) => x !== o) : [...(bt.organs || []), o] })} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : INK }} className="rounded-full px-2.5 py-1 text-[11px]">{o}</button>
-              ); })}
-            </div>
+            <OrganTagPicker list={organTypeList} value={bt.organs} onChange={(v) => setBt({ ...bt, organs: v })} label="แปะป้ายว่าใบนี้มีค่าอะไรด้วย (ตับ ไต ฯลฯ — ไว้ค้นหา)" />
             <button onClick={() => submitWithPhoto('bloodTests', bt, btScan, onAddBloodTest, () => setBt({ ...bt, note: '', organs: [] }))} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm">บันทึกผลตรวจเลือด</button>
           </Card>
           {[...(dog.bloodTests || [])].map((r) => (
@@ -12706,15 +12691,7 @@ function DogMedicalRecordsSection({ dog, onAddBloodTest, onUpdateBloodTest, onRe
             <TypeSelectWithCustom options={imagingTypeList} value={im.type} onChange={(v) => setIm({ ...im, type: v })} onAddToList={onAddImagingType} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <input type="date" value={im.date} onChange={(e) => setIm({ ...im, date: e.target.value })} className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} />
             <textarea value={im.note} onChange={(e) => setIm({ ...im, note: e.target.value })} placeholder="สรุป / Impression (ท้ายใบรายงาน)" className="rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0' }} rows={3} />
-            <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>แปะป้ายอวัยวะที่อยู่ในใบนี้ (แตะเลือกได้หลายอัน ไว้ค้นหา)</p>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {organTypeList.map((o) => {
-                const active = (im.relatedOrgans || []).includes(o);
-                return (
-                  <button key={o} type="button" onClick={() => setIm({ ...im, relatedOrgans: active ? im.relatedOrgans.filter((x) => x !== o) : [...(im.relatedOrgans || []), o] })} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : SLATE }} className="rounded-full px-2.5 py-1 text-[11px]">{o}</button>
-                );
-              })}
-            </div>
+            <OrganTagPicker list={organTypeList} value={im.relatedOrgans} onChange={(v) => setIm({ ...im, relatedOrgans: v })} label="แปะป้ายอวัยวะที่อยู่ในใบนี้ (ตับ ไต ม้าม ฯลฯ — ไว้ค้นหา)" />
             <button onClick={async () => {
               const organs = [];
               if (imScan.scannedFile && imScan.attach) {
