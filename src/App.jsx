@@ -135,7 +135,7 @@ const categoryIcon = (cat) => { const hit = CATEGORY_ICON_HINTS.find(([k]) => (c
 const CATEGORY_BAR_COLORS = ['#B3392F', '#B8874B', '#2E5EA8', '#1C7C8C', '#6B4FB3', '#7A5230', '#1F8A54'];
 const SOURCE_ICON = { pharmacy: '💰', thai_div: '📈', us_div: '📈', coop_div: '📈', coop_interest: '🏦', rental: '🏠', insurance: '🛡️', wealthx: '💵', yieldtech: '⚡', personal_withdraw: '💸', other: '🪙' };
 // สีประจำแต่ละแหล่งที่มา: [สีขอบ/ป้าย, พื้นไอคอน, พื้นการ์ด] — ให้แยกประเภทเงินเข้าได้ทันทีด้วยสายตา
-const srcKey = (id) => (String(id || '').toLowerCase().replace(/[^a-z]/g, '').includes('yield') ? 'yieldtech' : id);
+const srcKey = (id) => { const t = (v) => String(v || '').toLowerCase().replace(/[^a-z]/g, '').includes('yield'); if (t(id)) return 'yieldtech'; const hit = SOURCES.find((x) => x.id === id); return hit && t(hit.label) ? 'yieldtech' : id; };
 const srcLabelOf = (id) => (srcKey(id) === 'yieldtech' ? 'YieldTech · Passive Income Auto' : ((SOURCES.find((x) => x.id === id) || {}).label || id));
 const SOURCE_TONE = {
   pharmacy: ['#1F8A54', '#DDF3E6', '#FFFFFF'],
@@ -6644,7 +6644,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 12 พ.ย. 20:15 (v-yt3)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 12 พ.ย. 20:25 (v-yt4)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
