@@ -11682,7 +11682,7 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
           <p className="text-xs mb-1" style={{ color: SLATE }}>มีอะไรเกิดขึ้นในการไปครั้งนี้บ้าง?</p>
           <p className="text-[11px] mb-3" style={{ color: SLATE }}>แตะเพื่อเพิ่มรายละเอียด ระบบจะสร้างรายการให้อัตโนมัติในเมนูของมันเอง แล้วผูกกลับมาที่ครั้งนี้ให้เสร็จ ไม่ต้องไปกรอกซ้ำที่อื่น</p>
           <div className="flex flex-wrap gap-2 mb-3">
-            {VISIT_SECTION_DEFS.map((def) => {
+            {VISIT_SECTION_DEFS.filter((def) => def.key !== 'organExam').map((def) => {
               const active = activeSections.includes(def.key);
               return (
                 <button key={def.key} onClick={() => toggleSection(def.key)} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : BRASS, border: active ? 'none' : `1.5px dashed ${BRASS}` }} className="rounded-full px-3 py-2 text-xs font-semibold">
@@ -12282,7 +12282,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
         ) : (
           <div>
             <div className="flex flex-wrap gap-2 mb-3">
-              {VISIT_SECTION_DEFS.map((def) => {
+              {VISIT_SECTION_DEFS.filter((def) => def.key !== 'organExam').map((def) => {
                 const active = procSections.includes(def.key);
                 return (
                   <button key={def.key} onClick={() => toggleProcSection(def.key)} style={{ background: active ? BRASS : PAPER_DIM, color: active ? 'white' : BRASS, border: active ? 'none' : `1.5px dashed ${BRASS}` }} className="rounded-full px-3 py-1.5 text-xs font-semibold">{def.icon} {def.label}</button>
