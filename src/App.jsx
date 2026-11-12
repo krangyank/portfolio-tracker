@@ -133,8 +133,10 @@ const BASE_SOURCES_LEN = SOURCES.length;
 const CATEGORY_ICON_HINTS = [['อาหาร', '🍜'], ['ลูกน้อง', '🐶'], ['สุนัข', '🐶'], ['หมา', '🐶'], ['รถ', '🚗'], ['น้ำมัน', '⛽'], ['บ้าน', '🏠'], ['ร้านยา', '💊'], ['เดินทาง', '🚕'], ['ช้อป', '🛍️'], ['สุขภาพ', '🩺'], ['เรียน', '📚'], ['ท่องเที่ยว', '✈️']];
 const categoryIcon = (cat) => { const hit = CATEGORY_ICON_HINTS.find(([k]) => (cat || '').includes(k)); return hit ? hit[1] : '🧾'; };
 const CATEGORY_BAR_COLORS = ['#B3392F', '#B8874B', '#2E5EA8', '#1C7C8C', '#6B4FB3', '#7A5230', '#1F8A54'];
-const SOURCE_ICON = { pharmacy: '💰', thai_div: '📈', us_div: '📈', coop_div: '📈', coop_interest: '🏦', rental: '🏠', insurance: '🛡️', wealthx: '💵', yieldtech: '💵', personal_withdraw: '💸', other: '🪙' };
+const SOURCE_ICON = { pharmacy: '💰', thai_div: '📈', us_div: '📈', coop_div: '📈', coop_interest: '🏦', rental: '🏠', insurance: '🛡️', wealthx: '💵', yieldtech: '⚡', personal_withdraw: '💸', other: '🪙' };
 // สีประจำแต่ละแหล่งที่มา: [สีขอบ/ป้าย, พื้นไอคอน, พื้นการ์ด] — ให้แยกประเภทเงินเข้าได้ทันทีด้วยสายตา
+const srcKey = (id) => (String(id || '').toLowerCase() === 'yieldtech' ? 'yieldtech' : id);
+const srcLabelOf = (id) => (srcKey(id) === 'yieldtech' ? 'YieldTech · Passive Income Auto' : ((SOURCES.find((x) => x.id === id) || {}).label || id));
 const SOURCE_TONE = {
   pharmacy: ['#1F8A54', '#DDF3E6', '#FFFFFF'],
   thai_div: ['#B8874B', '#F6E8CF', '#FFFAF0'],
@@ -144,7 +146,7 @@ const SOURCE_TONE = {
   rental: ['#1C7C8C', '#D6EEF2', '#F3FAFB'],
   insurance: ['#C0574D', '#F8DDD9', '#FEF7F6'],
   wealthx: ['#6B4FB3', '#E6DFF6', '#F9F7FD'],
-  yieldtech: ['#6B4FB3', '#E6DFF6', '#F9F7FD'],
+  yieldtech: ['#C2417D', '#F8DCEA', '#FEF5F9'],
   personal_withdraw: ['#B3392F', '#F6D6D2', '#FBEAEA'],
   other: ['#6B6757', '#E4E1D8', '#FFFFFF'],
 };
@@ -6471,7 +6473,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
     const filtered = contributions.filter((c) => summaryKeyFn(c.date) === summaryPeriod);
     const map = {};
     filtered.forEach((c) => { map[c.source] = (map[c.source] || 0) + Number(c.amount || 0); });
-    return Object.entries(map).map(([src, total]) => ({ src, label: SOURCES.find((s) => s.id === src)?.label || src, total })).sort((a, b) => b.total - a.total);
+    return Object.entries(map).map(([src, total]) => ({ src, label: srcLabelOf(src), total })).sort((a, b) => b.total - a.total);
   }, [contributions, summaryPeriod, summaryPeriodType]);
   const byDestinationThisPeriod = useMemo(() => {
     const filtered = contributions.filter((c) => summaryKeyFn(c.date) === summaryPeriod);
@@ -6611,7 +6613,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
         ) : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
         {bySourceThisPeriod.map((r, i) => (
           <button key={r.src} onClick={() => { setListFilter(r.src); }} className="w-full text-left block my-2.5">
-            <div className="flex justify-between text-sm"><span>{SOURCE_ICON[r.src] || '•'} {r.label}</span><b style={{ color: r.total < 0 ? BAD : undefined }}>{r.total < 0 ? '-' : ''}฿{fmt(Math.abs(r.total))}</b></div>
+            <div className="flex justify-between text-sm"><span>{SOURCE_ICON[srcKey(r.src)] || '•'} {r.label}</span><b style={{ color: r.total < 0 ? BAD : undefined }}>{r.total < 0 ? '-' : ''}฿{fmt(Math.abs(r.total))}</b></div>
             <div style={{ height: 7, borderRadius: 9, background: PAPER_DIM, marginTop: 5, overflow: 'hidden' }}><i style={{ display: 'block', height: '100%', borderRadius: 9, width: `${Math.max(3, (Math.abs(r.total) / Math.max(1, ...bySourceThisPeriod.map((x) => Math.abs(x.total)))) * 100)}%`, background: r.total < 0 ? BAD : (SOURCE_TONE[r.src] || SOURCE_TONE.other)[0] }} /></div>
           </button>
         ))}
@@ -6650,7 +6652,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
         </div>
       </div>
       <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
-        {[['all', 'ทั้งหมด'], ...Array.from(new Set(groupedList.thisMonthItems.map((c) => c.source))).map((id) => [id, `${SOURCE_ICON[id] || '•'} ${(SOURCES.find((x) => x.id === id) || {}).label || id}`])].map(([k, l]) => (
+        {[['all', 'ทั้งหมด'], ...Array.from(new Set(groupedList.thisMonthItems.map((c) => c.source))).map((id) => [id, `${SOURCE_ICON[srcKey(id)] || '•'} ${srcLabelOf(id)}`])].map(([k, l]) => (
           <button key={k} onClick={() => setListFilter(k)} className="text-xs rounded-full px-3 py-1.5 whitespace-nowrap" style={{ border: `1px solid ${listFilter === k ? INK : BORDER}`, background: listFilter === k ? INK : 'white', color: listFilter === k ? 'white' : INK, fontWeight: listFilter === k ? 700 : 400 }}>{l}</button>
         ))}
       </div>
@@ -6664,8 +6666,8 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           const acc = accounts.find((a) => a.id === c.accountId); const src = SOURCES.find((x) => x.id === c.source);
           const destLabel = acc?.name || c.accountId || 'ไม่ทราบบัญชี';
           const isWithdraw = c.source === 'personal_withdraw';
-          const isDividend = DIVIDEND_SOURCES.includes(c.source);
-          const tone = SOURCE_TONE[c.source] || SOURCE_TONE.other;
+          const isDividend = DIVIDEND_SOURCES.includes(srcKey(c.source));
+          const tone = SOURCE_TONE[srcKey(c.source)] || SOURCE_TONE.other;
           const rentFrom = c.source === 'rental' ? findRentPropertyName(c, properties) : '';
           const showDay = c.date !== lastDate; lastDate = c.date;
           const dayLabel = c.date === todayStr() ? `วันนี้ ${formatDateDMY(c.date)}` : c.date === yesterdayStr() ? `เมื่อวาน ${formatDateDMY(c.date)}` : formatDateDMY(c.date);
@@ -6674,9 +6676,9 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
               {showDay && <p className="text-[11px] font-bold mt-4 mb-1.5" style={{ color: SLATE }}>{dayLabel}</p>}
               <SwipeToDelete onDelete={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemove(c.id))}>
               <div className="flex items-start gap-3" style={{ background: tone[2], border: `1px solid ${BORDER}`, borderLeft: `6px solid ${tone[0]}`, borderRadius: 14, padding: '11px 12px' }}>
-                <div style={{ width: 38, height: 38, borderRadius: 12, display: 'grid', placeItems: 'center', fontSize: 18, flexShrink: 0, background: tone[1] }}>{SOURCE_ICON[c.source] || '💰'}</div>
+                <div style={{ width: 38, height: 38, borderRadius: 12, display: 'grid', placeItems: 'center', fontSize: 18, flexShrink: 0, background: tone[1] }}>{SOURCE_ICON[srcKey(c.source)] || '💰'}</div>
                 <div className="flex-1 min-w-0">
-                  <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1" style={{ background: tone[1], color: tone[0] }}>{src?.label || c.source}</span>
+                  <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1" style={{ background: tone[1], color: tone[0] }}>{srcLabelOf(c.source)}</span>
                   {rentFrom && <p className="text-[12.5px] font-semibold" style={{ color: tone[0] }}>🏠 จาก {rentFrom}</p>}
                   <p className="text-[13.5px] font-semibold">→ {destLabel}</p>
                   <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}{c.sourceSymbol && c.source !== 'rental' ? ` · จาก ${c.sourceSymbol}` : ''}</p>
