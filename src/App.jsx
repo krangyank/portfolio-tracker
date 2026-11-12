@@ -128,6 +128,7 @@ const SOURCES = [
   { id: 'personal_withdraw', label: 'ถอนใช้ส่วนตัว' },
   { id: 'other', label: 'อื่นๆ' },
 ];
+const BASE_SOURCES_LEN = SOURCES.length;
 // แหล่งที่มาที่ถือเป็น "ปันผล" — ใช้ทำพื้นหลังสีเขียวอ่อนแยกจากเงินเข้าปกติในรายการล่าสุด
 const CATEGORY_ICON_HINTS = [['อาหาร', '🍜'], ['ลูกน้อง', '🐶'], ['สุนัข', '🐶'], ['หมา', '🐶'], ['รถ', '🚗'], ['น้ำมัน', '⛽'], ['บ้าน', '🏠'], ['ร้านยา', '💊'], ['เดินทาง', '🚕'], ['ช้อป', '🛍️'], ['สุขภาพ', '🩺'], ['เรียน', '📚'], ['ท่องเที่ยว', '✈️']];
 const categoryIcon = (cat) => { const hit = CATEGORY_ICON_HINTS.find(([k]) => (cat || '').includes(k)); return hit ? hit[1] : '🧾'; };
@@ -1327,6 +1328,8 @@ export default function App() {
   const departmentList = state?.departmentList || ['แผนกฉุกเฉิน', 'อายุรกรรมทั่วไป', 'ตา', 'ศัลยกรรม', 'ผิวหนัง', 'ต่อมไร้ท่อ'];
   const doctorDepartments = state?.doctorDepartments || {};
   const customDestinationList = state?.customDestinationList || [];
+  const customSourceList = state?.customSourceList || [];
+  SOURCES.length = BASE_SOURCES_LEN; customSourceList.forEach((c) => SOURCES.push(c));
   const cardPaymentNotes = state?.cardPaymentNotes || [];
   const bloodTestTypeList = state?.bloodTestTypeList || BLOOD_TEST_TYPES;
   const organTypeList = state?.organTypeList || ORGAN_TYPES;
@@ -1972,6 +1975,24 @@ export default function App() {
     if (doctorDepartments[doctorName] === department) return;
     persist({ ...state, doctorDepartments: { ...doctorDepartments, [doctorName]: department } });
   }
+  function addCustomSource(name) {
+    const n = (name || '').trim(); if (!n) return null;
+    const hit = [...SOURCES].find((x) => x.label === n);
+    if (hit) { if (hit.hidden) persist({ ...state, customSourceList: customSourceList.map((c) => (c.id === hit.id ? { ...c, hidden: false } : c)) }); return hit.id; }
+    const id = 'cs_' + uid();
+    persist({ ...state, customSourceList: [...customSourceList, { id, label: n }] });
+    return id;
+  }
+  LIST_MANAGERS.customSource = {
+    list: customSourceList.filter((c) => !c.hidden).map((c) => c.label),
+    rename: (a, b) => persist({ ...state, customSourceList: customSourceList.map((c) => (c.label === a ? { ...c, label: b } : c)) }),
+    remove: (n) => persist({ ...state, customSourceList: customSourceList.map((c) => (c.label === n ? { ...c, hidden: true } : c)) }),
+  };
+  LIST_MANAGERS.customDest = {
+    list: customDestinationList,
+    rename: (a, b) => persist({ ...state, customDestinationList: customDestinationList.map((x) => (x === a ? b : x)) }),
+    remove: (n) => persist({ ...state, customDestinationList: customDestinationList.filter((x) => x !== n) }),
+  };
   function addCustomDestination(name) { if (name && !customDestinationList.includes(name)) persist({ ...state, customDestinationList: [...customDestinationList, name] }); }
   function addCardPaymentNote(note) { if (note && !cardPaymentNotes.includes(note)) persist({ ...state, cardPaymentNotes: [...cardPaymentNotes, note] }); }
   // ประกันครอบครัว — 1 กรมธรรม์ = สัญญาหลัก + สัญญาเพิ่มเติมได้หลายรายการ (riders)
@@ -2776,7 +2797,7 @@ export default function App() {
         <AccountsTab accounts={accounts} onUpdate={updateAccount} onAdd={addAccount} onRemove={removeAccount} costBasisByAccount={costBasisByAccount}
           onAddHolding={addHolding} onUpdateHolding={updateHolding} onRemoveHolding={removeHolding} onAddDividend={addDividend}
           onRemoveDividend={removeDividend} onUpdateDividend={updateDividend} onRefreshPrice={refreshHoldingPrice} finnhubKey={state.finnhubKey}
-          onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} onRemoveYieldTechHistory={removeYieldTechHistory} onUpdateYieldTechHistory={updateYieldTechHistory} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination}
+          onSellHolding={sellHolding} onRemoveSell={removeSell} onRemoveBuy={removeBuy} onUpdateSell={updateSell} onUpdateBuy={updateBuy} onAddContribution={addContribution} onRecordYieldTech={recordYieldTechWithdrawal} onRecordYieldTechBatch={recordYieldTechWithdrawalsBatch} onRecordBuySellBatch={recordBuySellBatch} onRemoveYieldTechHistory={removeYieldTechHistory} onUpdateYieldTechHistory={updateYieldTechHistory} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddCustomSource={addCustomSource} customSourceList={customSourceList}
           onAddGoldLot={addGoldLot} onUpdateGoldLot={updateGoldLot} onRemoveGoldLot={removeGoldLot} onSellGoldLot={sellGoldLot} onUnsellGoldLot={unsellGoldLot} onSetGoldPrice={setGoldPrice} onRefreshGoldPrice={refreshGoldPrice} goldShopList={goldShopList} onAddGoldShop={addGoldShop} />
       )}
       {tab === 'savings' && <SavingsTab accounts={accounts} properties={properties} contributions={contributions} onAdd={addContribution} onRemove={removeContribution} onUpdate={updateContribution} customDestinationList={customDestinationList} onAddCustomDestination={addCustomDestination} onAddToCalendar={addPropertyEventToCalendar} googleConnected={!!googleToken} expenseCategories={expenseCategories} onAddExpense={addExpense} />}
@@ -6389,7 +6410,7 @@ function SwipeToDelete({ children, onDelete, radius = 14 }) {
   );
 }
 
-function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUpdate, customDestinationList, onAddCustomDestination, onAddToCalendar, googleConnected, expenseCategories, onAddExpense }) {
+function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUpdate, onAddCustomSource, customSourceList, customDestinationList, onAddCustomDestination, onAddToCalendar, googleConnected, expenseCategories, onAddExpense }) {
   const [amount, setAmount] = useState(10000);
   const [source, setSource] = useState('pharmacy');
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
@@ -6416,7 +6437,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
   const topSources = useMemo(() => {
     const cnt = {};
     contributions.forEach((c) => { if (c.source !== 'personal_withdraw') cnt[c.source] = (cnt[c.source] || 0) + 1; });
-    const ids = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).filter((id) => SOURCES.some((x) => x.id === id));
+    const ids = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).filter((id) => SOURCES.some((x) => x.id === id && !x.hidden));
     ['pharmacy', 'thai_div', 'rental', 'other'].forEach((id) => { if (!ids.includes(id)) ids.push(id); });
     return ids.slice(0, 4);
   }, [contributions]);
@@ -6528,7 +6549,13 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           ))}
           <button onClick={() => setShowMoreSources(!showMoreSources)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px dashed ${BORDER}`, color: SLATE }}>+ อื่นๆ</button>
         </div>
-        {showMoreSources && <select value={source} onChange={(e) => { setSource(e.target.value); setShowMoreSources(false); }} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-2">{SOURCES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>}
+        {showMoreSources && (
+          <div className="mt-2">
+            <select value={source} onChange={(e) => { setSource(e.target.value); setShowMoreSources(false); }} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full">{SOURCES.filter((x) => !x.hidden || x.id === source).map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
+            <button type="button" onClick={() => { const n = window.prompt('ชื่อแหล่งที่มาใหม่ เช่น ขายของมือสอง, ของขวัญ'); if (!n) return; const id = onAddCustomSource && onAddCustomSource(n); if (id) { setSource(id); setShowMoreSources(false); } }} className="text-xs font-semibold mt-2" style={{ color: BRASS }}>+ เพิ่มแหล่งที่มาใหม่</button>
+            <ListManageLink kind="customSource" list={(customSourceList || []).filter((c) => !c.hidden).map((c) => c.label)} />
+          </div>
+        )}
         <p className="text-[11px] mt-3 mb-1.5" style={{ color: SLATE }}>ลงที่ไหน</p>
         <div className="flex gap-1.5 flex-wrap">
           {Array.from(new Set([...topDests, ...(accountId ? [accountId] : [])])).map((id) => (
@@ -6536,7 +6563,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           ))}
           <button onClick={() => setShowMoreDest(!showMoreDest)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px dashed ${BORDER}`, color: SLATE }}>+ ที่อื่น / ปลายทางใหม่</button>
         </div>
-        {showMoreDest && <AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} customList={customDestinationList} onAddCustom={onAddCustomDestination} />}
+        {showMoreDest && <><AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} customList={customDestinationList} onAddCustom={onAddCustomDestination} /><div className="mt-2"><ListManageLink kind="customDest" list={customDestinationList} /></div></>}
         {isDime && <><label className="text-xs block mt-3" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" /></>}
         <button onClick={submit} disabled={!accountId || !amount} style={{ background: GOOD, opacity: (!accountId || !amount) ? 0.5 : 1 }} className="w-full text-white font-bold rounded-xl py-3 text-sm mt-4">บันทึกเงินเข้า ฿{fmt(amount)}</button>
       </Card>
@@ -6756,7 +6783,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           fields={[
             { key: 'date', label: 'วันที่', type: 'date' },
             { key: 'amount', label: 'จำนวนเงิน', type: 'number' },
-            { key: 'source', label: 'แหล่งที่มา', type: 'select', options: SOURCES.map((s) => ({ value: s.id, label: s.label })) },
+            { key: 'source', label: 'แหล่งที่มา', type: 'select', options: SOURCES.filter((s) => !s.hidden || s.id === editing.source).map((s) => ({ value: s.id, label: s.label })) },
             { key: 'accountId', label: 'บัญชีปลายทาง', type: 'select-custom', options: accounts.map((a) => ({ value: a.id, label: a.name })), customList: customDestinationList, onAddCustom: onAddCustomDestination },
             ...(editing.source === 'personal_withdraw' ? [{ key: 'note', label: 'โน้ต (เอาไปทำอะไร)', type: 'text' }] : []),
           ]}
