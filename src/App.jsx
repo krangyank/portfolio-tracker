@@ -6644,7 +6644,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 12 พ.ย. 22:40 (v-att5)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 12 พ.ย. 23:20 (v-med7)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -10477,6 +10477,8 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
   const [selectedPreset, setSelectedPreset] = useState('');
   const labelFileRef = useRef(null);
   const labelGalleryRef = useRef(null);
+  const [stoppingMedId2, setStoppingMedId2] = useState(null);
+  const [showAddMed, setShowAddMed] = useState(false);
   const [scanningLabel, setScanningLabel] = useState(false);
   const [scanLabelError, setScanLabelError] = useState('');
   const [scannedFile, setScannedFile] = useState(null);
@@ -10531,7 +10533,8 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
   const meds = [...(dog.medications || [])].sort((a, b) => b.startDate.localeCompare(a.startDate));
   return (
     <div>
-      <Card>
+      <button onClick={() => setShowAddMed(!showAddMed)} className="w-full rounded-xl py-3 text-sm font-semibold mb-3 flex items-center justify-center gap-2" style={{ background: showAddMed ? PAPER_DIM : INK, color: showAddMed ? INK : 'white' }}>{showAddMed ? '✕ ปิดฟอร์มเพิ่มยา' : '＋ เพิ่มยาใหม่'}</button>
+      {showAddMed && <Card>
         <p className="text-xs mb-2" style={{ color: SLATE }}>เพิ่มยาใหม่ (ปรับยา = เพิ่มรายการใหม่ ไม่ลบของเดิม)</p>
         <input ref={labelFileRef} type="file" accept="image/*" capture="environment" onChange={handleLabelPhoto} className="hidden" />
         <input ref={labelGalleryRef} type="file" accept="image/*" onChange={handleLabelPhoto} className="hidden" />
@@ -10568,13 +10571,22 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
         <div className="mb-2"><label className="text-[10px]" style={{ color: SLATE }}>หมอผู้สั่ง</label><MemoTextField list={doctorList} value={form.doctor} onChange={(v) => setForm({ ...form, doctor: v })} onAddToList={onAddDoctor} placeholder="ชื่อสัตวแพทย์" className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <div className="mb-3"><label className="text-[10px]" style={{ color: SLATE }}>วันที่เริ่ม</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg px-3 py-1.5 text-sm w-full mt-1" style={{ border: '1px solid #E7EAF0' }} /></div>
         <button onClick={submit} disabled={saving} style={{ background: INK }} className="w-full text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2">{saving && <Loader2 size={14} className="animate-spin" />} บันทึกยา</button>
-      </Card>
+      </Card>}
       {(() => {
         const activeMeds = meds.filter((m) => !m.stopDate);
         const stoppedMeds = meds.filter((m) => m.stopDate);
         const daysSince = (d) => { const n = Math.floor((Date.now() - new Date(d).getTime()) / 86400000); return n >= 0 ? n : 0; };
+        const longest = activeMeds.reduce((mx, m) => Math.max(mx, daysSince(m.startDate) + 1), 0);
         return (
           <>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {[['กำลังใช้', activeMeds.length, GOOD, '#DDF3E6'], ['หยุดแล้ว', stoppedMeds.length, '#6B6757', '#E4E1D8'], ['ใช้นานสุด (วัน)', longest, BRASS, '#F6E8CF']].map(([l, v, c, bg]) => (
+                <div key={l} style={{ background: bg, borderRadius: 12 }} className="p-2.5 text-center">
+                  <p className="text-lg font-bold" style={{ color: c }}>{v}</p>
+                  <p className="text-[10px]" style={{ color: c }}>{l}</p>
+                </div>
+              ))}
+            </div>
             <div className="flex items-center gap-2 mb-2 mt-1">
               <span style={{ width: 8, height: 8, borderRadius: 99, background: GOOD, boxShadow: '0 0 0 3px #DDF3E6' }} />
               <p className="text-sm font-semibold" style={{ color: GOOD }}>ยาที่กำลังใช้อยู่ ({activeMeds.length})</p>
@@ -10594,8 +10606,10 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
                 </div>
                 <div className="flex gap-2 mt-3">
                   <button onClick={() => setEditingMed(m)} className="flex-1 text-xs font-semibold rounded-lg py-2" style={{ background: INK, color: 'white' }}>✎ แก้ไข</button>
-                  <button onClick={() => { const reason = prompt('เหตุผลที่หยุดยา (ไม่บังคับ)') || ''; onUpdateMedication(dog.id, m.id, { stopDate: new Date().toISOString().slice(0, 10), stopReason: reason }); }} className="flex-1 text-xs font-semibold rounded-lg py-2" style={{ border: `1px solid ${BAD}`, color: BAD, background: 'white' }}>■ หยุดยาตัวนี้</button>
+                  <button onClick={() => setStoppingMedId2(stoppingMedId2 === m.id ? null : m.id)} className="flex-1 text-xs font-semibold rounded-lg py-2" style={{ border: `1px solid ${BAD}`, color: BAD, background: 'white' }}>⏹ หยุดใช้ยา</button>
                 </div>
+                {stoppingMedId2 === m.id && <StopMedForm med={m} onCancel={() => setStoppingMedId2(null)} onConfirm={(d) => { onUpdateMedication(dog.id, m.id, d); setStoppingMedId2(null); }} />}
+                <MedChangeLog med={m} />
               </div>
             ))}
             {stoppedMeds.length > 0 && (
@@ -10612,7 +10626,10 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
                     <span className="inline-flex items-center text-[10px] font-semibold rounded-full px-2 py-0.5 mb-1" style={{ background: '#E4E1D8', color: '#6B6757' }}>■ หยุดแล้ว {m.stopDate}</span>
                     <p className="text-sm font-semibold" style={{ color: '#6B6757', textDecoration: 'line-through' }}>{m.name} {m.strength}</p>
                     <p className="text-[11px]" style={{ color: SLATE }}>{[m.dose, m.usage, m.timing].filter(Boolean).join(' · ')}</p>
-                    <p className="text-[11px]" style={{ color: SLATE }}>ใช้ {m.startDate} → {m.stopDate}{m.stopReason ? ` · เหตุผล: ${m.stopReason}` : ''}</p>
+                    <p className="text-[11px]" style={{ color: SLATE }}>ใช้ {m.startDate} → {m.stopDate}</p>
+                    {medStopText(m) && <p className="text-[11px]" style={{ color: BAD }}>เหตุผล: {medStopText(m)}</p>}
+                    {(m.stopBy || m.replacedBy) && <p className="text-[11px]" style={{ color: SLATE }}>{m.stopBy ? `สั่งหยุดโดย ${m.stopBy}` : ''}{m.stopBy && m.replacedBy ? ' · ' : ''}{m.replacedBy ? `เปลี่ยนเป็น ${m.replacedBy}` : ''}</p>}
+                    <MedChangeLog med={m} />
                     {(m.hospital || m.doctor) && <p className="text-[11px]" style={{ color: SLATE }}>{[m.hospital, m.doctor].filter(Boolean).join(' · ')}</p>}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -10654,7 +10671,7 @@ function DogMedicationSection({ dog, onAddMedication, onUpdateMedication, onRemo
             { key: 'hospital', label: 'โรงพยาบาล', type: 'text' },
             { key: 'doctor', label: 'หมอผู้สั่ง', type: 'text' },
           ]}
-          onSave={(v) => { onUpdateMedication(dog.id, editingMed.id, v); setEditingMed(null); }}
+          onSave={(v) => { const text = describeMedChange(editingMed, v); onUpdateMedication(dog.id, editingMed.id, text ? { ...v, changeLog: [...(editingMed.changeLog || []), { date: new Date().toISOString().slice(0, 10), text, reason: '' }] } : v); setEditingMed(null); }}
         />
       )}
     </div>
@@ -11411,6 +11428,113 @@ function makeVisitSectionRow(key, form) {
   return {};
 }
 
+// ---- ยา: เปลี่ยนแปลง/หยุดใช้ (บันทึกประวัติ + เหตุผล) ----
+const MED_STOP_REASONS = ['หายแล้ว / ครบคอร์ส', 'มีผลข้างเคียง', 'ยาไม่ได้ผล', 'เปลี่ยนไปใช้ยาตัวอื่น', 'หมอสั่งหยุด', 'อื่นๆ'];
+const MED_FIELD_LABELS = { name: 'ชื่อยา', strength: 'ความแรง', dose: 'ขนาด', usage: 'วิธีใช้', timing: 'เวลาใช้' };
+function describeMedChange(oldMed, patch) {
+  const parts = [];
+  Object.keys(MED_FIELD_LABELS).forEach((k) => {
+    if (patch[k] !== undefined && (patch[k] || '') !== (oldMed[k] || '')) parts.push(`${MED_FIELD_LABELS[k]}: ${oldMed[k] || '—'} → ${patch[k] || '—'}`);
+  });
+  return parts.join(' · ');
+}
+function medStopText(m) {
+  return [m.stopReason, m.stopDetail].filter(Boolean).join(' — ');
+}
+function StopMedForm({ med, defaultDate, onConfirm, onCancel }) {
+  const [date, setDate] = useState(defaultDate || new Date().toISOString().slice(0, 10));
+  const [reason, setReason] = useState('');
+  const [detail, setDetail] = useState('');
+  const [by, setBy] = useState('');
+  const [replacedBy, setReplacedBy] = useState('');
+  return (
+    <div style={{ background: '#FDF3F2', border: '1px solid #F1CFCB', borderRadius: 12 }} className="p-3 mt-2">
+      <p className="text-xs font-bold mb-2" style={{ color: BAD }}>⏹ หยุดใช้ยา {med.name}</p>
+      <label className="text-[10px]" style={{ color: SLATE }}>หยุดตั้งแต่วันที่</label>
+      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+      <label className="text-[10px]" style={{ color: SLATE }}>เหตุผลที่หยุด</label>
+      <div className="flex flex-wrap gap-1.5 mb-2 mt-1">
+        {MED_STOP_REASONS.map((r) => (
+          <button key={r} type="button" onClick={() => setReason(reason === r ? '' : r)} className="rounded-full px-2.5 py-1 text-[11px]" style={{ background: reason === r ? BAD : 'white', color: reason === r ? 'white' : INK, border: `1px solid ${reason === r ? BAD : BORDER}` }}>{r}</button>
+        ))}
+      </div>
+      <textarea value={detail} onChange={(e) => setDetail(e.target.value)} rows={2} placeholder="รายละเอียดเพิ่มเติม เช่น อาการที่พบ / ผลหลังหยุด" className="rounded-lg px-2 py-1.5 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+      <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="ใครสั่งหยุด (หมอ/โรงพยาบาล หรือ เราตัดสินใจเอง)" className="rounded-lg px-2 py-1.5 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+      {(reason === 'เปลี่ยนไปใช้ยาตัวอื่น') && <input value={replacedBy} onChange={(e) => setReplacedBy(e.target.value)} placeholder="เปลี่ยนไปใช้ยาตัวไหน" className="rounded-lg px-2 py-1.5 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0', background: 'white' }} />}
+      <div className="flex gap-2">
+        <button type="button" disabled={!reason && !detail.trim()} onClick={() => onConfirm({ stopDate: date, stopReason: reason, stopDetail: detail.trim(), stopBy: by.trim(), ...(replacedBy.trim() ? { replacedBy: replacedBy.trim() } : {}) })} className="flex-1 text-white rounded-lg py-2 text-xs font-semibold" style={{ background: BAD, opacity: (!reason && !detail.trim()) ? 0.4 : 1 }}>ยืนยันหยุดยา</button>
+        <button type="button" onClick={onCancel} className="rounded-lg px-4 py-2 text-xs" style={{ border: `1px solid ${BORDER}`, background: 'white' }}>ยกเลิก</button>
+      </div>
+      {!reason && !detail.trim() && <p className="text-[10px] mt-1" style={{ color: SLATE }}>เลือกเหตุผลอย่างน้อย 1 อย่าง หรือพิมพ์รายละเอียด</p>}
+    </div>
+  );
+}
+function MedChangeLog({ med }) {
+  const log = med.changeLog || [];
+  if (log.length === 0) return null;
+  return (
+    <div className="mt-1.5">
+      {log.slice(-3).reverse().map((c, i) => (
+        <p key={i} className="text-[10.5px]" style={{ color: SLATE }}>📝 {c.date} · {c.text}{c.reason ? ` (${c.reason})` : ''}</p>
+      ))}
+    </div>
+  );
+}
+// แผงยาที่กินอยู่ตอนนี้ — ปรับยา/หยุดยาได้ในที่เดียว มีบันทึกการเปลี่ยนแปลง
+function ActiveMedsPanel({ meds, onStop, onChange, stopDateDefault }) {
+  const [stopId, setStopId] = useState(null);
+  const [editId, setEditId] = useState(null);
+  const [ed, setEd] = useState({});
+  const [edReason, setEdReason] = useState('');
+  const dayCount = (d) => { const n = Math.floor((Date.now() - new Date(d).getTime()) / 86400000); return (n >= 0 ? n : 0) + 1; };
+  const today = stopDateDefault || new Date().toISOString().slice(0, 10);
+  return (
+    <div style={{ background: 'linear-gradient(135deg,#F1F8F3,#FFFFFF)', border: '1px solid #CFE8D8', borderRadius: 14 }} className="p-3 mb-3">
+      <div className="flex items-center gap-2 mb-2">
+        <span style={{ width: 8, height: 8, borderRadius: 99, background: GOOD, boxShadow: '0 0 0 3px #DDF3E6' }} />
+        <p className="text-xs font-bold" style={{ color: GOOD }}>ยาที่ใช้อยู่ตอนนี้ ({meds.length})</p>
+      </div>
+      {meds.length === 0 && <p className="text-[11px]" style={{ color: SLATE }}>ตอนนี้ไม่มียาที่ใช้อยู่</p>}
+      {meds.map((m) => (
+        <div key={m.id} style={{ background: 'white', border: `1px solid ${BORDER}`, borderRadius: 12 }} className="p-2.5 mb-2 last:mb-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold" style={{ color: INK }}>💊 {m.name}{m.strength ? ` ${m.strength}` : ''}</p>
+              <p className="text-[11px] mt-0.5" style={{ color: SLATE }}>{[m.dose, m.usage, m.timing].filter(Boolean).join(' · ') || '—'}</p>
+              <span className="inline-block text-[10px] font-semibold rounded-full px-2 py-0.5 mt-1" style={{ background: '#DDF3E6', color: GOOD }}>ใช้มาแล้ว {dayCount(m.startDate)} วัน</span>
+            </div>
+            {editId !== m.id && stopId !== m.id && (
+              <div className="flex flex-col gap-1 flex-shrink-0">
+                {onChange && <button type="button" onClick={() => { setEditId(m.id); setStopId(null); setEd({ dose: m.dose || '', usage: m.usage || '', timing: m.timing || '', strength: m.strength || '' }); setEdReason(''); }} className="text-[11px] font-semibold rounded-lg px-3 py-1" style={{ background: INK, color: 'white' }}>✎ ปรับยา</button>}
+                <button type="button" onClick={() => { setStopId(m.id); setEditId(null); }} className="text-[11px] font-semibold rounded-lg px-3 py-1" style={{ border: `1px solid ${BAD}`, color: BAD, background: 'white' }}>⏹ หยุดยา</button>
+              </div>
+            )}
+          </div>
+          <MedChangeLog med={m} />
+          {editId === m.id && (
+            <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2.5 mt-2">
+              <p className="text-[11px] font-semibold mb-1.5">✎ ปรับยา — บันทึกว่าเปลี่ยนอะไร</p>
+              {[['strength', 'ความแรง'], ['dose', 'ขนาดยา/จำนวน'], ['usage', 'วิธีใช้'], ['timing', 'เวลาใช้']].map(([k, l]) => (
+                <div key={k} className="mb-1.5"><label className="text-[10px]" style={{ color: SLATE }}>{l}</label><input value={ed[k] || ''} onChange={(e) => setEd({ ...ed, [k]: e.target.value })} className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0', background: 'white' }} /></div>
+              ))}
+              <input value={edReason} onChange={(e) => setEdReason(e.target.value)} placeholder="เหตุผลที่ปรับ เช่น หมอเพิ่มขนาดเพราะอาการไม่ดีขึ้น" className="rounded-lg px-2 py-1.5 text-sm w-full mb-2" style={{ border: '1px solid #E7EAF0', background: 'white' }} />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => {
+                  const text = describeMedChange(m, ed);
+                  if (!text) { setEditId(null); return; }
+                  onChange(m.id, { ...ed, changeLog: [...(m.changeLog || []), { date: today, text, reason: edReason.trim() }] });
+                  setEditId(null);
+                }} style={{ background: INK }} className="flex-1 text-white rounded-lg py-2 text-xs font-semibold">บันทึกการปรับยา</button>
+                <button type="button" onClick={() => setEditId(null)} className="rounded-lg px-4 py-2 text-xs" style={{ border: `1px solid ${BORDER}`, background: 'white' }}>ยกเลิก</button>
+              </div>
+            </div>
+          )}
+          {stopId === m.id && <StopMedForm med={m} defaultDate={today} onCancel={() => setStopId(null)} onConfirm={(d) => { onStop(m.id, d); setStopId(null); }} />}
+        </div>
+      ))}
+    </div>
+  );
+}
 function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, doctorList, onAddDoctor, departmentList, onAddDepartment, doctorDepartments, onSetDoctorDepartment, weigherList, medicationList, onAddMedicationPreset, onUpdateDog, onUpdateVetVisit, onRemoveVetVisit, onLinkRecordToVisit, onUnlinkRecordFromVisit, onUploadRecordPhoto, setSection, bloodTestTypeList, onAddBloodTestType, organTypeList, onAddOrganType, imagingTypeList, onAddImagingType, onAddOrganExam, onStartFollowUp, onAddMedicalPhoto }) {
   const [selectedVisitId, setSelectedVisitId] = useState(null);
   const [claimOpt, setClaimOpt] = useState(EMPTY_CLAIM_OPT);
@@ -11788,6 +11912,7 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
           {activeSections.includes('medication') && (
             <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14 }} className="p-3 mb-3">
               <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold" style={{ color: BRASS }}>💊 ยา/ปรับยา</span><button onClick={() => toggleSection('medication')} className="text-[11px]" style={{ color: SLATE }}>ลบส่วนนี้ ✕</button></div>
+              <ActiveMedsPanel meds={(dog.medications || []).filter((m) => !m.stopDate)} stopDateDefault={form.date} onStop={(id, d) => onUpdateDog(dog.id, { medications: (dog.medications || []).map((x) => (x.id === id ? { ...x, ...d } : x)) })} onChange={(id, patch) => onUpdateDog(dog.id, { medications: (dog.medications || []).map((x) => (x.id === id ? { ...x, ...patch } : x)) })} />
               {(sectionData.medication || []).map((row, idx) => (
                 <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                   <div className="flex justify-between items-center mb-1"><p className="text-[11px] font-semibold" style={{ color: SLATE }}>ยาตัวที่ {idx + 1}</p>{(sectionData.medication || []).length > 1 && <button onClick={() => removeRowFromSection('medication', idx)} className="text-[11px]" style={{ color: BAD }}>ลบ</button>}</div>
@@ -12388,32 +12513,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
             {procSections.includes('medication') && (
               <div style={{ border: `1px solid ${BORDER}` }} className="rounded-xl p-2.5 mb-2">
                 <p className="text-[11px] font-bold mb-1.5" style={{ color: BRASS }}>💊 ยา</p>
-                {(() => {
-                  const activeMeds = (dog.medications || []).filter((m) => !m.stopDate);
-                  return activeMeds.length > 0 ? (
-                    <div style={{ background: PAPER_DIM, borderRadius: 10 }} className="p-2 mb-2">
-                      <p className="text-[10px] font-semibold mb-1" style={{ color: SLATE }}>ยาที่ใช้อยู่ตอนนี้ ({activeMeds.length})</p>
-                      {activeMeds.map((m) => (
-                        <div key={m.id} style={{ borderTop: `1px dashed ${BORDER}` }} className="py-1.5 first:border-t-0 first:pt-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[11px] flex-1" style={{ color: INK }}>• {m.name}{m.dose ? ` ${m.dose}` : ''}{m.usage ? ` — ${m.usage}` : ''}{m.timing ? ` (${m.timing})` : ''}</p>
-                            <button type="button" onClick={() => setStoppingMedId(stoppingMedId === m.id ? null : m.id)} className="text-[10.5px] font-semibold flex-shrink-0" style={{ color: stoppingMedId === m.id ? SLATE : BAD }}>{stoppingMedId === m.id ? 'ยกเลิก' : 'หยุดยา'}</button>
-                          </div>
-                          {stoppingMedId === m.id && (
-                            <div className="mt-1.5">
-                              <input type="date" value={stopDate} onChange={(e) => setStopDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-xs w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
-                              <input value={stopReason} onChange={(e) => setStopReason(e.target.value)} placeholder="สาเหตุที่หยุด (ไม่บังคับ)" className="rounded-lg px-2 py-1.5 text-xs w-full mb-1" style={{ border: '1px solid #E7EAF0' }} />
-                              <button type="button" onClick={() => {
-                                onUpdateDog(dog.id, { medications: (dog.medications || []).map((x) => (x.id === m.id ? { ...x, stopDate: stopDate || visit.date, stopReason } : x)) });
-                                setStoppingMedId(null); setStopDate(visit.date); setStopReason('');
-                              }} style={{ background: BAD }} className="text-white rounded-lg py-1.5 text-xs w-full">ยืนยันหยุดยา {m.name}</button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null;
-                })()}
+                <ActiveMedsPanel meds={(dog.medications || []).filter((m) => !m.stopDate)} stopDateDefault={visit.date} onStop={(id, d) => onUpdateDog(dog.id, { medications: (dog.medications || []).map((x) => (x.id === id ? { ...x, ...d } : x)) })} onChange={(id, patch) => onUpdateDog(dog.id, { medications: (dog.medications || []).map((x) => (x.id === id ? { ...x, ...patch } : x)) })} />
                 {(procData.medication || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     {(medicationList || []).length > 0 && (
