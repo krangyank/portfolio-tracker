@@ -10079,12 +10079,13 @@ function freshTone(dateStr) {
 function DogLatestChecksSummary({ dog, setSection }) {
   const groups = [
     { icon: '🩸', title: 'ตรวจเลือด', latest: {} },
-    { icon: '🫁', title: 'ตรวจอวัยวะ', latest: {} },
+    { icon: '🫁', title: 'ตรวจอวัยวะ (รวมที่แปะป้ายไว้)', latest: {} },
     { icon: '🩻', title: 'ภาพถ่าย (Imaging)', latest: {} },
   ];
   (dog.bloodTests || []).forEach((r) => { const k = r.type || 'ทั่วไป'; if (!groups[0].latest[k] || groups[0].latest[k] < r.date) groups[0].latest[k] = r.date; });
   (dog.organExams || []).forEach((r) => { const k = r.organ || 'ทั่วไป'; if (!groups[1].latest[k] || groups[1].latest[k] < r.date) groups[1].latest[k] = r.date; });
   (dog.imaging || []).forEach((r) => { const k = r.type || 'Imaging'; if (!groups[2].latest[k] || groups[2].latest[k] < r.date) groups[2].latest[k] = r.date; });
+  [...(dog.bloodTests || []), ...(dog.imaging || [])].forEach((r) => (r.organs || []).forEach((k) => { if (!groups[1].latest[k] || groups[1].latest[k] < r.date) groups[1].latest[k] = r.date; }));
   const shown = groups.filter((g) => Object.keys(g.latest).length > 0);
   if (shown.length === 0) return null;
   return (
