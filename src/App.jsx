@@ -135,7 +135,7 @@ const categoryIcon = (cat) => { const hit = CATEGORY_ICON_HINTS.find(([k]) => (c
 const CATEGORY_BAR_COLORS = ['#B3392F', '#B8874B', '#2E5EA8', '#1C7C8C', '#6B4FB3', '#7A5230', '#1F8A54'];
 const SOURCE_ICON = { pharmacy: '💰', thai_div: '📈', us_div: '📈', coop_div: '📈', coop_interest: '🏦', rental: '🏠', insurance: '🛡️', wealthx: '💵', yieldtech: '⚡', personal_withdraw: '💸', other: '🪙' };
 // สีประจำแต่ละแหล่งที่มา: [สีขอบ/ป้าย, พื้นไอคอน, พื้นการ์ด] — ให้แยกประเภทเงินเข้าได้ทันทีด้วยสายตา
-const srcKey = (id) => (String(id || '').toLowerCase() === 'yieldtech' ? 'yieldtech' : id);
+const srcKey = (id) => (String(id || '').toLowerCase().replace(/[^a-z]/g, '').includes('yield') ? 'yieldtech' : id);
 const srcLabelOf = (id) => (srcKey(id) === 'yieldtech' ? 'YieldTech · Passive Income Auto' : ((SOURCES.find((x) => x.id === id) || {}).label || id));
 const SOURCE_TONE = {
   pharmacy: ['#1F8A54', '#DDF3E6', '#FFFFFF'],
