@@ -6644,7 +6644,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 12 พ.ย. 23:20 (v-med7)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 20:10 (v-cost8)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -11424,7 +11424,7 @@ function makeVisitSectionRow(key, form) {
   if (key === 'bloodTest') return { type: BLOOD_TEST_TYPES[0], date: today, note: '' };
   if (key === 'imaging') return { type: IMAGING_TYPES[0], date: today, note: '' };
   if (key === 'organExam') return { organ: ORGAN_TYPES[0], date: today, note: '' };
-  if (key === 'expense') return { date: today, amount: 0, category: PET_EXPENSE_CATEGORIES[0], hospital: form.hospital, note: '' };
+  if (key === 'expense') return { date: today, amount: Number(form.cost) || 0, category: PET_EXPENSE_CATEGORIES[0], hospital: form.hospital, note: '' };
   return {};
 }
 
@@ -11855,7 +11855,7 @@ function DogVetVisitsSection({ accounts, dog, hospitalList, onAddHospital, docto
           <label className="text-[10px]" style={{ color: SLATE }}>ผลวินิจฉัย/การรักษา</label>
           <textarea value={form.diagnosis} onChange={(e) => setForm({ ...form, diagnosis: e.target.value })} placeholder="เช่น วินิจฉัยว่า... รักษาโดย..." rows={3} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-2" style={{ border: '1px solid #E7EAF0' }} />
           <label className="text-[10px]" style={{ color: SLATE }}>ค่าใช้จ่ายรวมครั้งนี้ (ไม่บังคับ)</label>
-          <NumInput value={form.cost} onChange={(v) => setForm({ ...form, cost: v })} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
+          <NumInput value={form.cost} onChange={(v) => { setForm({ ...form, cost: v }); setSectionData((prev) => { const ex = prev.expense; if (!ex || ex.length !== 1) return prev; const cur = Number(ex[0].amount || 0); if (cur !== 0 && cur !== Number(form.cost || 0)) return prev; return { ...prev, expense: [{ ...ex[0], amount: Number(v) || 0 }] }; }); }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" style={{ border: '1px solid #E7EAF0' }} />
           <label className="text-[10px]" style={{ color: SLATE }}>รูปอาการ (เช่น ถ่ายแผล/จุดที่เป็น)</label>
           <VisitPhotoPicker files={visitPhotos} onChange={setVisitPhotos} />
         </Card>
@@ -12627,6 +12627,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
             {procSections.includes('expense') && (
               <div style={{ border: `1px solid ${BORDER}` }} className="rounded-xl p-2.5 mb-2">
                 <p className="text-[11px] font-bold mb-1.5" style={{ color: BRASS }}>💰 ค่าใช้จ่าย</p>
+                {Number(visit.cost) > 0 && <p className="text-[10px] mb-1.5" style={{ color: SLATE }}>ยอดรวมที่กรอกไว้ตอนสร้างการไปหาหมอ: ฿{fmt(visit.cost)} (ใส่ไว้ในช่องด้านล่างให้แล้ว แก้ได้)</p>}
                 {(procData.expense || []).map((row, idx) => (
                   <div key={idx} style={{ borderTop: idx > 0 ? `1px dashed ${BORDER}` : 'none' }} className="pt-2 mt-2 first:pt-0 first:mt-0">
                     <NumInput value={row.amount} onChange={(v) => updateProcRow('expense', idx, { amount: v })} placeholder="จำนวนเงิน" className="rounded-lg px-2 py-1.5 text-sm w-full" style={{ border: '1px solid #E7EAF0' }} />
