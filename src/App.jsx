@@ -6644,7 +6644,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-cost9)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-cost10)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -12476,8 +12476,10 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
               {Number(visit.cost) > 0 ? (
                 <button type="button" onClick={() => {
                   const id = uid();
-                  onUpdateDog(dog.id, { expenses: [{ id, date: visit.date, amount: Number(visit.cost), category: PET_EXPENSE_CATEGORIES[0], hospital: visit.hospital || '', note: 'จากการไปหาหมอ' }, ...(dog.expenses || [])] });
-                  onUpdateVetVisit(dog.id, visit.id, { linkedRecords: [...(visit.linkedRecords || []), { type: 'expenses', id }] });
+                  onUpdateDog(dog.id, {
+                    expenses: [{ id, date: visit.date, amount: Number(visit.cost), category: PET_EXPENSE_CATEGORIES[0], hospital: visit.hospital || '', note: 'จากการไปหาหมอ' }, ...(dog.expenses || [])],
+                    vetVisits: (dog.vetVisits || []).map((v) => (v.id === visit.id ? { ...v, linkedRecords: [...(v.linkedRecords || []), { type: 'expenses', id }] } : v)),
+                  });
                 }} className="text-xs font-semibold rounded-lg px-3 py-2 mb-4 w-full" style={{ border: `1px solid ${BRASS}`, color: BRASS, background: 'white' }}>💰 บันทึกยอด ฿{fmt(visit.cost)} นี้เป็นรายการค่าใช้จ่าย (ใช้เคลมประกัน/ขึ้นในแท็บค่าใช้จ่าย)</button>
               ) : <div className="mb-2" />}
             </>
