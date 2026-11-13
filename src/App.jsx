@@ -6644,7 +6644,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-claim1)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-claim2)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -12110,6 +12110,7 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
   const [photoUploading, setPhotoUploading] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState(null);
   const [shareStatus, setShareStatus] = useState(null); // { loading, message, failedPhotoUrls }
+  const [claimSheet, setClaimSheet] = useState(false);
   const [shareOpts, setShareOpts] = useState(null); // null = ปิด, ไม่งั้น { cards, records, originals }
   const [lineSending, setLineSending] = useState(false);
   const [showVisitLine, setShowVisitLine] = useState(false);
@@ -12482,6 +12483,19 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
                   });
                 }} className="text-xs font-semibold rounded-lg px-3 py-2 mb-4 w-full" style={{ border: `1px solid ${BRASS}`, color: BRASS, background: 'white' }}>💰 บันทึกยอด ฿{fmt(visit.cost)} นี้เป็นรายการค่าใช้จ่าย (ใช้เคลมประกัน/ขึ้นในแท็บค่าใช้จ่าย)</button>
               ) : <div className="mb-2" />}
+            </>
+          );
+        })()}
+        {(() => {
+          const vClaims = ((dog.insurance && dog.insurance.claims) || []).filter((c) => c.visitId === visit.id);
+          const vTotal = visitMoneySummary(dog, visit).total;
+          if (!dogHasInsurance(dog)) return null;
+          return (
+            <>
+              {vClaims.map((c) => <p key={c.id} className="text-[11px] mb-1" style={{ color: GOOD }}>🛡️ เคลมแล้ว · เบิกได้ ฿{fmt(c.reimbursedAmount)} · {c.received ? 'เงินเข้าแล้ว' : 'รอเงินเข้า'}</p>)}
+              {vClaims.length === 0 && Number(vTotal) > 0 && <button type="button" onClick={() => setClaimSheet(true)} className="text-xs font-semibold rounded-lg px-3 py-2 mb-4 w-full" style={{ border: `1px solid ${BRASS}`, color: BRASS, background: 'white' }}>🛡️ เคลมประกันรายการนี้ (฿{fmt(vTotal)})</button>}
+              {claimSheet && <ClaimSheet dog={dog} total={vTotal} accounts={accounts} reason={visit.reason || visit.diagnosis} date={visit.date} extra={{ visitId: visit.id }}
+                onSave={(claim) => onUpdateDog(dog.id, { insurance: { ...(dog.insurance || {}), claims: [claim, ...((dog.insurance || {}).claims || [])] } })} onClose={() => setClaimSheet(false)} />}
             </>
           );
         })()}
@@ -12989,6 +13003,35 @@ function DogAlbumSection({ dog, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
   );
 }
 
+function ClaimSheet({ dog, total, accounts, reason, date, extra, onSave, onClose }) {
+  const [opt, setOpt] = useState({ ...EMPTY_CLAIM_OPT, on: true, followUpDate: addDaysStr(14) });
+  const [done, setDone] = useState(null);
+  const { amount } = calcClaimAmount(dog, total, opt);
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: PAPER, width: '100%', borderRadius: '18px 18px 0 0', padding: 18, maxHeight: '88vh', overflowY: 'auto' }}>
+        {done ? (
+          <div className="text-center py-4">
+            <p style={{ fontSize: 40 }}>✅</p>
+            <p className="text-base font-semibold mt-1">สร้างรายการเคลมแล้ว</p>
+            <p className="text-xs mt-1" style={{ color: SLATE }}>ค่ารักษา ฿{fmt(done.actualCost)} · เบิกได้ ฿{fmt(done.reimbursedAmount)}</p>
+            <p className="text-xs" style={{ color: SLATE }}>สถานะ "รอเงินเข้า" · เตือนเช็ก {formatDateThai(done.followUpDate)}</p>
+            <button onClick={onClose} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm font-semibold mt-4">ปิด</button>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm font-semibold">🛡️ เคลมประกัน {dog.name}</p>
+            <ClaimOnExpensePanel dog={dog} total={total} value={opt} onChange={setOpt} accounts={accounts} />
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => { const c = buildClaimFromOpt(dog, total, opt, reason, date, extra); if (!c) return; onSave(c); setDone(c); }} disabled={!(Number(total) > 0)} style={{ background: BRASS }} className="flex-1 text-white rounded-lg py-2.5 text-sm font-semibold">บันทึกการเคลม ฿{fmt(amount)}</button>
+              <button onClick={onClose} className="rounded-lg px-4 text-sm" style={{ border: '1px solid #E7EAF0' }}>ยกเลิก</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, hospitalList, onAddHospital, onAddPersonalExpense, expenseCategories, onUploadRecordPhoto, onUpdateDog, accounts }) {
   const [claimingExpId, setClaimingExpId] = useState(null);
   const [claimOptExp, setClaimOptExp] = useState(EMPTY_CLAIM_OPT);
@@ -13105,20 +13148,11 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
           <div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateThai(e.date)}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveDogExpense(dog.id, e.id))}><Trash2 size={14} color={BAD} /></button></div></div>
           {claimed && <p className="text-[11px] mt-2" style={{ color: GOOD }}>🛡️ เคลมประกันแล้ว · เบิกได้ ฿{fmt(claimed.reimbursedAmount)} · {claimed.received ? 'เงินเข้าแล้ว' : 'รอเงินเข้า'}</p>}
           {canClaim && !claimed && claimingExpId !== e.id && (
-            <button type="button" onClick={() => { setClaimingExpId(e.id); setClaimOptExp({ ...EMPTY_CLAIM_OPT, on: true, followUpDate: addDaysStr(14) }); }} className="text-xs font-semibold rounded-lg px-3 py-1.5 mt-2" style={{ border: `1px solid ${BRASS}`, color: BRASS, background: 'white' }}>🛡️ เคลมประกันรายการนี้</button>
+            <button type="button" onClick={() => setClaimingExpId(e.id)} className="text-xs font-semibold rounded-lg px-3 py-1.5 mt-2" style={{ border: `1px solid ${BRASS}`, color: BRASS, background: 'white' }}>🛡️ เคลมประกันรายการนี้</button>
           )}
           {canClaim && !claimed && claimingExpId === e.id && (
-            <div>
-              <ClaimOnExpensePanel dog={dog} total={e.amount} value={claimOptExp} onChange={setClaimOptExp} accounts={accounts} />
-              <div className="flex gap-2 mt-2">
-                <button type="button" onClick={() => {
-                  const claim = buildClaimFromOpt(dog, e.amount, claimOptExp, e.note || e.category, e.date, { expenseId: e.id });
-                  if (claim) onUpdateDog(dog.id, { insurance: { ...(dog.insurance || {}), claims: [claim, ...claimsAll] } });
-                  setClaimingExpId(null);
-                }} disabled={!claimOptExp.on} style={{ background: INK }} className="flex-1 text-white rounded-lg py-2 text-xs">บันทึกการเคลม</button>
-                <button type="button" onClick={() => setClaimingExpId(null)} className="rounded-lg px-3 text-xs" style={{ border: '1px solid #E7EAF0' }}>ยกเลิก</button>
-              </div>
-            </div>
+            <ClaimSheet dog={dog} total={e.amount} accounts={accounts} reason={e.note || e.category} date={e.date} extra={{ expenseId: e.id }}
+              onSave={(claim) => onUpdateDog(dog.id, { insurance: { ...(dog.insurance || {}), claims: [claim, ...claimsAll] } })} onClose={() => setClaimingExpId(null)} />
           )}
         </Card>
       ); })}
