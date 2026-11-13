@@ -6644,7 +6644,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-cost10)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-claim1)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -8027,7 +8027,7 @@ function PetsTab({ dogs, onUpdateDog, onCopyToMultipleDogs, onAddWeight, onRemov
           {section === 'appt' && <DogAppointmentsSection dog={dog} onAddAppointment={onAddAppointment} onRemoveAppointment={onRemoveAppointment} onUpdateAppointment={onUpdateAppointment} googleConnected={googleConnected} onAddToCalendar={onAddToCalendar} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} draft={apptDraft} onConsumeDraft={() => setApptDraft(null)} />}
           {section === 'vetvisits' && <DogVetVisitsSection accounts={accounts} dog={dog} hospitalList={hospitalList} onAddHospital={onAddHospital} doctorList={doctorList} onAddDoctor={onAddDoctor} departmentList={departmentList} onAddDepartment={onAddDepartment} doctorDepartments={doctorDepartments} onSetDoctorDepartment={onSetDoctorDepartment} weigherList={weigherList} medicationList={medicationList} onAddMedicationPreset={onAddMedicationPreset} onUpdateDog={onUpdateDog} onUpdateVetVisit={onUpdateVetVisit} onRemoveVetVisit={onRemoveVetVisit} onLinkRecordToVisit={onLinkRecordToVisit} onUnlinkRecordFromVisit={onUnlinkRecordFromVisit} onUploadRecordPhoto={onUploadRecordPhoto} setSection={setSection} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddOrganExam={onAddOrganExam} onStartFollowUp={(d) => { setApptDraft(d); setSection('appt'); }} onAddMedicalPhoto={onAddMedicalPhoto} />}
           {section === 'records' && <DogMedicalRecordsSection dog={dog} onAddBloodTest={onAddBloodTest} onUpdateBloodTest={onUpdateBloodTest} onRemoveBloodTest={onRemoveBloodTest} onAddOrganExam={onAddOrganExam} onUpdateOrganExam={onUpdateOrganExam} onRemoveOrganExam={onRemoveOrganExam} onAddImaging={onAddImaging} onUpdateImaging={onUpdateImaging} onRemoveImaging={onRemoveImaging} onAddMedicalPhoto={onAddMedicalPhoto} onRemoveMedicalPhoto={onRemoveMedicalPhoto} onUploadRecordPhoto={onUploadRecordPhoto} bloodTestTypeList={bloodTestTypeList} onAddBloodTestType={onAddBloodTestType} organTypeList={organTypeList} onAddOrganType={onAddOrganType} imagingTypeList={imagingTypeList} onAddImagingType={onAddImagingType} onAddImagingWithOrgans={onAddImagingWithOrgans} />}
-          {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} />}
+          {section === 'expenses' && <DogExpensesSection dog={dog} onAddDogExpense={onAddDogExpense} onRemoveDogExpense={onRemoveDogExpense} onUpdateDogExpense={onUpdateDogExpense} hospitalList={hospitalList} onAddHospital={onAddHospital} onAddPersonalExpense={onAddPersonalExpense} expenseCategories={expenseCategories} onUploadRecordPhoto={onUploadRecordPhoto} onUpdateDog={onUpdateDog} accounts={accounts} />}
           {section === 'album' && <DogAlbumSection dog={dog} onAddAlbumPhoto={onAddAlbumPhoto} onRemoveAlbumPhoto={onRemoveAlbumPhoto} />}
         </>
       )}
@@ -12989,7 +12989,10 @@ function DogAlbumSection({ dog, onAddAlbumPhoto, onRemoveAlbumPhoto }) {
   );
 }
 
-function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, hospitalList, onAddHospital, onAddPersonalExpense, expenseCategories, onUploadRecordPhoto }) {
+function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdateDogExpense, hospitalList, onAddHospital, onAddPersonalExpense, expenseCategories, onUploadRecordPhoto, onUpdateDog, accounts }) {
+  const [claimingExpId, setClaimingExpId] = useState(null);
+  const [claimOptExp, setClaimOptExp] = useState(EMPTY_CLAIM_OPT);
+  const claimsAll = ((dog.insurance && dog.insurance.claims) || []);
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(PET_EXPENSE_CATEGORIES[0]);
   const [hospital, setHospital] = useState('');
@@ -13094,7 +13097,31 @@ function DogExpensesSection({ dog, onAddDogExpense, onRemoveDogExpense, onUpdate
         {periods.length > 0 ? <select value={selPeriod} onChange={(e) => setSelPeriod(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full mb-3" style={{ border: '1px solid #E7EAF0' }}>{periods.map((p) => <option key={p} value={p}>{p}</option>)}</select> : <p className="text-xs" style={{ color: SLATE }}>ยังไม่มีข้อมูล</p>}
         {selPeriod && <p className="text-xl">รวม ฿{fmt(periodTotal)}</p>}
       </Card>
-      {expenses.slice(0, 20).map((e) => <Card key={e.id}><div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateThai(e.date)}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveDogExpense(dog.id, e.id))}><Trash2 size={14} color={BAD} /></button></div></div></Card>)}
+      {expenses.slice(0, 20).map((e) => {
+        const claimed = claimsAll.find((c) => c.expenseId === e.id);
+        const canClaim = dogHasInsurance(dog) && onUpdateDog;
+        return (
+        <Card key={e.id}>
+          <div className="flex justify-between items-center"><div><p className="text-sm">{e.category}{e.hospital ? ` · ${e.hospital}` : ''}{e.note ? ` · ${e.note}` : ''}</p><p className="text-xs" style={{ color: SLATE }}>{formatDateThai(e.date)}</p></div><div className="flex items-center gap-2"><span className="text-sm">฿{fmt(e.amount)}</span><EditButton onClick={() => setEditingExp(e)} /><button onClick={() => confirmDelete('ลบรายการนี้? ข้อมูลจะหายถาวร', () => onRemoveDogExpense(dog.id, e.id))}><Trash2 size={14} color={BAD} /></button></div></div>
+          {claimed && <p className="text-[11px] mt-2" style={{ color: GOOD }}>🛡️ เคลมประกันแล้ว · เบิกได้ ฿{fmt(claimed.reimbursedAmount)} · {claimed.received ? 'เงินเข้าแล้ว' : 'รอเงินเข้า'}</p>}
+          {canClaim && !claimed && claimingExpId !== e.id && (
+            <button type="button" onClick={() => { setClaimingExpId(e.id); setClaimOptExp({ ...EMPTY_CLAIM_OPT, on: true, followUpDate: addDaysStr(14) }); }} className="text-xs font-semibold rounded-lg px-3 py-1.5 mt-2" style={{ border: `1px solid ${BRASS}`, color: BRASS, background: 'white' }}>🛡️ เคลมประกันรายการนี้</button>
+          )}
+          {canClaim && !claimed && claimingExpId === e.id && (
+            <div>
+              <ClaimOnExpensePanel dog={dog} total={e.amount} value={claimOptExp} onChange={setClaimOptExp} accounts={accounts} />
+              <div className="flex gap-2 mt-2">
+                <button type="button" onClick={() => {
+                  const claim = buildClaimFromOpt(dog, e.amount, claimOptExp, e.note || e.category, e.date, { expenseId: e.id });
+                  if (claim) onUpdateDog(dog.id, { insurance: { ...(dog.insurance || {}), claims: [claim, ...claimsAll] } });
+                  setClaimingExpId(null);
+                }} disabled={!claimOptExp.on} style={{ background: INK }} className="flex-1 text-white rounded-lg py-2 text-xs">บันทึกการเคลม</button>
+                <button type="button" onClick={() => setClaimingExpId(null)} className="rounded-lg px-3 text-xs" style={{ border: '1px solid #E7EAF0' }}>ยกเลิก</button>
+              </div>
+            </div>
+          )}
+        </Card>
+      ); })}
       {editingExp && (
         <EditModal title="แก้ไขค่าใช้จ่าย" onClose={() => setEditingExp(null)}
           initialValues={{ date: editingExp.date, amount: editingExp.amount, category: editingExp.category, hospital: editingExp.hospital || '', note: editingExp.note || '' }}
