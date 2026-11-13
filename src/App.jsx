@@ -6644,7 +6644,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 20:10 (v-cost8)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-cost9)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -12459,7 +12459,30 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
         <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>ผลวินิจฉัย/การรักษา</label>
         <textarea value={visit.diagnosis || ''} onChange={(e) => onUpdateVetVisit(dog.id, visit.id, { diagnosis: e.target.value })} rows={3} className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-4" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
         <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>ค่าใช้จ่าย</label>
-        <NumInput value={visit.cost} onChange={(v) => onUpdateVetVisit(dog.id, visit.id, { cost: v })} className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-4" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
+        {(() => {
+          const linkedExp = linkedRecords.filter((lr) => lr.type === 'expenses').map((lr) => (dog.expenses || []).find((r) => r.id === lr.id)).filter(Boolean);
+          const expTotal = linkedExp.reduce((t, e) => t + Number(e.amount || 0), 0);
+          if (linkedExp.length > 0) {
+            return (
+              <div style={{ background: '#F4F5F8', borderRadius: 14 }} className="px-3.5 py-3 mt-1.5 mb-4">
+                <p className="text-lg font-bold" style={{ color: INK }}>฿{fmt(expTotal)}</p>
+                <p className="text-[11px]" style={{ color: SLATE }}>รวมจากรายการค่าใช้จ่ายที่เชื่อมไว้ {linkedExp.length} รายการ (ดูและแก้ในส่วน "🔗 รายการที่เชื่อมโยงไว้" ด้านล่าง) — ยอดเดียวกันกับในแท็บค่าใช้จ่าย</p>
+              </div>
+            );
+          }
+          return (
+            <>
+              <NumInput value={visit.cost} onChange={(v) => onUpdateVetVisit(dog.id, visit.id, { cost: v })} className="px-3.5 py-2.5 text-sm w-full mt-1.5 mb-2" style={{ background: '#F4F5F8', border: '1px solid transparent', borderRadius: 14 }} />
+              {Number(visit.cost) > 0 ? (
+                <button type="button" onClick={() => {
+                  const id = uid();
+                  onUpdateDog(dog.id, { expenses: [{ id, date: visit.date, amount: Number(visit.cost), category: PET_EXPENSE_CATEGORIES[0], hospital: visit.hospital || '', note: 'จากการไปหาหมอ' }, ...(dog.expenses || [])] });
+                  onUpdateVetVisit(dog.id, visit.id, { linkedRecords: [...(visit.linkedRecords || []), { type: 'expenses', id }] });
+                }} className="text-xs font-semibold rounded-lg px-3 py-2 mb-4 w-full" style={{ border: `1px solid ${BRASS}`, color: BRASS, background: 'white' }}>💰 บันทึกยอด ฿{fmt(visit.cost)} นี้เป็นรายการค่าใช้จ่าย (ใช้เคลมประกัน/ขึ้นในแท็บค่าใช้จ่าย)</button>
+              ) : <div className="mb-2" />}
+            </>
+          );
+        })()}
         <label className="text-[10px] font-bold tracking-wide uppercase block" style={{ color: SLATE, letterSpacing: 0.6 }}>รูปอาการ (เช่น ถ่ายแผล/จุดที่เป็น)</label>
         <input ref={photoFileRef} type="file" accept="image/*" onChange={handleSymptomPhoto} className="hidden" />
         <button onClick={() => photoFileRef.current && photoFileRef.current.click()} className="flex items-center gap-1.5 text-xs font-semibold mt-1.5 rounded-full px-3.5 py-2" style={{ color: BRASS, background: PAPER_DIM }}>
