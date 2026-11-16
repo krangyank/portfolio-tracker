@@ -3409,7 +3409,8 @@ function LineSendBar({ label, sub, onClick, busy }) {
 }
 // options: [{ key, label, defaultOn }] — ค่าที่ติ๊กจะส่งต่อให้ getText(opts) / onSendOA(to, opts)
 // groupTo: LINE Group ID ของกลุ่มหลัก (undefined = กลุ่มค่าเริ่มต้นของระบบ); allowOA=false ซ่อนตัวเลือกส่งผ่าน OA
-function LineSendSheet({ title, options, groupTo, groupLabel, getText, onSendOA, onClose, onSent }) {
+function LineSendSheet({ title, options, groupTo, groupLabel, getText, getFiles, onSendOA, onClose, onSent }) {
+  const [shareNote, setShareNote] = useState('');
   const [opts, setOpts] = useState(() => Object.fromEntries((options || []).map((o) => [o.key, !!o.defaultOn])));
   const [dest, setDest] = useState('group');
   const [list, setList] = useState(lineRecipientsList);
@@ -3427,8 +3428,18 @@ function LineSendSheet({ title, options, groupTo, groupLabel, getText, onSendOA,
     setSending(true);
     try {
       if (dest === 'share') {
-        const ok = await shareTextToLine(getText(opts), () => {});
-        if (!ok) { setSending(false); return; }
+        const text = getText(opts);
+        let files = [];
+        if (getFiles && opts.photos) { try { files = await getFiles(opts); } catch (e) { console.error(e); } }
+        if (files.length > 0 && navigator.share && navigator.canShare && navigator.canShare({ files })) {
+          // LINE มักรับได้อย่างใดอย่างหนึ่ง (รูป หรือ ข้อความ) จึงแชร์รูปไปก่อน แล้วคัดลอกข้อความไว้ให้กดวางต่อ
+          try { await navigator.clipboard.writeText(text); } catch (e) { /* ignore */ }
+          try { await navigator.share({ files, text }); }
+          catch (e) { if (e && e.name === 'AbortError') { setSending(false); return; } setShareNote('แชร์รูปไม่สำเร็จ: ' + (e.message || e) + ' — ลองกดอีกครั้ง'); setSending(false); return; }
+        } else {
+          const ok = await shareTextToLine(text, () => {});
+          if (!ok) { setSending(false); return; }
+        }
       } else {
         const rec = list.find((r) => r.id === dest);
         onSendOA(dest === 'group' ? groupTo : (rec && rec.to), opts);
@@ -3472,6 +3483,8 @@ function LineSendSheet({ title, options, groupTo, groupLabel, getText, onSendOA,
             <div className="flex gap-2"><button onClick={addRecipient} style={{ background: INK }} className="text-white text-xs rounded-lg px-3 py-1.5">บันทึกผู้รับ</button><button onClick={() => setAdding(false)} className="text-xs" style={{ color: SLATE }}>ยกเลิก</button></div>
           </div>
         ) : <button onClick={() => setAdding(true)} className="text-xs mt-1" style={{ color: BRASS }}>+ เพิ่มผู้รับ LINE (ผ่าน OA)</button>}
+        {dest === 'share' && getFiles && opts.photos && <p className="text-[11px] mt-2" style={{ color: SLATE }}>📎 จะแชร์รูปไปให้ก่อน และคัดลอกข้อความสรุปไว้ให้แล้ว — กดวางในช่องแชทต่อได้เลย</p>}
+        {shareNote && <p className="text-[11px] mt-1" style={{ color: BAD }}>{shareNote}</p>}
         <button onClick={doSend} disabled={sending} style={{ background: '#06C755', opacity: sending ? 0.7 : 1 }} className="w-full text-white text-sm font-bold rounded-lg py-3 mt-4">{sending ? 'กำลังส่ง...' : dest === 'share' ? 'เปิดหน้าเลือกแชท LINE' : 'ส่งเลย'}</button>
       </div>
     </div>
@@ -6644,7 +6657,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-claim2)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-linephoto1)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -12734,7 +12747,8 @@ function VetVisitDetail({ accounts, dog, visit, hospitalList, onAddHospital, doc
       <LineSendBar label="ส่งสรุปเข้า LINE ตอนนี้" busy={lineSending} sub={lineSentAt ? `ส่งล่าสุด ${lineSentAt.slice(11, 16)} น.` : 'ยังไม่เคยส่ง'} onClick={() => setShowVisitLine(true)} />
       {showVisitLine && (
         <LineSendSheet title="ส่งสรุปการไปหาหมอ" groupTo={dog.lineGroupId} onClose={() => setShowVisitLine(false)}
-          options={[{ key: 'photos', label: 'แนบรูปของการนัดนี้ (เฉพาะส่งผ่าน OA)', defaultOn: true }]}
+          options={[{ key: 'photos', label: 'แนบรูปของการนัดนี้', defaultOn: true }]}
+          getFiles={async () => (await fetchOriginalPhotoBlobs(dog, visit)).map((b, i) => new File([b], `vet-${i + 1}.${(b.type || '').includes('png') ? 'png' : (b.type || '').includes('webp') ? 'webp' : 'jpg'}`, { type: b.type || 'image/jpeg' }))}
           getText={() => `🏥 บันทึกไปหาหมอ\n${buildVetVisitShareText(dog, visit)}`}
           onSendOA={(to, o) => {
             const imageUrls = o.photos ? (visit.photos || []).map((ph) => ph.url).filter(Boolean) : [];
