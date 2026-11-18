@@ -1467,7 +1467,45 @@ export default function App() {
   const addIncome = () => persist({ ...state, income: [...income, { id: uid(), name: 'แหล่งรายได้ใหม่', amount: 0, tag: 'other' }] });
   const removeIncome = (id) => persist({ ...state, income: income.filter((i) => i.id !== id) });
   const addContribution = (entry, notify = true) => {
-    persistAppend('contributions', { id: uid(), ...entry });
+    // เลือกกองทุน/หุ้นปลายทางไว้ → บวกยอดซื้อเข้ากองทุนนั้นให้เลย (ไม่ต้องไปกรอกซ้ำในหน้าบัญชี) — อัปเดตบัญชีก่อน แล้วค่อย append รายการเงินเข้า กันเขียนทับกัน
+    let entryOut = { ...entry };
+    delete entryOut.newHoldingName;
+    if (entry.accountId && (entry.holdingId || entry.newHoldingName) && entry.source !== 'personal_withdraw' && Number(entry.amount) > 0) {
+      const acc = accounts.find((a) => a.id === entry.accountId);
+      if (acc && Array.isArray(acc.holdings)) {
+        const cur = acc.category === 'dime' ? 'USD' : 'THB';
+        let holdings = acc.holdings;
+        let hid = entry.holdingId;
+        if (!hid && entry.newHoldingName) {
+          hid = uid();
+          holdings = [...holdings, { id: hid, symbol: entry.newHoldingName, name: entry.newHoldingName, shares: 0, avgCost: 0, currency: cur, purchaseFx: cur === 'USD' ? 36 : 1, currentPrice: 0, currentFx: cur === 'USD' ? 36 : 1, lastUpdated: '', purchaseDate: '', dividends: [], sells: [], buys: [] }];
+        }
+        const h = holdings.find((x) => x.id === hid);
+        if (h) {
+          const amountTHB = Number(entry.amount);
+          const fx = cur === 'USD' ? Number(h.currentFx || h.purchaseFx || 36) : 1;
+          const amountForeign = cur === 'USD' ? (Number(entry.usdAmount) > 0 ? Number(entry.usdAmount) : amountTHB / fx) : amountTHB;
+          const price = Number(h.currentPrice || h.avgCost || 0);
+          const label = h.symbol || h.name || '';
+          if (price > 0) {
+            const eShares = amountForeign / price;
+            const oldShares = Number(h.shares || 0), oldAvg = Number(h.avgCost || 0);
+            const newShares = oldShares + eShares;
+            const newAvg = newShares > 0 ? (oldShares * oldAvg + eShares * price) / newShares : oldAvg;
+            const buyId = uid();
+            const patch = { shares: newShares, avgCost: newAvg, purchaseDate: h.purchaseDate || entry.date, lastUpdated: new Date().toISOString().slice(0, 10), buys: [{ id: buyId, date: entry.date, shares: eShares, price, amount: amountTHB }, ...(h.buys || [])] };
+            if (cur === 'USD') { const oldTHB = holdingCostBasisTHB(h); const newCostF = newShares * newAvg; patch.purchaseFx = newCostF > 0 ? (oldTHB + amountTHB) / newCostF : h.purchaseFx; }
+            holdings = holdings.map((x) => (x.id === hid ? { ...x, ...patch } : x));
+            entryOut = { ...entryOut, holdingId: hid, holdingLabel: label, buyId };
+          } else {
+            entryOut = { ...entryOut, holdingId: hid, holdingLabel: label, buyPending: true };
+          }
+          updateAccount(entry.accountId, { holdings });
+        }
+      }
+    }
+    persistAppend('contributions', { id: uid(), ...entryOut });
+    entry = { ...entry, ...(entryOut.holdingLabel ? { sourceSymbol: entry.sourceSymbol || entryOut.holdingLabel } : {}) };
     if (!notify || entry.source === 'rental') return; // rental: มีข้อความแจ้งเตือนเฉพาะทางที่ addRentInstallment ส่งให้แล้ว (บอกชื่อบ้าน+ยอดขาด) กันส่งซ้ำ; notify=false: ใช้ตอนเขียนหลายรายการพร้อมกัน (batch) แล้วจะส่งสรุปทีเดียวแทน กันสแปม LINE
     const accName = (accounts.find((a) => a.id === entry.accountId) || {}).name || entry.accountId || '';
     const srcLabel = entry.source === 'yieldtech' ? 'YieldTech' : ((SOURCES.find((s) => s.id === entry.source) || {}).label || entry.source || 'เงินเข้า');
@@ -1491,7 +1529,9 @@ export default function App() {
   const removeContribution = (id) => {
     const c = contributions.find((x) => x.id === id);
     if (c && c.calendarEventId) deleteLinkedCalendarEvent(c.calendarEventId);
-    persist({ ...state, contributions: contributions.filter((x) => x.id !== id) });
+    if (c && c.buyId && c.holdingId) { try { removeBuy(c.accountId, c.holdingId, c.buyId); } catch (e) { console.error('reverse buy failed', e); } }
+    const baseSt = stateRef.current || state;
+    persist({ ...baseSt, contributions: (baseSt.contributions || contributions).filter((x) => x.id !== id) });
   };
   const updateContribution = (id, patch) => persist({ ...state, contributions: contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const changeTargetDate = (d) => persist({ ...state, targetDate: d });
@@ -6444,6 +6484,9 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
   const [dateMode, setDateMode] = useState('today'); // today | yesterday | custom
   const [showMoreSources, setShowMoreSources] = useState(false);
   const [showMoreDest, setShowMoreDest] = useState(false);
+  const [holdingId, setHoldingId] = useState('');
+  const [newHoldingName, setNewHoldingName] = useState('');
+  const [showNewHolding, setShowNewHolding] = useState(false);
   const [listFilter, setListFilter] = useState('all');
   const [listSearch, setListSearch] = useState('');
   const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -6476,7 +6519,9 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
   }, [contributions]);
   const destAccount = accounts.find((a) => a.id === accountId);
   const isDime = destAccount && destAccount.category === 'dime';
-  function submit() { if (!accountId) return; onAdd({ date, amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined }); setUsdAmount(0); }
+  function submit() { if (!accountId) return; onAdd({ date, amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined, ...(holdingId ? { holdingId } : {}), ...(!holdingId && newHoldingName.trim() ? { newHoldingName: newHoldingName.trim() } : {}) }); setUsdAmount(0); setHoldingId(''); setNewHoldingName(''); setShowNewHolding(false); }
+  const destHoldings = (destAccount && Array.isArray(destAccount.holdings)) ? destAccount.holdings : null;
+  useEffect(() => { setHoldingId(''); setNewHoldingName(''); setShowNewHolding(false); }, [accountId]);
   const thisMonthTotal = useMemo(() => { const ym = new Date().toISOString().slice(0, 7); return contributions.filter((c) => c.date.startsWith(ym)).reduce((s, c) => s + Number(c.amount || 0), 0); }, [contributions]);
   const summaryKeyFn = summaryPeriodType === 'month' ? monthKey : yearKey;
   const summaryPeriods = useMemo(() => Array.from(new Set(contributions.map((c) => summaryKeyFn(c.date)))).sort().reverse(), [contributions, summaryPeriodType]);
@@ -6579,6 +6624,21 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           <button onClick={() => setShowMoreDest(!showMoreDest)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px dashed ${BORDER}`, color: SLATE }}>+ ที่อื่น / ปลายทางใหม่</button>
         </div>
         {showMoreDest && <><AccountPickerWithCustom options={accounts.map((a) => ({ value: a.id, label: a.name }))} value={accountId} onChange={setAccountId} customList={customDestinationList} onAddCustom={onAddCustomDestination} /><div className="mt-2"><ListManageLink kind="customDest" list={customDestinationList} /></div></>}
+        {destHoldings && (
+          <div style={{ background: PAPER_DIM, borderRadius: 12 }} className="p-2.5 mt-3">
+            <p className="text-[11px] mb-1.5 font-semibold" style={{ color: INK }}>ซื้อกองทุน/หุ้นตัวไหนใน {destAccount.name} <span style={{ color: SLATE, fontWeight: 400 }}>(ไม่บังคับ — ถ้าเลือก ระบบบวกยอดซื้อเข้าตัวนั้นให้เลย)</span></p>
+            <div className="flex gap-1.5 flex-wrap">
+              <button onClick={() => { setHoldingId(''); setShowNewHolding(false); setNewHoldingName(''); }} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${!holdingId && !showNewHolding ? INK : BORDER}`, background: !holdingId && !showNewHolding ? INK : 'white', color: !holdingId && !showNewHolding ? 'white' : INK }}>ยังไม่ระบุ</button>
+              {destHoldings.map((h) => (
+                <button key={h.id} onClick={() => { setHoldingId(h.id); setShowNewHolding(false); setNewHoldingName(''); }} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${holdingId === h.id ? INK : BORDER}`, background: holdingId === h.id ? INK : 'white', color: holdingId === h.id ? 'white' : INK }}>{h.symbol || h.name || 'ไม่มีชื่อ'}</button>
+              ))}
+              <button onClick={() => { setShowNewHolding(true); setHoldingId(''); }} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px dashed ${BORDER}`, color: SLATE }}>+ ตัวใหม่</button>
+            </div>
+            {showNewHolding && <input value={newHoldingName} onChange={(e) => setNewHoldingName(e.target.value)} placeholder="ชื่อ/สัญลักษณ์กองทุน เช่น SCBS&P500" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-2" />}
+            {destHoldings.length === 0 && !showNewHolding && <p className="text-[11px] mt-1.5" style={{ color: SLATE }}>บัญชีนี้ยังไม่มีกองทุนในหน้าบัญชี — กด "+ ตัวใหม่" เพื่อสร้างได้เลย</p>}
+            {(() => { const sel = destHoldings.find((h) => h.id === holdingId); if (!sel) return null; const p = Number(sel.currentPrice || sel.avgCost || 0); return <p className="text-[11px] mt-1.5" style={{ color: p > 0 ? GOOD : WARN }}>{p > 0 ? `จะซื้อเพิ่มประมาณ ${fmt2((isDime && Number(usdAmount) > 0 ? Number(usdAmount) : Number(amount || 0) / (isDime ? Number(sel.currentFx || sel.purchaseFx || 36) : 1)) / p)} หน่วย @ ${fmt2(p)} (ราคาล่าสุดในหน้าบัญชี)` : 'ตัวนี้ยังไม่มีราคา/NAV ในหน้าบัญชี — บันทึกเป็นเงินเข้ากองนี้ไว้ก่อน แล้วไปอัปเดตหน่วยทีหลัง'}</p>; })()}
+          </div>
+        )}
         {isDime && <><label className="text-xs block mt-3" style={{ color: SLATE }}>จำนวน USD ที่ซื้อได้ (ถ้ามี)</label><NumInput value={usdAmount} onChange={setUsdAmount} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" /></>}
         <button onClick={submit} disabled={!accountId || !amount} style={{ background: GOOD, opacity: (!accountId || !amount) ? 0.5 : 1 }} className="w-full text-white font-bold rounded-xl py-3 text-sm mt-4">บันทึกเงินเข้า ฿{fmt(amount)}</button>
       </Card>
@@ -6657,7 +6717,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-linephoto1)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-fundpick1)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -6694,14 +6754,14 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
                 <div className="flex-1 min-w-0">
                   <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1" style={{ background: tone[1], color: tone[0] }}>{srcLabelOf(c.source)}</span>
                   {rentFrom && <p className="text-[12.5px] font-semibold" style={{ color: tone[0] }}>🏠 จาก {rentFrom}</p>}
-                  <p className="text-[13.5px] font-semibold">→ {destLabel}</p>
+                  <p className="text-[13.5px] font-semibold">→ {destLabel}{c.holdingLabel ? ` · ${c.holdingLabel}` : ''}</p>
                   <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}{c.sourceSymbol && c.source !== 'rental' ? ` · จาก ${c.sourceSymbol}` : ''}</p>
                   {isWithdraw && c.note && <p className="text-[11px]" style={{ color: SLATE }}>{c.note}</p>}
                   {syncMsg[c.id] ? (
                     <p className="text-[11px] mt-1" style={{ color: syncMsg[c.id].includes('สำเร็จ') ? GOOD : BAD }}>{syncMsg[c.id]}</p>
                   ) : (c.calendarSynced && <span className="inline-block text-[10px] rounded-full px-2 mt-1" style={{ background: '#DDF3E6', color: GOOD }}>✓ ลงปฏิทินแล้ว</span>)}
                   <div className="flex gap-1.5 mt-2 flex-wrap items-center">
-                    {!isWithdraw && <button onClick={() => onAdd({ date: todayStr(), amount: c.amount, source: c.source, accountId: c.accountId, usdAmount: c.usdAmount, ...(c.sourceSymbol ? { sourceSymbol: c.sourceSymbol } : {}) })} className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-2.5 py-1.5" style={{ background: '#DDF3E6', color: GOOD }}><RefreshCw size={12} /> ทำซ้ำวันนี้</button>}
+                    {!isWithdraw && <button onClick={() => onAdd({ date: todayStr(), amount: c.amount, source: c.source, accountId: c.accountId, usdAmount: c.usdAmount, ...(c.holdingId ? { holdingId: c.holdingId } : {}), ...(c.sourceSymbol ? { sourceSymbol: c.sourceSymbol } : {}) })} className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-2.5 py-1.5" style={{ background: '#DDF3E6', color: GOOD }}><RefreshCw size={12} /> ทำซ้ำวันนี้</button>}
                     <button onClick={() => setEditing(c)} className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-3 py-1.5" style={{ background: INK, color: 'white' }}>✎ แก้ไข</button>
                     {googleConnected && (
                       <button className="inline-flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: PAPER_DIM }} onClick={async () => {
