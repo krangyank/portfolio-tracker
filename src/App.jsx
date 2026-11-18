@@ -6485,6 +6485,8 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
   const [showMoreSources, setShowMoreSources] = useState(false);
   const [showMoreDest, setShowMoreDest] = useState(false);
   const [holdingId, setHoldingId] = useState('');
+  const [fromAccId, setFromAccId] = useState('');
+  const [fromHoldId, setFromHoldId] = useState('');
   const [newHoldingName, setNewHoldingName] = useState('');
   const [showNewHolding, setShowNewHolding] = useState(false);
   const [listFilter, setListFilter] = useState('all');
@@ -6519,7 +6521,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
   }, [contributions]);
   const destAccount = accounts.find((a) => a.id === accountId);
   const isDime = destAccount && destAccount.category === 'dime';
-  function submit() { if (!accountId) return; onAdd({ date, amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined, ...(holdingId ? { holdingId } : {}), ...(!holdingId && newHoldingName.trim() ? { newHoldingName: newHoldingName.trim() } : {}) }); setUsdAmount(0); setHoldingId(''); setNewHoldingName(''); setShowNewHolding(false); }
+  function submit() { if (!accountId) return; onAdd({ date, amount, source, accountId, usdAmount: isDime && usdAmount ? Number(usdAmount) : undefined, ...(() => { if (srcKey(source) !== 'yieldtech' || !fromAccId) return {}; const fa = accounts.find((a) => a.id === fromAccId); const fh = fa && (fa.holdings || []).find((h) => h.id === fromHoldId); const hl = fh ? (fh.symbol || fh.name || '') : ''; return { fromAccountId: fromAccId, fromAccountName: fa ? fa.name : '', ...(hl ? { fromHoldingLabel: hl } : {}), sourceSymbol: `${fa ? fa.name : ''}${hl ? ' · ' + hl : ''}` }; })(), ...(holdingId ? { holdingId } : {}), ...(!holdingId && newHoldingName.trim() ? { newHoldingName: newHoldingName.trim() } : {}) }); setUsdAmount(0); setHoldingId(''); setNewHoldingName(''); setShowNewHolding(false); setFromAccId(''); setFromHoldId(''); }
   const destHoldings = (destAccount && Array.isArray(destAccount.holdings)) ? destAccount.holdings : null;
   useEffect(() => { setHoldingId(''); setNewHoldingName(''); setShowNewHolding(false); }, [accountId]);
   const thisMonthTotal = useMemo(() => { const ym = new Date().toISOString().slice(0, 7); return contributions.filter((c) => c.date.startsWith(ym)).reduce((s, c) => s + Number(c.amount || 0), 0); }, [contributions]);
@@ -6616,6 +6618,31 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
             <ListManageLink kind="customSource" list={(customSourceList || []).filter((c) => !c.hidden).map((c) => c.label)} />
           </div>
         )}
+        {srcKey(source) === 'yieldtech' && (() => {
+          const portAccs = accounts.filter((a) => Array.isArray(a.holdings));
+          const fa = portAccs.find((a) => a.id === fromAccId);
+          return (
+            <div style={{ background: '#FEF5F9', border: '1px solid #F8DCEA', borderRadius: 12 }} className="p-2.5 mt-3">
+              <p className="text-[11px] mb-1.5 font-semibold" style={{ color: '#C2417D' }}>⚡ เงิน YieldTech ก้อนนี้มาจากพอร์ตไหน <span style={{ color: SLATE, fontWeight: 400 }}>(ไม่บังคับ)</span></p>
+              <div className="flex gap-1.5 flex-wrap">
+                {portAccs.map((a) => (
+                  <button key={a.id} onClick={() => { setFromAccId(fromAccId === a.id ? '' : a.id); setFromHoldId(''); }} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${fromAccId === a.id ? '#C2417D' : BORDER}`, background: fromAccId === a.id ? '#C2417D' : 'white', color: fromAccId === a.id ? 'white' : INK }}>{a.name}</button>
+                ))}
+              </div>
+              {fa && (
+                <>
+                  <p className="text-[11px] mt-2 mb-1.5" style={{ color: SLATE }}>กองทุน/หุ้นตัวไหนใน {fa.name}</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {(fa.holdings || []).map((h) => (
+                      <button key={h.id} onClick={() => setFromHoldId(fromHoldId === h.id ? '' : h.id)} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${fromHoldId === h.id ? INK : BORDER}`, background: fromHoldId === h.id ? INK : 'white', color: fromHoldId === h.id ? 'white' : INK }}>{h.symbol || h.name || 'ไม่มีชื่อ'}</button>
+                    ))}
+                    {(fa.holdings || []).length === 0 && <span className="text-[11px]" style={{ color: SLATE }}>บัญชีนี้ยังไม่มีกองทุนในหน้าบัญชี</span>}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
         <p className="text-[11px] mt-3 mb-1.5" style={{ color: SLATE }}>ลงที่ไหน</p>
         <div className="flex gap-1.5 flex-wrap">
           {Array.from(new Set([...topDests, ...(accountId ? [accountId] : [])])).map((id) => (
@@ -6717,7 +6744,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-fundpick1)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-fundpick2)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -6754,14 +6781,15 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
                 <div className="flex-1 min-w-0">
                   <span className="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1" style={{ background: tone[1], color: tone[0] }}>{srcLabelOf(c.source)}</span>
                   {rentFrom && <p className="text-[12.5px] font-semibold" style={{ color: tone[0] }}>🏠 จาก {rentFrom}</p>}
+                  {c.fromAccountName && <p className="text-[12.5px] font-semibold" style={{ color: tone[0] }}>⚡ จาก {c.fromAccountName}{c.fromHoldingLabel ? ` · ${c.fromHoldingLabel}` : ''}</p>}
                   <p className="text-[13.5px] font-semibold">→ {destLabel}{c.holdingLabel ? ` · ${c.holdingLabel}` : ''}</p>
-                  <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}{c.sourceSymbol && c.source !== 'rental' ? ` · จาก ${c.sourceSymbol}` : ''}</p>
+                  <p className="text-[11px]" style={{ color: SLATE }}>{formatDateDMY(c.date)}{c.usdAmount ? ` · ${c.usdAmount} USD` : ''}{isWithdraw && c.category ? ` · ${c.category}` : ''}{c.sourceSymbol && c.source !== 'rental' && !c.fromAccountName ? ` · จาก ${c.sourceSymbol}` : ''}</p>
                   {isWithdraw && c.note && <p className="text-[11px]" style={{ color: SLATE }}>{c.note}</p>}
                   {syncMsg[c.id] ? (
                     <p className="text-[11px] mt-1" style={{ color: syncMsg[c.id].includes('สำเร็จ') ? GOOD : BAD }}>{syncMsg[c.id]}</p>
                   ) : (c.calendarSynced && <span className="inline-block text-[10px] rounded-full px-2 mt-1" style={{ background: '#DDF3E6', color: GOOD }}>✓ ลงปฏิทินแล้ว</span>)}
                   <div className="flex gap-1.5 mt-2 flex-wrap items-center">
-                    {!isWithdraw && <button onClick={() => onAdd({ date: todayStr(), amount: c.amount, source: c.source, accountId: c.accountId, usdAmount: c.usdAmount, ...(c.holdingId ? { holdingId: c.holdingId } : {}), ...(c.sourceSymbol ? { sourceSymbol: c.sourceSymbol } : {}) })} className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-2.5 py-1.5" style={{ background: '#DDF3E6', color: GOOD }}><RefreshCw size={12} /> ทำซ้ำวันนี้</button>}
+                    {!isWithdraw && <button onClick={() => onAdd({ date: todayStr(), amount: c.amount, source: c.source, accountId: c.accountId, usdAmount: c.usdAmount, ...(c.holdingId ? { holdingId: c.holdingId } : {}), ...(c.fromAccountId ? { fromAccountId: c.fromAccountId, fromAccountName: c.fromAccountName, fromHoldingLabel: c.fromHoldingLabel } : {}), ...(c.sourceSymbol ? { sourceSymbol: c.sourceSymbol } : {}) })} className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-2.5 py-1.5" style={{ background: '#DDF3E6', color: GOOD }}><RefreshCw size={12} /> ทำซ้ำวันนี้</button>}
                     <button onClick={() => setEditing(c)} className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-3 py-1.5" style={{ background: INK, color: 'white' }}>✎ แก้ไข</button>
                     {googleConnected && (
                       <button className="inline-flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: PAPER_DIM }} onClick={async () => {
