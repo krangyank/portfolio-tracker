@@ -471,7 +471,11 @@ async function getGoogleAuthCode(clientId) {
         client_id: clientId,
         scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file',
         ux_mode: 'popup',
-        callback: (resp) => { if (resp && resp.code) resolve(resp.code); else reject(new Error('ไม่ได้รับสิทธิ์เข้าถึง Google Calendar')); },
+        callback: (resp) => { if (resp && resp.code) resolve(resp.code); else reject(new Error('Google ไม่ส่งรหัสกลับมา' + (resp && resp.error ? ` (${resp.error}${resp.error_description ? ': ' + resp.error_description : ''})` : ''))); },
+        error_callback: (err) => {
+          const t = err && err.type;
+          reject(new Error(t === 'popup_failed_to_open' ? 'เบราว์เซอร์บล็อกหน้าต่างป๊อบอัพของ Google — อนุญาตป๊อบอัพให้เว็บนี้แล้วกดใหม่' : t === 'popup_closed' ? 'หน้าต่าง Google ถูกปิดก่อนอนุญาตเสร็จ — กดใหม่แล้วเลือกบัญชีให้ครบจนกด "อนุญาต"' : `Google แจ้งข้อผิดพลาด: ${(err && (err.message || err.type)) || 'ไม่ทราบสาเหตุ'}`));
+        },
       });
       client.requestCode();
     } catch (e) { reject(e); }
@@ -796,13 +800,15 @@ export default function App() {
   }, [googleToken, state && state.lastBackupAt, state && state.autoBackup]);
 
   async function connectCalendar() {
-    setCalendarError('');
+    setCalendarError('กำลังเปิดหน้าต่าง Google… (ถ้าไม่เห็น ให้เช็กว่าเบราว์เซอร์ไม่ได้บล็อกป๊อบอัพ)');
     try {
       const code = await getGoogleAuthCode(state && state.googleClientId);
+      setCalendarError('Google อนุญาตแล้ว กำลังขอรหัสเชื่อมต่อจากเซิร์ฟเวอร์…');
       const data = await exchangeGoogleCode(state.googleClientId, code);
       setGoogleToken(data.access_token);
+      setCalendarError('');
       if (data.refresh_token) persist({ ...stateRef.current, googleRefreshToken: data.refresh_token });
-    } catch (e) { setCalendarError(e.message); }
+    } catch (e) { setCalendarError('เชื่อมต่อไม่สำเร็จ: ' + (e && e.message ? e.message : String(e))); }
   }
   function disconnectCalendar() {
     setGoogleToken(null);
@@ -6744,7 +6750,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-fundpick2)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-gconn1)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
