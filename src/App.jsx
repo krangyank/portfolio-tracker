@@ -6750,7 +6750,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-gconn1)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-expdate1)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
@@ -7142,6 +7142,9 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState(categories[0] || 'อื่นๆ');
   const [note, setNote] = useState('');
+  const localDay = (offset = 0) => { const d = new Date(Date.now() - offset * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const [expDate, setExpDate] = useState(localDay(0));
+  const [expDateMode, setExpDateMode] = useState('today');
   const [newCatInput, setNewCatInput] = useState('');
   const [showNewCat, setShowNewCat] = useState(false);
   const [listSearch, setListSearch] = useState('');
@@ -7167,9 +7170,9 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
   function submitManual() {
     if (!amount) return;
     if (payWithCardId) {
-      onAddCreditCardTransaction(payWithCardId, { date: today, amount, category, note });
+      onAddCreditCardTransaction(payWithCardId, { date: expDate || today, amount, category, note });
     } else {
-      onAdd({ date: today, amount, category, note });
+      onAdd({ date: expDate || today, amount, category, note });
     }
     setAmount(0); setNote('');
   }
@@ -7341,6 +7344,14 @@ function IncomeTab({ income, onUpdate, onAdd, onRemove, monthlyIncome }) {
             <button onClick={confirmNewCategory} style={{ background: INK }} className="text-white rounded-lg px-3 text-xs">เพิ่ม</button>
           </div>
         )}
+        <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>วันที่</p>
+        <div className="flex gap-1.5 flex-wrap mb-3">
+          {[['today', 'วันนี้'], ['yesterday', 'เมื่อวาน'], ['custom', 'เลือกวัน…']].map(([k, l]) => (
+            <button key={k} type="button" onClick={() => { setExpDateMode(k); if (k === 'today') setExpDate(localDay(0)); else if (k === 'yesterday') setExpDate(localDay(1)); }} className="text-xs rounded-full px-3 py-1.5" style={{ border: `1px solid ${expDateMode === k ? INK : BORDER}`, background: expDateMode === k ? INK : 'white', color: expDateMode === k ? 'white' : INK, fontWeight: expDateMode === k ? 700 : 400 }}>{l}</button>
+          ))}
+          {expDateMode !== 'custom' && <span className="text-[11px] self-center" style={{ color: SLATE }}>{formatDateDMY(expDate)}</span>}
+        </div>
+        {expDateMode === 'custom' && <input type="date" value={expDate} onChange={(e) => setExpDate(e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mb-3" />}
         <label className="text-xs" style={{ color: SLATE }}>โน้ต (ไม่บังคับ)</label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ค่าข้าวเที่ยง" style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1 mb-3" />
         <p className="text-[11px] mb-1.5" style={{ color: SLATE }}>จ่ายด้วย</p>
