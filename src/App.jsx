@@ -3004,6 +3004,34 @@ function OrganTagPicker({ value, onChange, list, label }) {
     </div>
   );
 }
+// ยอดเงินคร่าวๆ = จำนวนหุ้น × ราคา/หุ้น — โชว์ทันทีระหว่างกรอก และใช้แทนยอดจริงถ้าเว้นช่อง "ได้รับจริง/จ่ายจริง" ไว้
+function tradeEstimate(shares, price) {
+  const v = Number(shares || 0) * Number(price || 0);
+  return v > 0 ? Math.round(v * 100) / 100 : 0;
+}
+function TradeEstimateNote({ shares, price, amount, currency, fx, kind }) {
+  const est = tradeEstimate(shares, price);
+  if (!est) return null;
+  const isUSD = currency === 'USD';
+  const cur = isUSD ? '$' : '฿';
+  const amt = Number(amount || 0);
+  const diff = amt > 0 ? amt - est : 0;
+  const word = kind === 'buy' ? 'จ่ายจริง' : 'ได้รับจริง';
+  return (
+    <div className="rounded-lg px-2.5 py-2 mb-2" style={{ background: '#F3EFE4', border: '1px dashed #D8CDB0' }}>
+      <p className="text-[11px] font-semibold tabular-nums" style={{ color: INK }}>
+        ≈ ยอดคร่าวๆ {Number(shares || 0).toLocaleString()} × {Number(price || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} = {cur}{fmt2(est)}
+        {isUSD && Number(fx || 0) > 0 && <span style={{ color: SLATE }}> (≈ ฿{fmt(est * Number(fx))})</span>}
+      </p>
+      {amt > 0 ? (
+        Math.abs(diff) >= 0.01 && <p className="text-[10px] tabular-nums" style={{ color: SLATE }}>{word}ต่างจากยอดคร่าวๆ {diff > 0 ? '+' : '−'}{cur}{fmt2(Math.abs(diff))} (ค่าธรรมเนียม/ภาษี)</p>
+      ) : (
+        <p className="text-[10px]" style={{ color: SLATE }}>ยังไม่กรอก{word} — ถ้าเว้นไว้จะบันทึกตามยอดคร่าวๆ นี้</p>
+      )}
+    </div>
+  );
+}
+
 function EditModal({ title, fields, initialValues, onSave, onClose }) {
   const [values, setValues] = useState(initialValues);
   function setField(key, v) { setValues({ ...values, [key]: v }); }
@@ -3031,9 +3059,15 @@ function EditModal({ title, fields, initialValues, onSave, onClose }) {
             ) : (
               <input type={f.type || 'text'} value={values[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} style={{ border: '1px solid #E7EAF0' }} className="rounded-lg px-3 py-2 text-sm w-full mt-1" />
             )}
+            {f.estimate && <div className="mt-1.5"><TradeEstimateNote shares={values.shares} price={values.price} amount={values[f.key]} currency={f.estimate.currency} kind={f.estimate.kind} /></div>}
           </div>
         ))}
-        <button onClick={() => onSave(values)} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm">บันทึกการแก้ไข</button>
+        <button onClick={() => {
+          // ช่องยอดเงินที่มีตัวช่วยคำนวณ (หุ้นบาท) ถ้าเว้นว่างไว้ ให้ใช้ยอดคร่าวๆ จำนวน × ราคา แทน 0
+          const out = { ...values };
+          fields.forEach((f) => { if (f.estimate && f.estimate.currency !== 'USD' && !Number(out[f.key] || 0)) { const e = tradeEstimate(out.shares, out.price); if (e) out[f.key] = e; } });
+          onSave(out);
+        }} style={{ background: INK }} className="w-full text-white rounded-lg py-2.5 text-sm">บันทึกการแก้ไข</button>
       </div>
     </div>
   );
@@ -4682,7 +4716,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
                 { key: 'date', label: 'วันที่', type: 'date' },
                 { key: 'shares', label: 'จำนวนหุ้น', type: 'number' },
                 { key: 'price', label: `ราคา/หุ้น (${editingAllSell.currency || 'บาท'})`, type: 'number' },
-                { key: 'amount', label: 'ได้รับจริง (บาท)', type: 'number' },
+                { key: 'amount', label: 'ได้รับจริง (บาท)', type: 'number', estimate: { kind: 'sell', currency: editingAllSell.currency } },
               ]}
               onSave={(v) => {
                 onUpdateSell(editingAllSell.accountId, editingAllSell.holdingId, editingAllSell.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0 });
@@ -4754,7 +4788,7 @@ function AccountsTab({ accounts, onUpdate, onAdd, onRemove, costBasisByAccount, 
                 { key: 'date', label: 'วันที่', type: 'date' },
                 { key: 'shares', label: 'จำนวนหุ้น', type: 'number' },
                 { key: 'price', label: `ราคา/หุ้น (${editingAllBuy.currency || 'บาท'})`, type: 'number' },
-                { key: 'amount', label: 'จ่ายจริง (บาท)', type: 'number' },
+                { key: 'amount', label: 'จ่ายจริง (บาท)', type: 'number', estimate: { kind: 'buy', currency: editingAllBuy.currency } },
               ]}
               onSave={(v) => {
                 onUpdateBuy(editingAllBuy.accountId, editingAllBuy.holdingId, editingAllBuy.id, { date: v.date, shares: Number(v.shares) || 0, price: Number(v.price) || 0, amount: Number(v.amount) || 0 });
@@ -5980,14 +6014,15 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const costFx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1;
     const costBasisSold = Number(sellDraft.shares || 0) * Number(h.avgCost || 0) * costFx;
     // สำหรับหุ้น USD (Dime): sellDraft.amount คือยอดที่ได้รับจริงเป็น USD ต้องคูณ FX ก่อนเทียบกับต้นทุน (ที่เป็นบาท) เพื่อหากำไร/ขาดทุน
-    const amountTHB = h.currency === 'USD' ? Number(sellDraft.amount || 0) * Number(sellDraft.fx || defaultFxFor(h)) : Number(sellDraft.amount || 0);
+    const amountNative = Number(sellDraft.amount || 0) || tradeEstimate(sellDraft.shares, sellDraft.price); // เว้นช่องได้รับจริง → ใช้ยอดคร่าวๆ
+    const amountTHB = h.currency === 'USD' ? amountNative * Number(sellDraft.fx || defaultFxFor(h)) : amountNative;
     const gainOnSale = amountTHB - costBasisSold;
     const remainingShares = Math.max(0, Number(h.shares || 0) - Number(sellDraft.shares || 0));
-    return { costBasisSold, gainOnSale, remainingShares, amountTHB };
+    return { costBasisSold, gainOnSale, remainingShares, amountTHB, amountNative };
   }, [sellDraft, h]);
 
   function confirmSell() {
-    onSellHolding(accountId, h.id, { ...sellDraft, amount: sellPreview.amountTHB, amountForeign: h.currency === 'USD' ? Number(sellDraft.amount || 0) : undefined, fx: sellDraft.fx });
+    onSellHolding(accountId, h.id, { ...sellDraft, amount: sellPreview.amountTHB, amountForeign: h.currency === 'USD' ? sellPreview.amountNative : undefined, fx: sellDraft.fx });
     setSellDraft(null);
   }
 
@@ -5998,7 +6033,8 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const newShares = oldShares + Number(buyDraft.shares || 0);
     const newAvgCost = newShares > 0 ? (oldShares * oldAvgCost + Number(buyDraft.shares || 0) * Number(buyDraft.price || 0)) / newShares : 0;
     // สำหรับหุ้น USD (Dime): buyDraft.amount คือยอดที่จ่ายจริงเป็น USD (ตามที่สแกน/กรอก) ต้องคูณ FX ก่อนแปลงเป็นบาทเพื่อคำนวณต้นทุน/FX เฉลี่ย
-    const amountTHB = h.currency === 'USD' ? Number(buyDraft.amount || 0) * Number(buyDraft.fx || defaultFxFor(h)) : Number(buyDraft.amount || 0);
+    const amountNative = Number(buyDraft.amount || 0) || tradeEstimate(buyDraft.shares, buyDraft.price); // เว้นช่องจ่ายจริง → ใช้ยอดคร่าวๆ
+    const amountTHB = h.currency === 'USD' ? amountNative * Number(buyDraft.fx || defaultFxFor(h)) : amountNative;
     let newPurchaseFx = h.purchaseFx;
     if (h.currency === 'USD') {
       const oldTotalTHB = holdingCostBasisTHB(h);
@@ -6006,7 +6042,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
       const newTotalUSDCost = newShares * newAvgCost;
       newPurchaseFx = newTotalUSDCost > 0 ? newTotalTHB / newTotalUSDCost : h.purchaseFx;
     }
-    return { newShares, newAvgCost, newPurchaseFx, amountTHB };
+    return { newShares, newAvgCost, newPurchaseFx, amountTHB, amountNative };
   }, [buyDraft, h]);
 
   function confirmBuy() {
@@ -6021,8 +6057,8 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
     const accName = ((allAccounts || []).find((acc) => acc.id === accountId) || {}).name || '';
     const isUSD = h.currency === 'USD';
     const rows = [{ label: 'บัญชี', value: accName || '-' }, { label: 'วันที่', value: formatDateDMY(buyDraft.date) }, { label: 'จำนวนหุ้น', value: `${Number(buyDraft.shares || 0).toLocaleString()} หุ้น @ ${Number(buyDraft.price || 0)}${isUSD ? ' USD' : ''}` }];
-    if (isUSD) rows.push({ label: 'จ่ายจริง', value: `$${fmt2(Number(buyDraft.amount || 0))} (FX ${Number(buyDraft.fx || defaultFxFor(h)).toFixed(2)})` });
-    sendLineFlex(`ซื้อ ${displayName}${accName ? ' (' + accName + ')' : ''} ${isUSD ? '$' + fmt2(Number(buyDraft.amount || 0)) : '฿' + fmt(amountTHB)}`, buildFlexCard({
+    if (isUSD) rows.push({ label: 'จ่ายจริง', value: `$${fmt2(buyPreview.amountNative)} (FX ${Number(buyDraft.fx || defaultFxFor(h)).toFixed(2)})` });
+    sendLineFlex(`ซื้อ ${displayName}${accName ? ' (' + accName + ')' : ''} ${isUSD ? '$' + fmt2(buyPreview.amountNative) : '฿' + fmt(amountTHB)}`, buildFlexCard({
       title: `📈 ซื้อ ${displayName}`,
       rows,
       amount: amountTHB, amountColor: BAD, tab: 'accounts',
@@ -6216,13 +6252,14 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             <p className="text-[11px] mb-2 px-2 py-1.5 rounded" style={{ background: '#FEF3E2', color: WARN }}>⏳ กองทุนนี้ยังไม่รู้จำนวนหน่วย/ราคา (รอ NAV ปิดวันถัดไป) — กรอกยอดเงินแล้วบันทึกไปก่อนได้ แล้วค่อยกลับมาแก้ไขจำนวนหน่วย/ราคาทีหลังตอนกองทุนแจ้งผลแล้ว</p>
           )}
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="text-[10px]" style={{ color: SLATE }}>จ่ายจริง ({h.currency === 'USD' ? 'USD' : 'บาท'})</label><NumInput value={buyDraft.amount} onChange={(v) => setBuyDraft({ ...buyDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>จ่ายจริง ({h.currency === 'USD' ? 'USD' : 'บาท'})</label><NumInput value={buyDraft.amount} onChange={(v) => setBuyDraft({ ...buyDraft, amount: v })} placeholder={tradeEstimate(buyDraft.shares, buyDraft.price) ? `≈ ${fmt2(tradeEstimate(buyDraft.shares, buyDraft.price))}` : ''} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ได้</label><NumInput value={buyDraft.shares} onChange={(v) => setBuyDraft({ ...buyDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>ราคา/หุ้น ({h.currency})</label><NumInput value={buyDraft.price} onChange={(v) => setBuyDraft({ ...buyDraft, price: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ซื้อ</label><input type="date" value={buyDraft.date} onChange={(e) => setBuyDraft({ ...buyDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนซื้อนี้ (บาทต่อ USD)</label><NumInput value={buyDraft.fx} onChange={(v) => setBuyDraft({ ...buyDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>}
           </div>
-          {h.currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(buyDraft.amount || 0) * Number(buyDraft.fx || defaultFxFor(h)))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่จ่ายไม่ตรง)</p>}
+          <TradeEstimateNote shares={buyDraft.shares} price={buyDraft.price} amount={buyDraft.amount} currency={h.currency} fx={buyDraft.fx || defaultFxFor(h)} kind="buy" />
+          {h.currency === 'USD' && Number(buyDraft.amount || 0) > 0 && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(buyDraft.amount || 0) * Number(buyDraft.fx || defaultFxFor(h)))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่จ่ายไม่ตรง)</p>}
           {buyPreview && (
             <p className="text-[11px] mb-2" style={{ color: GOOD }}>
               หลังยืนยัน: จำนวนหุ้นรวม {buyPreview.newShares.toFixed(4)} · ต้นทุนเฉลี่ยใหม่ {buyPreview.newAvgCost.toFixed(2)} {h.currency}
@@ -6299,7 +6336,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             { key: 'date', label: 'วันที่ซื้อ', type: 'date' },
             { key: 'shares', label: 'จำนวนหุ้น', type: 'number' },
             { key: 'price', label: 'ราคา/หุ้น', type: 'number' },
-            { key: 'amount', label: 'จ่ายจริง (บาท)', type: 'number' },
+            { key: 'amount', label: 'จ่ายจริง (บาท)', type: 'number', estimate: { kind: 'buy', currency: h.currency } },
           ]}
           onSave={(v) => {
             const changed = [];
@@ -6326,13 +6363,14 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             <p className="text-[11px] mb-2" style={{ color: WARN }}>⚠️ ภาพนี้ดูเหมือนเป็นสัญลักษณ์ "{sellDraft.symbol}" แต่หุ้นนี้คือ "{h.symbol}" — เช็คให้ดีว่าภาพถูกต้องก่อนยืนยัน</p>
           )}
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="text-[10px]" style={{ color: SLATE }}>ได้รับจริง ({h.currency === 'USD' ? 'USD' : 'บาท'})</label><NumInput value={sellDraft.amount} onChange={(v) => setSellDraft({ ...sellDraft, amount: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
+            <div><label className="text-[10px]" style={{ color: SLATE }}>ได้รับจริง ({h.currency === 'USD' ? 'USD' : 'บาท'})</label><NumInput value={sellDraft.amount} onChange={(v) => setSellDraft({ ...sellDraft, amount: v })} placeholder={tradeEstimate(sellDraft.shares, sellDraft.price) ? `≈ ${fmt2(tradeEstimate(sellDraft.shares, sellDraft.price))}` : ''} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>จำนวนหุ้นที่ขาย</label><NumInput value={sellDraft.shares} onChange={(v) => setSellDraft({ ...sellDraft, shares: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>ราคา/หุ้น ({h.currency})</label><NumInput value={sellDraft.price} onChange={(v) => setSellDraft({ ...sellDraft, price: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             <div><label className="text-[10px]" style={{ color: SLATE }}>วันที่ขาย</label><input type="date" value={sellDraft.date} onChange={(e) => setSellDraft({ ...sellDraft, date: e.target.value })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>
             {h.currency === 'USD' && <div><label className="text-[10px]" style={{ color: SLATE }}>FX ตอนขายนี้ (บาทต่อ USD)</label><NumInput value={sellDraft.fx} onChange={(v) => setSellDraft({ ...sellDraft, fx: v })} className="text-xs w-full outline-none rounded px-2 py-1" style={{ border: '1px solid #E7EAF0' }} /></div>}
           </div>
-          {h.currency === 'USD' && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(sellDraft.amount || 0) * Number(sellDraft.fx || defaultFxFor(h)))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่ได้ไม่ตรง)</p>}
+          <TradeEstimateNote shares={sellDraft.shares} price={sellDraft.price} amount={sellDraft.amount} currency={h.currency} fx={sellDraft.fx || defaultFxFor(h)} kind="sell" />
+          {h.currency === 'USD' && Number(sellDraft.amount || 0) > 0 && <p className="text-[10px] mb-2" style={{ color: SLATE }}>≈ ฿{fmt(Number(sellDraft.amount || 0) * Number(sellDraft.fx || defaultFxFor(h)))} (คำนวณจาก FX ด้านบน — แก้ได้ถ้าอัตราจริงที่ได้ไม่ตรง)</p>}
           {sellPreview && (
             <p className="text-[11px] mb-2" style={{ color: sellPreview.gainOnSale >= 0 ? GOOD : BAD }}>
               กำไร/ขาดทุนจากการขายนี้: {sellPreview.gainOnSale >= 0 ? '+' : ''}฿{fmt(sellPreview.gainOnSale)} (เทียบต้นทุน ฿{fmt(sellPreview.costBasisSold)}) · เหลือถือ {sellPreview.remainingShares.toFixed(4)} หุ้น
@@ -6377,7 +6415,7 @@ function StockAccountCard({ account: a, onUpdate, onRemove, onAddHolding, onUpda
             { key: 'date', label: 'วันที่ขาย', type: 'date' },
             { key: 'shares', label: 'จำนวนหุ้นที่ขาย', type: 'number' },
             { key: 'price', label: 'ราคา/หุ้น', type: 'number' },
-            { key: 'amount', label: 'ได้รับจริง (บาท)', type: 'number' },
+            { key: 'amount', label: 'ได้รับจริง (บาท)', type: 'number', estimate: { kind: 'sell', currency: h.currency } },
           ]}
           onSave={(v) => {
             const fx = h.currency === 'USD' ? Number(h.purchaseFx || 0) : 1;
@@ -6750,7 +6788,7 @@ function SavingsTab({ accounts, properties, contributions, onAdd, onRemove, onUp
           </div>
         </div>
       )}
-      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 13 พ.ย. 21:00 (v-expdate1)</p>
+      <p className="text-[10px] mt-1" style={{ color: SLATE }}>เวอร์ชันแอป: 24 พ.ย. 10:00 (v-est1)</p>
       <div className="flex gap-2 mb-2 mt-1">
         <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'white', border: `1px solid ${BORDER}` }}>
           <Search size={14} color={SLATE} />
